@@ -1,0 +1,30 @@
+{
+  "name": "@danielfgray/rfchat",
+  "version": "0.1.0",
+  "description": "Rfchat is a self-hostable chat app, with each deployment representing exactly one guild/server.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "mix test",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed"
+  },
+  "keywords": [],
+  "author": "DanielFGray <DanielFGray@gmail.com>",
+  "license": "Unlicense",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  },
+  "dependencies": {
+    "@tiptap/core": "^3.22.0",
+    "@tiptap/extension-mention": "^3.22.0",
+    "@tiptap/extension-placeholder": "^3.22.0",
+    "@tiptap/markdown": "^3.22.0",
+    "@tiptap/starter-kit": "^3.22.0",
+    "@tiptap/suggestion": "^3.22.0"
+  }
+}

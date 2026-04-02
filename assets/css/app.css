@@ -1,0 +1,340 @@
+/* See the Tailwind configuration guide for advanced usage
+   https://tailwindcss.com/docs/configuration */
+
+@import "tailwindcss" source(none);
+@source "../css";
+@source "../js";
+@source "../../lib/rfchat_web";
+
+/* A Tailwind plugin that makes "hero-#{ICON}" classes available.
+   The heroicons installation itself is managed by your mix.exs */
+@plugin "../vendor/heroicons";
+
+/* daisyUI Tailwind Plugin. You can update this file by fetching the latest version with:
+   curl -sLO https://github.com/saadeghi/daisyui/releases/latest/download/daisyui.js
+   Make sure to look at the daisyUI changelog: https://daisyui.com/docs/changelog/ */
+@plugin "../vendor/daisyui" {
+  themes: false;
+}
+
+/* daisyUI theme plugin. You can update this file by fetching the latest version with:
+  curl -sLO https://github.com/saadeghi/daisyui/releases/latest/download/daisyui-theme.js
+  We ship with two themes, a light one inspired on Phoenix colors and a dark one inspired
+  on Elixir colors. Build your own at: https://daisyui.com/theme-generator/ */
+@plugin "../vendor/daisyui-theme" {
+  name: "dark";
+  default: false;
+  prefersdark: true;
+  color-scheme: "dark";
+  --color-base-100: oklch(30.33% 0.016 252.42);
+  --color-base-200: oklch(25.26% 0.014 253.1);
+  --color-base-300: oklch(20.15% 0.012 254.09);
+  --color-base-content: oklch(97.807% 0.029 256.847);
+  --color-primary: oklch(58% 0.233 277.117);
+  --color-primary-content: oklch(96% 0.018 272.314);
+  --color-secondary: oklch(58% 0.233 277.117);
+  --color-secondary-content: oklch(96% 0.018 272.314);
+  --color-accent: oklch(60% 0.25 292.717);
+  --color-accent-content: oklch(96% 0.016 293.756);
+  --color-neutral: oklch(37% 0.044 257.287);
+  --color-neutral-content: oklch(98% 0.003 247.858);
+  --color-info: oklch(58% 0.158 241.966);
+  --color-info-content: oklch(97% 0.013 236.62);
+  --color-success: oklch(60% 0.118 184.704);
+  --color-success-content: oklch(98% 0.014 180.72);
+  --color-warning: oklch(66% 0.179 58.318);
+  --color-warning-content: oklch(98% 0.022 95.277);
+  --color-error: oklch(58% 0.253 17.585);
+  --color-error-content: oklch(96% 0.015 12.422);
+  --radius-selector: 0.25rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.21875rem;
+  --size-field: 0.21875rem;
+  --border: 1.5px;
+  --depth: 1;
+  --noise: 0;
+}
+
+@plugin "../vendor/daisyui-theme" {
+  name: "light";
+  default: true;
+  prefersdark: false;
+  color-scheme: "light";
+  --color-base-100: oklch(98% 0 0);
+  --color-base-200: oklch(96% 0.001 286.375);
+  --color-base-300: oklch(92% 0.004 286.32);
+  --color-base-content: oklch(21% 0.006 285.885);
+  --color-primary: oklch(70% 0.213 47.604);
+  --color-primary-content: oklch(98% 0.016 73.684);
+  --color-secondary: oklch(55% 0.027 264.364);
+  --color-secondary-content: oklch(98% 0.002 247.839);
+  --color-accent: oklch(0% 0 0);
+  --color-accent-content: oklch(100% 0 0);
+  --color-neutral: oklch(44% 0.017 285.786);
+  --color-neutral-content: oklch(98% 0 0);
+  --color-info: oklch(62% 0.214 259.815);
+  --color-info-content: oklch(97% 0.014 254.604);
+  --color-success: oklch(70% 0.14 182.503);
+  --color-success-content: oklch(98% 0.014 180.72);
+  --color-warning: oklch(66% 0.179 58.318);
+  --color-warning-content: oklch(98% 0.022 95.277);
+  --color-error: oklch(58% 0.253 17.585);
+  --color-error-content: oklch(96% 0.015 12.422);
+  --radius-selector: 0.25rem;
+  --radius-field: 0.25rem;
+  --radius-box: 0.5rem;
+  --size-selector: 0.21875rem;
+  --size-field: 0.21875rem;
+  --border: 1.5px;
+  --depth: 1;
+  --noise: 0;
+}
+
+/* Add variants based on LiveView classes */
+@custom-variant phx-click-loading (.phx-click-loading&, .phx-click-loading &);
+@custom-variant phx-submit-loading (.phx-submit-loading&, .phx-submit-loading &);
+@custom-variant phx-change-loading (.phx-change-loading&, .phx-change-loading &);
+
+/* Use the data attribute for dark mode  */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* Make LiveView wrapper divs transparent for layout */
+[data-phx-session], [data-phx-teleported-src] { display: contents }
+
+/* This file is for your main application CSS */
+
+.chat-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.rich-composer-input {
+  min-height: 88px;
+  color: rgb(244 244 245);
+  outline: none;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.rich-composer-input p {
+  margin: 0;
+}
+
+.rich-composer-input p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: rgb(113 113 122);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+.rich-composer-input code {
+  border-radius: 0.4rem;
+  background: rgba(17, 18, 20, 0.75);
+  padding: 0.12rem 0.38rem;
+  font-size: 0.88em;
+  color: rgb(244 244 245);
+}
+
+.rich-composer-input pre {
+  margin: 0.5rem 0 0;
+  overflow-x: auto;
+  border-radius: 0.75rem;
+  background: rgb(17 18 20);
+  padding: 0.9rem 1rem;
+}
+
+.rich-composer-input pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.composer-toolbar-button {
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.14);
+  padding: 0.32rem 0.55rem;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgb(161 161 170);
+  transition: 150ms ease;
+}
+
+.composer-toolbar-button:hover,
+.composer-toolbar-button.is-active {
+  border-color: rgba(139, 92, 246, 0.55);
+  background: rgba(139, 92, 246, 0.14);
+  color: rgb(237 233 254);
+}
+
+.composer-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.08rem 0.5rem;
+  font-size: 0.85em;
+  font-weight: 700;
+}
+
+.composer-chip-mention {
+  background: rgba(59, 130, 246, 0.18);
+  color: rgb(191 219 254);
+}
+
+.composer-chip-command {
+  background: rgba(139, 92, 246, 0.18);
+  color: rgb(221 214 254);
+}
+
+.composer-suggestions {
+  position: absolute;
+  z-index: 80;
+  min-width: 240px;
+  max-width: 320px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.9rem;
+  background: rgb(17 18 20 / 0.97);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+
+.composer-suggestion-item,
+.composer-suggestion-empty {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.7rem 0.85rem;
+  text-align: left;
+}
+
+.composer-suggestion-item {
+  border: 0;
+  background: transparent;
+}
+
+.composer-suggestion-item:hover,
+.composer-suggestion-item.is-active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.composer-suggestion-primary {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: rgb(244 244 245);
+}
+
+.composer-suggestion-secondary,
+.composer-suggestion-empty {
+  font-size: 0.72rem;
+  color: rgb(161 161 170);
+}
+
+.message-body p {
+  margin: 0;
+}
+
+.message-body p + p,
+.message-body p + ul,
+.message-body p + ol,
+.message-body ul + p,
+.message-body ol + p,
+.message-body .message-code-block,
+.message-body .message-link-embed {
+  margin-top: 0.55rem;
+}
+
+.message-body ul,
+.message-body ol {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.message-body li + li {
+  margin-top: 0.2rem;
+}
+
+.message-link {
+  color: rgb(147 197 253);
+  text-decoration: underline;
+  text-decoration-color: rgba(147, 197, 253, 0.4);
+  text-underline-offset: 2px;
+}
+
+.message-code-block {
+  overflow: hidden;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgb(17 18 20 / 0.92);
+}
+
+.message-code-language {
+  display: inline-flex;
+  padding: 0.55rem 0.9rem 0;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgb(161 161 170);
+}
+
+.message-code-block pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.85rem 0.95rem 1rem;
+}
+
+.message-code-block code {
+  font-size: 13px;
+  color: rgb(228 228 231);
+}
+
+.message-link-embed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-radius: 0.85rem;
+  border: 1px solid rgba(96, 165, 250, 0.2);
+  background: rgba(30, 41, 59, 0.55);
+  padding: 0.75rem 0.9rem;
+  text-decoration: none;
+}
+
+.message-link-embed-domain {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: rgb(148 163 184);
+}
+
+.message-link-embed-url {
+  font-size: 13px;
+  color: rgb(191 219 254);
+  word-break: break-all;
+}

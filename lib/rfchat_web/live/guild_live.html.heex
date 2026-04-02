@@ -1,0 +1,817 @@
+<Layouts.app flash={@flash} current_scope={@current_scope}>
+  <div class="flex h-screen flex-col overflow-hidden bg-[#1e1f22] text-zinc-100 xl:flex-row">
+    <button
+      type="button"
+      phx-click="close_mobile_sidebar"
+      id="mobile-sidebar-overlay"
+      class={[
+        "fixed inset-0 z-30 bg-black/65 transition xl:hidden",
+        mobile_sidebar_overlay_class(@mobile_sidebar_open?)
+      ]}
+      aria-label="Close channel list"
+    />
+
+    <aside
+      id="mobile-channel-drawer"
+      class={[
+        "fixed inset-y-0 left-0 z-40 flex w-[85vw] max-w-72 shrink-0 flex-col border-r border-black/30 bg-[#2b2d31] transition-transform duration-200 ease-out xl:static xl:z-auto xl:w-64 xl:max-w-none xl:border-b-0 xl:border-r-black/20",
+        mobile_sidebar_class(@mobile_sidebar_open?)
+      ]}
+    >
+      <div class="flex items-center justify-between border-b border-black/20 px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.18)]">
+        <div class="min-w-0">
+          <p class="truncate text-[15px] font-semibold tracking-tight text-zinc-50">
+            {@guild_name}
+          </p>
+          <p class="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+            single guild
+          </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            phx-click="close_mobile_sidebar"
+            id="close-mobile-sidebar"
+            class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white xl:hidden"
+          >
+            Close
+          </button>
+          <Layouts.theme_toggle />
+        </div>
+      </div>
+
+      <div class="flex-1 overflow-y-auto px-2 py-3 chat-scrollbar">
+        <div class="mb-2 flex items-center justify-between px-2">
+          <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            Channels
+          </p>
+          <div class="flex items-center gap-2">
+            <span class="rounded bg-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">
+              {length(@channels)}
+            </span>
+
+            <button
+              :if={@can_manage_channels?}
+              type="button"
+              phx-click="toggle_manage_channels"
+              id="open-channel-manager"
+              class="rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 transition hover:bg-white/8 hover:text-white"
+            >
+              Manage
+            </button>
+          </div>
+        </div>
+
+        <nav class="space-y-3" aria-label="Guild channels">
+          <section :for={section <- @channel_sections} id={section_dom_id(section.category)}>
+            <div class="mb-1 flex items-center gap-2 px-2">
+              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                {section_label(section.category)}
+              </p>
+              <span class="rounded bg-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">
+                {length(section.channels)}
+              </span>
+            </div>
+
+            <div class="space-y-0.5">
+              <.link
+                :for={channel <- section.channels}
+                id={"channel-link-#{channel.slug}"}
+                patch={channel_path(channel)}
+                class={[
+                  "group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition",
+                  channel_active?(@active_channel, channel) &&
+                    "bg-white/10 text-white shadow-[inset_3px_0_0_rgba(255,255,255,0.18)]",
+                  !channel_active?(@active_channel, channel) &&
+                    "text-zinc-400 hover:bg-white/6 hover:text-zinc-200"
+                ]}
+              >
+                <span class="text-base font-semibold text-zinc-500 transition group-hover:text-zinc-300">
+                  #
+                </span>
+                <span class="min-w-0 flex-1 truncate">{channel.name}</span>
+                <span class="rounded bg-black/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                  {channel_kind_badge(channel.kind)}
+                </span>
+                <span
+                  :if={unread_count_for(channel, @unread_counts) > 0}
+                  id={"channel-unread-#{channel.slug}"}
+                  class="rounded-full bg-violet-500/90 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                >
+                  {unread_count_for(channel, @unread_counts)}
+                </span>
+                <span
+                  :if={unread_mentions_for(channel, @unread_mentions) > 0}
+                  id={"channel-mention-#{channel.slug}"}
+                  class="flex size-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-[0_0_0_2px_rgba(43,45,49,0.95)]"
+                  title="Unread mentions"
+                >
+                  @
+                </span>
+              </.link>
+            </div>
+          </section>
+        </nav>
+      </div>
+
+      <div class="border-t border-black/20 bg-[#232428] px-3 py-2">
+        <div class="flex items-center justify-between gap-3 rounded-md px-1 py-1">
+          <div class="flex min-w-0 items-center gap-2">
+            <div class="relative">
+              <div class="flex size-9 items-center justify-center rounded-full bg-[#404249] text-xs font-semibold text-zinc-100">
+                {@current_user.display_name |> String.first()}
+              </div>
+              <span class="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-[#232428] bg-emerald-400" />
+            </div>
+            <div class="min-w-0">
+              <p class="truncate text-[13px] font-semibold leading-4 text-zinc-100">
+                {@current_user.display_name}
+              </p>
+              <p class="truncate text-[11px] text-zinc-400">@{@current_user.username}</p>
+            </div>
+          </div>
+
+          <.link
+            href={~p"/logout"}
+            method="delete"
+            id="logout-link"
+            class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+          >
+            Log out
+          </.link>
+        </div>
+
+        <div class="mt-2 rounded-md border border-white/8 bg-black/10 px-2 py-2">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                Mention alerts
+              </p>
+              <p class="mt-1 text-[11px] text-zinc-400">
+                Notify when someone mentions you in another channel.
+              </p>
+            </div>
+
+            <button
+              :if={not mention_alerts_enabled?(@notification_setting)}
+              type="button"
+              phx-click="enable_desktop_mentions"
+              id="enable-desktop-mentions"
+              class="rounded-md bg-violet-500 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-violet-400"
+            >
+              Enable
+            </button>
+
+            <button
+              :if={mention_alerts_enabled?(@notification_setting)}
+              type="button"
+              phx-click="disable_desktop_mentions"
+              id="disable-desktop-mentions"
+              class="rounded-md px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+            >
+              On
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <div
+      :if={@can_manage_channels?}
+      id="channel-manager-overlay"
+      class={[
+        "fixed inset-0 z-40 bg-black/70 transition",
+        @manage_channels_open? && "opacity-100 pointer-events-auto",
+        !@manage_channels_open? && "pointer-events-none opacity-0"
+      ]}
+      phx-click="close_manage_channels"
+    />
+
+    <aside
+      :if={@can_manage_channels?}
+      id="channel-manager-panel"
+      class={[
+        "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-black/30 bg-[#202225] shadow-[-16px_0_48px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out",
+        @manage_channels_open? && "translate-x-0",
+        !@manage_channels_open? && "translate-x-full"
+      ]}
+    >
+      <div class="flex items-center justify-between border-b border-black/20 px-5 py-4">
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+            Server structure
+          </p>
+          <h2 class="mt-1 text-lg font-semibold text-white">Channels and categories</h2>
+        </div>
+
+        <button
+          type="button"
+          phx-click="close_manage_channels"
+          id="close-channel-manager"
+          class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+        >
+          Close
+        </button>
+      </div>
+
+      <div class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[1.15fr_0.95fr]">
+        <div class="min-h-0 overflow-y-auto border-b border-black/20 px-4 py-4 lg:border-b-0 lg:border-r chat-scrollbar">
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              phx-click="new_channel_form"
+              phx-value-mode="create_text"
+              id="new-text-channel"
+              class="rounded-md bg-violet-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-violet-400"
+            >
+              New channel
+            </button>
+            <button
+              type="button"
+              phx-click="new_channel_form"
+              phx-value-mode="create_category"
+              id="new-category"
+              class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+            >
+              New category
+            </button>
+          </div>
+
+          <div class="mt-4 space-y-3">
+            <div
+              :for={section <- @all_channel_sections}
+              id={"manager-#{section_dom_id(section.category)}"}
+              class="rounded-xl border border-white/8 bg-black/10 p-3"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                    {section_label(section.category)}
+                  </p>
+                  <p class="mt-1 text-xs text-zinc-400">
+                    {if section.category,
+                      do: section.category.topic || "Category container",
+                      else: "Channels without a category"}
+                  </p>
+                </div>
+
+                <button
+                  :if={section.category}
+                  type="button"
+                  phx-click="edit_channel"
+                  phx-value-id={section.category.id}
+                  id={"edit-category-#{section.category.slug}"}
+                  class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+                >
+                  Edit
+                </button>
+              </div>
+
+              <div class="mt-3 space-y-2">
+                <div
+                  :for={channel <- section.channels}
+                  id={"manage-channel-#{channel.slug}"}
+                  class="rounded-lg border border-white/8 bg-[#2b2d31] px-3 py-2"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="flex items-center gap-2">
+                        <span class="text-zinc-500">#</span>
+                        <p class="truncate text-sm font-semibold text-zinc-100">{channel.name}</p>
+                        <span class="rounded bg-black/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                          {channel_kind_badge(channel.kind)}
+                        </span>
+                      </div>
+                      <p class="mt-1 truncate text-xs text-zinc-400">
+                        {channel.topic || "No topic set."}
+                      </p>
+                    </div>
+
+                    <div class="flex items-center gap-1">
+                      <button
+                        type="button"
+                        phx-click="move_channel"
+                        phx-value-id={channel.id}
+                        phx-value-direction="up"
+                        id={"move-channel-up-#{channel.slug}"}
+                        class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="move_channel"
+                        phx-value-id={channel.id}
+                        phx-value-direction="down"
+                        id={"move-channel-down-#{channel.slug}"}
+                        class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="edit_channel"
+                        phx-value-id={channel.id}
+                        id={"edit-channel-#{channel.slug}"}
+                        class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="min-h-0 overflow-y-auto px-4 py-4 chat-scrollbar">
+          <div class="rounded-xl border border-white/8 bg-black/10 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                  Editor
+                </p>
+                <h3 class="mt-1 text-base font-semibold text-white">{@channel_form_title}</h3>
+              </div>
+
+              <button
+                :if={@editing_channel_id}
+                type="button"
+                phx-click="cancel_channel_edit"
+                id="cancel-channel-edit"
+                class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+              >
+                New
+              </button>
+            </div>
+
+            <.form
+              for={@channel_form}
+              id="channel-form"
+              phx-submit="save_channel"
+              class="mt-4 space-y-4"
+            >
+              <.input field={@channel_form[:name]} type="text" label="Name" />
+              <.input field={@channel_form[:slug]} type="text" label="Slug" />
+
+              <.input
+                :if={@channel_form_mode not in [:create_category, :edit_category]}
+                field={@channel_form[:topic]}
+                type="textarea"
+                label="Topic"
+              />
+
+              <.input
+                :if={@channel_form_mode not in [:create_category, :edit_category]}
+                field={@channel_form[:parent_channel_id]}
+                type="select"
+                label="Category"
+                prompt="No category"
+                options={
+                  Enum.map(manageable_categories(@all_channel_sections), &{&1.name, &1.id})
+                }
+              />
+
+              <.input
+                :if={@channel_form_mode not in [:create_category, :edit_category]}
+                field={@channel_form[:nsfw]}
+                type="checkbox"
+                label="Mark channel as age-gated"
+              />
+
+              <div class="flex items-center justify-between gap-3 pt-2">
+                <button
+                  :if={@editing_channel_id}
+                  type="button"
+                  phx-click="delete_channel"
+                  phx-value-id={@editing_channel_id}
+                  id="delete-channel"
+                  class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-rose-300 transition hover:bg-rose-500/10 hover:text-rose-100"
+                >
+                  Delete
+                </button>
+
+                <div class="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    phx-click="close_manage_channels"
+                    class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                  >
+                    Close
+                  </button>
+                  <.button class="rounded-md bg-violet-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-violet-400">
+                    Save
+                  </.button>
+                </div>
+              </div>
+            </.form>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <section class="flex min-h-0 min-w-0 flex-1 flex-col bg-[#313338]">
+      <%= if @active_channel do %>
+        <header class="flex items-center justify-between border-b border-black/20 bg-[#313338]/95 px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.2)] backdrop-blur">
+          <div class="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              phx-click="toggle_mobile_sidebar"
+              id="open-mobile-sidebar"
+              class="inline-flex shrink-0 items-center justify-center rounded-md px-2 py-1 text-sm font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white xl:hidden"
+            >
+              ☰
+            </button>
+            <div class="flex items-center gap-2">
+              <span class="text-lg font-bold text-zinc-500">#</span>
+              <div class="min-w-0">
+                <h1 class="truncate text-[15px] font-semibold text-zinc-50">
+                  {@active_channel.name}
+                </h1>
+                <p class="mt-0.5 truncate text-xs text-zinc-400">
+                  {@active_channel.topic || "No topic set for this channel yet."}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="ml-4 flex items-center gap-3 text-xs text-zinc-400">
+            <span class="hidden rounded-md bg-black/15 px-2 py-1 font-medium sm:inline-flex">
+              {@message_count} messages
+            </span>
+            <span class="hidden items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-300 sm:inline-flex">
+              <span class="size-2 rounded-full bg-emerald-400" /> online
+            </span>
+          </div>
+        </header>
+
+        <div
+          id="message-scroll-region"
+          class="flex-1 overflow-y-auto chat-scrollbar"
+          phx-hook="MessageListHook"
+        >
+          <div
+            :if={@messages_empty?}
+            class="mx-4 my-6 rounded-lg border border-dashed border-white/8 bg-black/10 p-6 text-left"
+          >
+            <p class="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-500">
+              Start of #{@active_channel.slug}
+            </p>
+            <p class="mt-2 text-sm leading-6 text-zinc-300">
+              This is the beginning of the
+              <span class="font-semibold text-zinc-100">#{@active_channel.name}</span>
+              channel. Drop a message to get the conversation moving.
+            </p>
+          </div>
+
+          <div id="message-list" phx-update="stream" class="px-0 py-3">
+            <div
+              :for={{dom_id, message} <- @streams.messages}
+              id={dom_id}
+              class="group relative px-4 py-0.5 hover:bg-black/10"
+            >
+              <article class="relative flex gap-3 py-2">
+                <div class="shrink-0 pt-0.5">
+                  <div class="flex size-10 items-center justify-center rounded-full bg-[#404249] text-[13px] font-semibold text-zinc-100">
+                    {message.author.display_name |> String.first()}
+                  </div>
+                </div>
+
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-baseline gap-2">
+                    <p class="truncate text-[15px] font-medium leading-5 text-zinc-100">
+                      {message.author.display_name}
+                    </p>
+                    <span class="truncate text-[11px] text-zinc-500">
+                      @{message.author.username}
+                    </span>
+                    <time class="shrink-0 text-[11px] text-zinc-500">
+                      {Calendar.strftime(message.inserted_at, "%b %-d at %H:%M")}
+                    </time>
+                  </div>
+
+                  <div
+                    :if={message.reply_to}
+                    class="mt-1 flex items-center gap-2 border-l-2 border-white/10 pl-3 text-xs text-zinc-400"
+                  >
+                    <span class="truncate">
+                      Replying to
+                      <span class="font-semibold text-zinc-300">
+                        {message.reply_to.author.display_name}
+                      </span>
+                      · {message.reply_to.body}
+                    </span>
+                  </div>
+
+                  <%= if @editing_message_id == message.id do %>
+                    <.form
+                      for={@editing_form}
+                      id={"edit-message-form-#{message.id}"}
+                      phx-submit="save_edit"
+                      class="mt-2"
+                    >
+                      <input type="hidden" name="message[id]" value={message.id} />
+                      <div class="rounded-md border border-violet-400/30 bg-[#383a40] p-2">
+                        <.input
+                          field={@editing_form[:body]}
+                          type="textarea"
+                          id={"edit-message-body-#{message.id}"}
+                          rows="3"
+                          class="min-h-24 w-full resize-none rounded-md border border-black/20 bg-[#2b2d31] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-violet-500"
+                        />
+                        <div class="mt-2 flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            phx-click="cancel_edit"
+                            class="rounded-md px-2.5 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            class="rounded-md bg-violet-500 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-violet-400"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    </.form>
+                  <% else %>
+                    <div
+                      class="message-body mt-0.5 break-words text-[15px] leading-6 text-zinc-100"
+                      data-markdown-source={message.body}
+                    >
+                      {message.body}
+                    </div>
+                  <% end %>
+
+                  <div class="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+                    <span :if={edited_message?(message)}>(edited)</span>
+                    <span :if={deleted_message?(message)} class="text-amber-300">deleted</span>
+                  </div>
+
+                  <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                    <button
+                      :for={emoji <- ["👍", "🔥", "❤️"]}
+                      type="button"
+                      phx-click="toggle_reaction"
+                      phx-value-id={message.id}
+                      phx-value-emoji={emoji}
+                      id={"reaction-#{message.id}-#{Base.url_encode64(emoji, padding: false)}"}
+                      disabled={!@can_add_reactions? or deleted_message?(message)}
+                      class={[
+                        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition",
+                        reacted_by_current_user?(message, @current_user, emoji) &&
+                          "border-violet-400/60 bg-violet-500/20 text-violet-100",
+                        not reacted_by_current_user?(message, @current_user, emoji) &&
+                          "border-white/8 bg-black/10 text-zinc-400 hover:border-white/15 hover:text-zinc-200",
+                        (!@can_add_reactions? or deleted_message?(message)) &&
+                          "cursor-not-allowed opacity-50 hover:border-white/8 hover:text-zinc-400"
+                      ]}
+                    >
+                      <span>{emoji}</span>
+                      <span>{reaction_count(message, emoji)}</span>
+                    </button>
+                  </div>
+
+                  <p :if={!@can_add_reactions?} class="mt-2 text-[11px] text-zinc-500">
+                    Reactions are disabled for your permissions in this channel.
+                  </p>
+                </div>
+
+                <div class="absolute right-4 top-0 flex items-center gap-1 rounded-md border border-black/20 bg-[#111214] p-1 opacity-0 shadow-lg transition group-hover:opacity-100 group-focus-within:opacity-100">
+                  <button
+                    type="button"
+                    phx-click="reply_message"
+                    phx-value-id={message.id}
+                    id={"reply-message-#{message.id}"}
+                    disabled={!@can_send_messages? or deleted_message?(message)}
+                    class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Reply
+                  </button>
+
+                  <button
+                    :if={own_message?(message, @current_user) and not deleted_message?(message)}
+                    type="button"
+                    phx-click="edit_message"
+                    phx-value-id={message.id}
+                    id={"edit-message-#{message.id}"}
+                    class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Edit
+                  </button>
+
+                  <button
+                    :if={
+                      (own_message?(message, @current_user) or @can_manage_messages?) and
+                        not deleted_message?(message)
+                    }
+                    type="button"
+                    phx-click="delete_message"
+                    phx-value-id={message.id}
+                    id={"delete-message-#{message.id}"}
+                    class="rounded px-2 py-1 text-[11px] font-semibold text-rose-300 transition hover:bg-rose-500/10 hover:text-rose-100"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+
+        <div class="border-t border-black/20 bg-[#313338] px-4 py-4">
+          <%= if @can_send_messages? do %>
+            <.form
+              for={@message_form}
+              id="message-form"
+              phx-submit="send_message"
+              phx-hook="RichComposerHook"
+              data-placeholder="Message channel"
+              data-mentions={@composer_mentions_json}
+              data-commands={@composer_commands_json}
+            >
+              <div class="rounded-lg border border-black/20 bg-[#383a40] shadow-[0_1px_0_rgba(0,0,0,0.18)]">
+                <div
+                  :if={@reply_to_message}
+                  id="replying-to-banner"
+                  class="flex items-center justify-between border-b border-black/20 px-3 py-2 text-xs text-violet-100"
+                >
+                  <div class="min-w-0">
+                    Replying to
+                    <span class="font-semibold">{@reply_to_message.author.display_name}</span>
+                    <p class="truncate text-[11px] text-violet-200/70">
+                      {@reply_to_message.body}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    phx-click="cancel_reply"
+                    class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-violet-100 transition hover:bg-white/5"
+                  >
+                    Cancel
+                  </button>
+                </div>
+
+                <div id="rich-composer-shell" phx-update="ignore" class="px-3 py-3">
+                  <div class="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                    <span class="rounded-full bg-black/20 px-2 py-1">mentions enabled</span>
+                    <span
+                      :if={!@can_mention_everyone?}
+                      class="rounded-full bg-amber-500/10 px-2 py-1 text-amber-200"
+                    >
+                      @everyone and locked roles need extra permission
+                    </span>
+                  </div>
+
+                  <div id="rich-composer-toolbar" class="mb-2 flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      data-editor-action="bold"
+                      class="composer-toolbar-button"
+                    >
+                      Bold
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-action="italic"
+                      class="composer-toolbar-button"
+                    >
+                      Italic
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-action="inline-code"
+                      class="composer-toolbar-button"
+                    >
+                      Inline code
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-action="code-block"
+                      class="composer-toolbar-button"
+                    >
+                      Code block
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-action="mention"
+                      class="composer-toolbar-button"
+                    >
+                      @ mention
+                    </button>
+                    <button
+                      type="button"
+                      data-editor-action="slash"
+                      class="composer-toolbar-button"
+                    >
+                      / command
+                    </button>
+                  </div>
+
+                  <div id="rich-composer-editor" class="min-h-0" />
+
+                  <textarea
+                    id="message-body-input"
+                    name={@message_form[:body].name}
+                    class="hidden"
+                  >{@message_form[:body].value || ""}</textarea>
+                  <textarea
+                    id="message-metadata-input"
+                    name={@message_form[:metadata].name}
+                    class="hidden"
+                  ></textarea>
+                </div>
+
+                <div class="flex items-center justify-between gap-3 border-t border-black/20 px-4 py-2.5">
+                  <p class="text-[11px] text-zinc-500">
+                    Markdown, mentions, slash commands, code blocks, and rich links
+                  </p>
+
+                  <.button class="rounded-md bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-400">
+                    Send message
+                  </.button>
+                </div>
+              </div>
+            </.form>
+          <% else %>
+            <div class="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              You can view this channel, but you do not have permission to send messages here.
+            </div>
+          <% end %>
+        </div>
+      <% else %>
+        <div class="flex min-h-0 flex-1 items-center justify-center px-5 py-10">
+          <div class="max-w-lg rounded-lg border border-dashed border-white/8 bg-black/10 p-8 text-center">
+            <p class="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
+              No accessible channels
+            </p>
+            <h2 class="mt-3 text-2xl font-semibold text-white">
+              This account has nowhere to land yet.
+            </h2>
+            <p class="mt-3 text-sm leading-7 text-zinc-400">
+              Ask a server owner to grant channel access or seed a default role with view permissions.
+            </p>
+          </div>
+        </div>
+      <% end %>
+    </section>
+
+    <aside class="hidden w-60 shrink-0 border-l border-black/20 bg-[#2b2d31] xl:flex xl:h-screen xl:flex-col">
+      <div class="border-b border-black/20 px-4 py-3">
+        <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">Members</p>
+        <div class="mt-2 flex items-center justify-between text-xs text-zinc-400">
+          <span>{length(@member_presence)} visible</span>
+          <span class="rounded bg-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-300">
+            {Enum.count(@member_presence, &(&1.status == :online))} online
+          </span>
+        </div>
+      </div>
+
+      <div id="member-sidebar" class="flex-1 space-y-0.5 overflow-y-auto px-2 py-3 chat-scrollbar">
+        <div
+          :for={entry <- @member_presence}
+          id={"member-presence-#{entry.user.id}"}
+          class="rounded-md px-2 py-2 transition hover:bg-white/5"
+        >
+          <div class="flex items-start gap-3">
+            <div class="relative mt-0.5 shrink-0">
+              <div class="flex size-8 items-center justify-center rounded-full bg-[#404249] text-xs font-semibold text-zinc-100">
+                {entry.user.display_name |> String.first()}
+              </div>
+              <span class={[
+                "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[#2b2d31]",
+                member_status_class(entry.status)
+              ]} />
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <p class="truncate text-[13px] font-medium text-zinc-100">
+                  {entry.user.display_name}
+                </p>
+                <span
+                  :if={entry.user.membership.is_owner}
+                  class="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-emerald-200"
+                >
+                  owner
+                </span>
+              </div>
+
+              <p class="mt-0.5 truncate text-[11px] text-zinc-500">@{entry.user.username}</p>
+              <p class="mt-1 text-[11px] text-zinc-400">
+                {member_status_label(entry.status)} · {Calendar.strftime(
+                  entry.last_active_at,
+                  "%b %-d · %H:%M"
+                )}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+</Layouts.app>
