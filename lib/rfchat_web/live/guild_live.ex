@@ -12,6 +12,7 @@ defmodule RfchatWeb.GuildLive do
     channels = Chat.list_channels_for_user(current_user)
     :ok = Chat.ensure_channel_memberships_for_user(current_user, channels)
     can_manage_channels? = can_manage_channels?(socket.assigns.current_scope)
+    can_manage_emojis? = can_manage_emojis?(socket.assigns.current_scope)
 
     if connected?(socket) do
       Chat.subscribe_to_channel_events()
@@ -19,12 +20,20 @@ defmodule RfchatWeb.GuildLive do
 
     socket =
       socket
+      |> allow_upload(:emoji_image,
+        accept: ~w(.png .jpg .jpeg .gif .webp),
+        max_entries: 1,
+        max_file_size: 512_000
+      )
       |> assign(:guild_name, Application.get_env(:rfchat, :guild_name, "RFChat"))
       |> assign(:current_user, current_user)
       |> assign(:can_manage_channels?, can_manage_channels?)
+      |> assign(:can_manage_emojis?, can_manage_emojis?)
       |> assign(:channels, channels)
       |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
       |> assign(:all_channel_sections, channel_sections_for_manager(can_manage_channels?))
+      |> assign(:custom_emojis, emoji_entries_for_picker(current_user))
+      |> assign(:custom_emojis_json, emoji_entries_json_for_picker(current_user))
       |> assign(:member_presence, Accounts.list_members_with_presence())
       |> assign(:notification_setting, Chat.get_user_notification_setting(current_user))
       |> assign(:composer_mentions_json, Jason.encode!(Chat.composer_mentions()))
@@ -33,6 +42,8 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:unread_mentions, Chat.unread_mentions_for_user(current_user, channels))
       |> assign(:mobile_sidebar_open?, false)
       |> assign(:manage_channels_open?, false)
+      |> assign(:manage_emojis_open?, false)
+      |> assign(:reaction_picker_message_id, nil)
       |> assign(:active_channel, nil)
       |> assign(:can_send_messages?, false)
       |> assign(:can_add_reactions?, false)
@@ -44,6 +55,7 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:channel_form_mode, :create_text)
       |> assign(:channel_form_title, "Create text channel")
       |> assign(:editing_channel_id, nil)
+      |> assign(:emoji_form, to_form(Chat.change_emoji(%Chat.Emoji{}, %{}), as: :emoji))
       |> assign(:message_count, 0)
       |> assign(:messages_empty?, true)
       |> assign_message_form()
@@ -168,6 +180,20 @@ defmodule RfchatWeb.GuildLive do
   @impl true
   def handle_event("close_manage_channels", _params, socket) do
     {:noreply, assign(socket, :manage_channels_open?, false)}
+  end
+
+  @impl true
+  def handle_event("toggle_manage_emojis", _params, socket) do
+    if socket.assigns.can_manage_emojis? do
+      {:noreply, assign(socket, :manage_emojis_open?, !socket.assigns.manage_emojis_open?)}
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to manage emojis.")}
+    end
+  end
+
+  @impl true
+  def handle_event("close_manage_emojis", _params, socket) do
+    {:noreply, assign(socket, :manage_emojis_open?, false)}
   end
 
   @impl true
@@ -420,7 +446,11 @@ defmodule RfchatWeb.GuildLive do
 
     case Chat.toggle_reaction(message, socket.assigns.current_user, emoji_unicode) do
       {:ok, updated_message} ->
-        {:noreply, stream_insert(socket, :messages, updated_message)}
+        {:noreply,
+         socket
+         |> assign(:reaction_picker_message_id, nil)
+         |> rerender_messages([message.id])
+         |> stream_insert(:messages, updated_message)}
 
       {:error, :invalid_emoji} ->
         {:noreply, put_flash(socket, :error, "Choose a valid reaction.")}
@@ -430,6 +460,84 @@ defmodule RfchatWeb.GuildLive do
 
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "Could not toggle that reaction.")}
+    end
+  end
+
+  @impl true
+  def handle_event(
+        "toggle_custom_reaction",
+        %{"id" => message_id, "emoji_id" => emoji_id},
+        socket
+      ) do
+    message = Chat.get_message!(message_id)
+
+    case Chat.toggle_reaction(message, socket.assigns.current_user, %{"emoji_id" => emoji_id}) do
+      {:ok, updated_message} ->
+        {:noreply,
+         socket
+         |> assign(:reaction_picker_message_id, nil)
+         |> rerender_messages([message.id])
+         |> stream_insert(:messages, updated_message)}
+
+      {:error, :invalid_emoji} ->
+        {:noreply, put_flash(socket, :error, "Choose a valid custom emoji.")}
+
+      {:error, :forbidden} ->
+        {:noreply,
+         put_flash(socket, :error, "You do not have permission to use that emoji here.")}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Could not toggle that reaction.")}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_reaction_picker", %{"id" => message_id}, socket) do
+    previous_message_id = socket.assigns.reaction_picker_message_id
+
+    next_message_id =
+      if previous_message_id == message_id, do: nil, else: message_id
+
+    {:noreply,
+     socket
+     |> assign(:reaction_picker_message_id, next_message_id)
+     |> rerender_messages([previous_message_id, next_message_id])}
+  end
+
+  @impl true
+  def handle_event("close_reaction_picker", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:reaction_picker_message_id, nil)
+     |> rerender_messages([socket.assigns.reaction_picker_message_id])}
+  end
+
+  @impl true
+  def handle_event("save_emoji", %{"emoji" => emoji_params}, socket) do
+    if socket.assigns.can_manage_emojis? do
+      save_emoji(socket, emoji_params)
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to manage emojis.")}
+    end
+  end
+
+  @impl true
+  def handle_event("delete_emoji", %{"id" => emoji_id}, socket) do
+    if socket.assigns.can_manage_emojis? do
+      emoji = Chat.get_emoji!(emoji_id)
+
+      case Chat.delete_custom_emoji(emoji) do
+        {:ok, _emoji} ->
+          {:noreply,
+           socket
+           |> refresh_custom_emojis()
+           |> put_flash(:info, "Emoji deleted.")}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Could not delete that emoji.")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to manage emojis.")}
     end
   end
 
@@ -485,6 +593,7 @@ defmodule RfchatWeb.GuildLive do
       channel_sections_for_manager(socket.assigns.can_manage_channels?)
     )
     |> assign(:mobile_sidebar_open?, false)
+    |> assign(:reaction_picker_message_id, nil)
     |> assign(:active_channel, refreshed_active_channel)
     |> assign(
       :can_send_messages?,
@@ -540,6 +649,7 @@ defmodule RfchatWeb.GuildLive do
       channel_sections_for_manager(socket.assigns.can_manage_channels?)
     )
     |> assign(:active_channel, active_channel)
+    |> assign(:reaction_picker_message_id, nil)
     |> assign(
       :can_send_messages?,
       if(active_channel, do: Chat.can_send_messages?(active_channel, current_user), else: false)
@@ -604,6 +714,20 @@ defmodule RfchatWeb.GuildLive do
     assign(socket, :member_presence, Accounts.list_members_with_presence())
   end
 
+  defp rerender_messages(socket, message_ids) do
+    Enum.reduce(Enum.reject(message_ids, &is_nil/1), socket, fn message_id, acc ->
+      stream_insert(acc, :messages, Chat.get_message!(message_id))
+    end)
+  end
+
+  defp refresh_custom_emojis(socket) do
+    current_user = socket.assigns.current_user
+
+    socket
+    |> assign(:custom_emojis, emoji_entries_for_picker(current_user))
+    |> assign(:custom_emojis_json, emoji_entries_json_for_picker(current_user))
+  end
+
   defp maybe_push_mention_notification(socket, message) do
     current_user = socket.assigns.current_user
     active_channel = socket.assigns.active_channel
@@ -653,13 +777,26 @@ defmodule RfchatWeb.GuildLive do
     setting.desktop_enabled && setting.notify_on_mentions
   end
 
-  defp can_manage_channels?(nil), do: false
-
   defp can_manage_channels?(scope) do
-    permissions = scope_permissions(scope)
+    if is_nil(scope) do
+      false
+    else
+      permissions = scope_permissions(scope)
 
-    Authorization.has_permission?(permissions, :manage_channels) or
-      Authorization.has_permission?(permissions, :administrator)
+      Authorization.has_permission?(permissions, :manage_channels) or
+        Authorization.has_permission?(permissions, :administrator)
+    end
+  end
+
+  defp can_manage_emojis?(scope) do
+    if is_nil(scope) do
+      false
+    else
+      permissions = scope_permissions(scope)
+
+      Authorization.has_permission?(permissions, :manage_emojis_and_stickers) or
+        Authorization.has_permission?(permissions, :administrator)
+    end
   end
 
   defp scope_permissions(%{
@@ -905,15 +1042,116 @@ defmodule RfchatWeb.GuildLive do
   defp mobile_sidebar_overlay_class(true), do: "opacity-100 pointer-events-auto"
   defp mobile_sidebar_overlay_class(false), do: "pointer-events-none opacity-0"
 
-  defp reaction_count(message, emoji_unicode) do
+  defp emoji_upload_error(:too_large), do: "That file is too large."
+  defp emoji_upload_error(:too_many_files), do: "Choose only one file."
+  defp emoji_upload_error(:not_accepted), do: "That file type is not allowed."
+  defp emoji_upload_error(_error), do: "Upload failed."
+
+  defp reaction_summaries(message, current_user) do
     message.reactions
-    |> Enum.count(&(&1.emoji_unicode == emoji_unicode))
+    |> Enum.group_by(fn reaction ->
+      if reaction.emoji_id,
+        do: {:custom, reaction.emoji_id},
+        else: {:unicode, reaction.emoji_unicode}
+    end)
+    |> Enum.map(fn
+      {{:custom, emoji_id}, reactions} ->
+        reaction = List.first(reactions)
+
+        %{
+          kind: :custom,
+          emoji_id: emoji_id,
+          emoji_unicode: nil,
+          label: reaction.emoji && reaction.emoji.name,
+          url: reaction.emoji && reaction.emoji.asset && Chat.asset_url(reaction.emoji.asset),
+          count: length(reactions),
+          reacted?: Enum.any?(reactions, &(&1.user_id == current_user.id))
+        }
+
+      {{:unicode, emoji_unicode}, reactions} ->
+        %{
+          kind: :unicode,
+          emoji_id: nil,
+          emoji_unicode: emoji_unicode,
+          label: emoji_unicode,
+          url: nil,
+          count: length(reactions),
+          reacted?: Enum.any?(reactions, &(&1.user_id == current_user.id))
+        }
+    end)
+    |> Enum.sort_by(fn summary ->
+      case summary.kind do
+        :unicode -> {0, summary.label}
+        :custom -> {1, summary.label || ""}
+      end
+    end)
   end
 
-  defp reacted_by_current_user?(message, current_user, emoji_unicode) do
-    Enum.any?(message.reactions, fn reaction ->
-      reaction.user_id == current_user.id and reaction.emoji_unicode == emoji_unicode
+  defp reaction_picker_open?(message, reaction_picker_message_id) do
+    reaction_picker_message_id == message.id
+  end
+
+  defp emoji_entries_for_picker(current_user) do
+    Chat.list_available_emojis(current_user)
+    |> Enum.map(fn emoji ->
+      %{
+        id: emoji.id,
+        name: emoji.name,
+        shortcode: emoji.shortcode,
+        url: Chat.asset_url(emoji.asset)
+      }
     end)
+  end
+
+  defp emoji_entries_json_for_picker(current_user) do
+    current_user
+    |> emoji_entries_for_picker()
+    |> Jason.encode!()
+  end
+
+  defp save_emoji(socket, emoji_params) do
+    upload = uploaded_entry(socket, :emoji_image)
+
+    if is_nil(upload) do
+      {:noreply, put_flash(socket, :error, "Choose an image before saving the emoji.")}
+    else
+      case consume_emoji_upload(socket, upload, emoji_params) do
+        {:ok, _emoji, socket} ->
+          {:noreply,
+           socket
+           |> refresh_custom_emojis()
+           |> assign(:emoji_form, to_form(Chat.change_emoji(%Chat.Emoji{}, %{}), as: :emoji))
+           |> put_flash(:info, "Emoji added.")}
+
+        {:error, :invalid_upload_type, socket} ->
+          {:noreply, put_flash(socket, :error, "Emoji uploads must be png, jpg, gif, or webp.")}
+
+        {:error, changeset, socket} ->
+          {:noreply, assign(socket, :emoji_form, to_form(changeset, as: :emoji))}
+      end
+    end
+  end
+
+  defp consume_emoji_upload(socket, _upload, emoji_params) do
+    result =
+      consume_uploaded_entries(socket, :emoji_image, fn %{path: path}, entry ->
+        {:ok,
+         Chat.create_custom_emoji_from_upload(emoji_params, socket.assigns.current_user, %{
+           path: path,
+           client_name: entry.client_name,
+           client_type: entry.client_type
+         })}
+      end)
+
+    case result do
+      [{:ok, emoji}] -> {:ok, emoji, socket}
+      [{:error, reason}] -> {:error, reason, socket}
+      [] -> {:error, :invalid_upload_type, socket}
+    end
+  end
+
+  defp uploaded_entry(socket, name) do
+    socket.assigns.uploads[name].entries |> List.first()
   end
 
   defp maybe_put_reply(socket, message_params) do

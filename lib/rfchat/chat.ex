@@ -9,6 +9,8 @@ defmodule Rfchat.Chat do
   alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.ChannelNotificationOverride
   alias Rfchat.Chat.ChannelMembership
+  alias Rfchat.Chat.Emoji
+  alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.MessageRoleMention
   alias Rfchat.Chat.MessageUserMention
@@ -19,6 +21,11 @@ defmodule Rfchat.Chat do
   alias Rfchat.Repo
 
   @channel_events_topic "chat:channels"
+  @emoji_upload_dir "uploads/emojis"
+  @allowed_emoji_content_types ~w(image/png image/jpeg image/gif image/webp)
+  @default_reaction_emojis ["👍", "🔥", "❤️"]
+
+  def default_reaction_emojis, do: @default_reaction_emojis
 
   def list_channels do
     Channel
@@ -100,6 +107,76 @@ defmodule Rfchat.Chat do
       %{id: "code", label: "code", description: "Insert fenced code block"},
       %{id: "giphy", label: "giphy", description: "Insert a GIF-style embed request"}
     ]
+  end
+
+  def list_custom_emojis do
+    Emoji
+    |> order_by([emoji], asc: emoji.name, asc: emoji.inserted_at)
+    |> preload([:asset, :creator, :emoji_roles])
+    |> Repo.all()
+  end
+
+  def list_available_emojis(%User{} = user) do
+    user = Repo.preload(user, [:membership, member_roles: :role])
+    role_ids = MapSet.new(Enum.map(user.member_roles || [], & &1.role_id))
+
+    list_custom_emojis()
+    |> Enum.filter(&emoji_available_to_user?(&1, user, role_ids))
+  end
+
+  def get_emoji!(id) do
+    Emoji
+    |> preload([:asset, :creator, :emoji_roles])
+    |> Repo.get!(id)
+  end
+
+  def change_emoji(%Emoji{} = emoji, attrs \\ %{}) do
+    Emoji.changeset(emoji, attrs)
+  end
+
+  def create_custom_emoji_from_upload(attrs, %User{} = creator, upload) when is_map(attrs) do
+    attrs = normalize_emoji_attrs(attrs)
+
+    Repo.transaction(fn ->
+      with {:ok, asset} <- create_media_asset_from_upload(upload, creator),
+           {:ok, emoji} <-
+             %Emoji{creator_id: creator.id}
+             |> Emoji.changeset(Map.put(attrs, "asset_id", asset.id))
+             |> Repo.insert() do
+        Repo.preload(emoji, [:asset, :creator, :emoji_roles])
+      else
+        {:error, changeset} -> Repo.rollback(changeset)
+        {:error, reason, :upload} -> Repo.rollback({:upload, reason})
+      end
+    end)
+    |> case do
+      {:ok, emoji} -> {:ok, emoji}
+      {:error, {:upload, reason}} -> {:error, reason}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  def delete_custom_emoji(%Emoji{} = emoji) do
+    emoji = Repo.preload(emoji, [:asset])
+
+    Repo.transaction(fn ->
+      {:ok, deleted_emoji} = Repo.delete(emoji)
+
+      case deleted_emoji.asset do
+        %MediaAsset{} = asset ->
+          maybe_delete_asset_file(asset)
+          Repo.delete(asset)
+
+        _ ->
+          {:ok, nil}
+      end
+
+      deleted_emoji
+    end)
+    |> case do
+      {:ok, deleted_emoji} -> {:ok, deleted_emoji}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def list_channels_for_user(%User{} = user) do
@@ -363,7 +440,7 @@ defmodule Rfchat.Chat do
     |> where([message], is_nil(message.deleted_at))
     |> order_by([message], desc: message.inserted_at, desc: message.id)
     |> limit(^limit)
-    |> preload([:author, :reactions, reply_to: :author])
+    |> preload([:author, reactions: [emoji: :asset], reply_to: :author])
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -389,7 +466,8 @@ defmodule Rfchat.Chat do
                |> Message.changeset(attrs)
                |> Repo.insert() do
           :ok = sync_message_mentions(message, attrs)
-          Repo.preload(message, [:author, :channel, :reactions, reply_to: :author])
+
+          Repo.preload(message, [:author, :channel, reactions: [emoji: :asset], reply_to: :author])
         else
           {:error, changeset} -> Repo.rollback(changeset)
         end
@@ -469,7 +547,7 @@ defmodule Rfchat.Chat do
 
   def get_message!(id) do
     Message
-    |> preload([:author, :channel, :reactions, reply_to: :author])
+    |> preload([:author, :channel, reactions: [emoji: :asset], reply_to: :author])
     |> Repo.get!(id)
   end
 
@@ -561,6 +639,43 @@ defmodule Rfchat.Chat do
     end
   end
 
+  def toggle_reaction(%Message{} = message, %User{} = user, %{"emoji_id" => emoji_id})
+      when is_binary(emoji_id) do
+    message = Repo.preload(message, channel: [:permission_overwrites])
+
+    with {:ok, emoji} <- fetch_available_emoji_for_user(emoji_id, user),
+         true <- can_add_reactions?(message.channel, user) do
+      case Repo.get_by(Reaction, message_id: message.id, user_id: user.id, emoji_id: emoji.id) do
+        nil ->
+          %Reaction{}
+          |> Reaction.changeset(%{
+            message_id: message.id,
+            user_id: user.id,
+            emoji_id: emoji.id
+          })
+          |> Repo.insert()
+          |> case do
+            {:ok, _reaction} ->
+              message = get_message!(message.id)
+              broadcast({:message_updated, message})
+              {:ok, message}
+
+            {:error, changeset} ->
+              {:error, changeset}
+          end
+
+        reaction ->
+          Repo.delete!(reaction)
+          message = get_message!(message.id)
+          broadcast({:message_updated, message})
+          {:ok, message}
+      end
+    else
+      false -> {:error, :forbidden}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   def mark_channel_read(%User{} = user, %Channel{} = channel, message \\ nil) do
     message = message || latest_message_for_channel(channel.id)
     now = DateTime.utc_now()
@@ -607,6 +722,16 @@ defmodule Rfchat.Chat do
     can_view_channel?(channel, user) and channel_permission?(channel, user, :mention_everyone)
   end
 
+  def can_manage_emojis_and_stickers?(%User{} = user) do
+    permissions =
+      user
+      |> Repo.preload([:membership, member_roles: :role])
+      |> Authorization.base_permissions(default_role())
+
+    Authorization.has_permission?(permissions, :manage_emojis_and_stickers) or
+      Authorization.has_permission?(permissions, :administrator)
+  end
+
   def message_count(channel_id) do
     Message
     |> where([message], message.channel_id == ^channel_id)
@@ -620,6 +745,9 @@ defmodule Rfchat.Chat do
   def default_role do
     Repo.get_by(Role, is_default: true)
   end
+
+  def asset_url(%MediaAsset{storage_key: storage_key}) when is_binary(storage_key),
+    do: "/#{storage_key}"
 
   defp normalize_message_attrs(attrs) do
     attrs =
@@ -642,6 +770,149 @@ defmodule Rfchat.Chat do
     attrs
     |> Map.put("metadata", normalized_metadata)
   end
+
+  defp normalize_emoji_attrs(attrs) do
+    attrs =
+      attrs
+      |> Enum.into(%{})
+      |> Enum.reduce(%{}, fn
+        {key, value}, acc when is_atom(key) -> Map.put(acc, Atom.to_string(key), value)
+        {key, value}, acc -> Map.put(acc, key, value)
+      end)
+
+    name = String.trim(Map.get(attrs, "name", ""))
+    shortcode = Map.get(attrs, "shortcode") |> blank_to_nil() |> normalize_shortcode(name)
+
+    attrs
+    |> Map.put("name", name)
+    |> Map.put("shortcode", shortcode)
+    |> Map.put_new("requires_colons", true)
+    |> Map.put_new("available", true)
+    |> Map.put_new("listed", true)
+  end
+
+  defp normalize_shortcode(nil, name), do: normalize_shortcode(name, name)
+
+  defp normalize_shortcode(value, _name) when is_binary(value) do
+    normalized =
+      value
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9_+-]+/u, "_")
+      |> String.trim("_:")
+
+    if normalized == "", do: nil, else: ":#{normalized}:"
+  end
+
+  defp create_media_asset_from_upload(
+         %{path: path, client_name: client_name, client_type: client_type},
+         %User{} = creator
+       ) do
+    with :ok <- validate_emoji_upload(client_type),
+         {:ok, %{size: byte_size}} <- File.stat(path),
+         ext <- upload_extension(client_name, client_type),
+         storage_key <- Path.join(@emoji_upload_dir, "#{Ecto.UUID.generate()}#{ext}"),
+         destination <- asset_destination_path(storage_key),
+         :ok <- File.mkdir_p(Path.dirname(destination)),
+         :ok <- File.cp(path, destination),
+         {:ok, sha256} <- file_sha256(destination),
+         {:ok, asset} <-
+           %MediaAsset{}
+           |> MediaAsset.changeset(%{
+             uploader_id: creator.id,
+             kind: :emoji,
+             storage_key: storage_key,
+             original_filename: client_name,
+             content_type: client_type,
+             byte_size: byte_size,
+             sha256: sha256
+           })
+           |> Repo.insert() do
+      {:ok, asset}
+    else
+      {:error, reason} -> {:error, reason, :upload}
+    end
+  end
+
+  defp validate_emoji_upload(content_type) when content_type in @allowed_emoji_content_types,
+    do: :ok
+
+  defp validate_emoji_upload(_content_type), do: {:error, :invalid_upload_type}
+
+  defp upload_extension(filename, content_type) do
+    ext = filename |> Path.extname() |> String.downcase()
+
+    case ext do
+      ".png" -> ext
+      ".jpg" -> ext
+      ".jpeg" -> ext
+      ".gif" -> ext
+      ".webp" -> ext
+      _ -> extension_for_content_type(content_type)
+    end
+  end
+
+  defp extension_for_content_type("image/png"), do: ".png"
+  defp extension_for_content_type("image/jpeg"), do: ".jpg"
+  defp extension_for_content_type("image/gif"), do: ".gif"
+  defp extension_for_content_type("image/webp"), do: ".webp"
+  defp extension_for_content_type(_), do: ".bin"
+
+  defp asset_destination_path(storage_key) do
+    Application.app_dir(:rfchat, Path.join(["priv", "static", storage_key]))
+  end
+
+  defp file_sha256(path) do
+    case File.read(path) do
+      {:ok, binary} -> {:ok, :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_delete_asset_file(%MediaAsset{storage_key: storage_key})
+       when is_binary(storage_key) do
+    storage_key
+    |> asset_destination_path()
+    |> File.rm()
+
+    :ok
+  end
+
+  defp fetch_available_emoji_for_user(emoji_id, %User{} = user) do
+    emoji = get_emoji!(emoji_id)
+
+    if emoji_available_to_user?(emoji, Repo.preload(user, [:membership, member_roles: :role])) do
+      {:ok, emoji}
+    else
+      {:error, :forbidden}
+    end
+  rescue
+    Ecto.NoResultsError -> {:error, :invalid_emoji}
+  end
+
+  defp emoji_available_to_user?(%Emoji{} = emoji, %User{} = user, role_ids \\ nil) do
+    role_ids = role_ids || MapSet.new(Enum.map(user.member_roles || [], & &1.role_id))
+
+    cond do
+      not emoji.available ->
+        false
+
+      user.membership && user.membership.is_owner ->
+        true
+
+      can_manage_emojis_and_stickers?(user) ->
+        true
+
+      emoji.emoji_roles == [] ->
+        emoji.listed
+
+      true ->
+        emoji.listed and Enum.any?(emoji.emoji_roles, &MapSet.member?(role_ids, &1.role_id))
+    end
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   defp sync_message_mentions(%Message{id: message_id, body: body}, attrs) do
     clear_message_mentions(message_id)

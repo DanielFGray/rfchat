@@ -27,7 +27,6 @@ defmodule Rfchat.Chat.Emoji do
       :name,
       :shortcode,
       :asset_id,
-      :creator_id,
       :requires_colons,
       :managed,
       :available,

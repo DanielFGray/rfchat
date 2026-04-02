@@ -24,7 +24,7 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/rfchat"
 import topbar from "../vendor/topbar"
-import {MessageListHook, RichComposerHook} from "./chat_hooks"
+import {MessageListHook, ReactionPickerHook, RichComposerHook} from "./chat_hooks"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
@@ -33,6 +33,7 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {
     RichComposerHook,
     MessageListHook,
+    ReactionPickerHook,
     ...colocatedHooks,
   },
 })

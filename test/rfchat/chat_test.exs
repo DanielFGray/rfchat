@@ -311,6 +311,36 @@ defmodule Rfchat.ChatTest do
       refute Chat.can_add_reactions?(channel, user)
     end
 
+    test "toggle_reaction/3 supports custom emoji reactions" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture()
+
+      author =
+        user_fixture(%{email: "emoji-react-author@example.com", username: "emoji_react_author"})
+
+      user = user_fixture(%{email: "emoji-react-user@example.com", username: "emoji_react_user"})
+      message = message_fixture(channel, author)
+      emoji = emoji_fixture(author, %{name: "blobwave", shortcode: ":blobwave:"})
+
+      assert {:ok, updated_message} =
+               Chat.toggle_reaction(message, user, %{"emoji_id" => emoji.id})
+
+      assert Enum.any?(updated_message.reactions, &(&1.emoji_id == emoji.id))
+
+      assert {:ok, updated_message} =
+               Chat.toggle_reaction(message, user, %{"emoji_id" => emoji.id})
+
+      refute Enum.any?(updated_message.reactions, &(&1.emoji_id == emoji.id))
+    end
+
+    test "list_available_emojis/1 includes listed emoji" do
+      Bootstrap.ensure_seed_data!()
+      user = user_fixture(%{email: "emoji-list-user@example.com", username: "emoji_list_user"})
+      emoji = emoji_fixture(user, %{name: "partyblob", shortcode: ":partyblob:"})
+
+      assert Enum.any?(Chat.list_available_emojis(user), &(&1.id == emoji.id))
+    end
+
     test "delete_message/2 allows moderators with manage_messages" do
       Bootstrap.ensure_seed_data!()
       channel = channel_fixture()

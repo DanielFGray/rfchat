@@ -422,13 +422,14 @@ defmodule RfchatWeb.GuildLiveTest do
     message = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
     reaction_id = Base.url_encode64("👍", padding: false)
 
-    view |> element("#reaction-#{message.id}-#{reaction_id}") |> render_click()
+    view |> element("#open-reaction-picker-#{message.id}") |> render_click()
+    view |> element("#reaction-picker-default-#{message.id}-#{reaction_id}") |> render_click()
 
     assert has_element?(view, "#reaction-#{message.id}-#{reaction_id}", "1")
 
     view |> element("#reaction-#{message.id}-#{reaction_id}") |> render_click()
 
-    assert has_element?(view, "#reaction-#{message.id}-#{reaction_id}", "0")
+    refute has_element?(view, "#reaction-#{message.id}-#{reaction_id}")
   end
 
   test "shows reaction disabled state when add reactions is denied", %{conn: conn} do
@@ -444,15 +445,56 @@ defmodule RfchatWeb.GuildLiveTest do
     {:ok, view, _html} = live(conn, ~p"/")
 
     message = Chat.list_messages(channel.id) |> List.first()
-    reaction_id = Base.url_encode64("👍", padding: false)
-
-    assert has_element?(view, "#reaction-#{message.id}-#{reaction_id}[disabled]")
+    assert has_element?(view, "#open-reaction-picker-#{message.id}[disabled]")
 
     assert has_element?(
              view,
              "#message-list",
              "Reactions are disabled for your permissions in this channel."
            )
+  end
+
+  test "picker shows default and custom reactions but no quick chips", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn, "picker_layout")
+    user = current_user_from_conn(conn)
+    emoji = emoji_fixture(user, %{name: "blobwow", shortcode: ":blobwow:"})
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    message = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
+    quick_reaction_id = Base.url_encode64("👍", padding: false)
+
+    refute has_element?(view, "#reaction-#{message.id}-#{quick_reaction_id}")
+
+    view |> element("#open-reaction-picker-#{message.id}") |> render_click()
+
+    assert has_element?(view, "#reaction-picker-default-#{message.id}-#{quick_reaction_id}")
+    assert render(view) =~ "reaction-picker-search-#{message.id}"
+    assert render(view) =~ "data-reaction-picker-defaults"
+    assert has_element?(view, "#reaction-picker-custom-#{message.id}-#{emoji.id}")
+  end
+
+  test "opens reaction picker and toggles custom emoji reactions", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn, "custom_emoji")
+    user = current_user_from_conn(conn)
+    emoji = emoji_fixture(user, %{name: "blobparty", shortcode: ":blobparty:"})
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    message = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
+
+    refute has_element?(view, "#reaction-picker-#{message.id}")
+
+    view |> element("#open-reaction-picker-#{message.id}") |> render_click()
+
+    assert has_element?(view, "#reaction-picker-#{message.id}")
+    assert has_element?(view, "#reaction-picker-custom-#{message.id}-#{emoji.id}")
+
+    view |> element("#reaction-picker-custom-#{message.id}-#{emoji.id}") |> render_click()
+
+    assert has_element?(view, "#reaction-#{message.id}-custom-#{emoji.id}", "1")
+    refute has_element?(view, "#reaction-picker-#{message.id}")
   end
 
   test "moderators can delete other users messages", %{conn: conn} do
@@ -620,6 +662,58 @@ defmodule RfchatWeb.GuildLiveTest do
     assert has_element?(view, "#open-channel-manager")
   end
 
+  test "emoji managers can upload and delete custom emoji", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+
+    manager_role =
+      role_fixture(%{
+        name: "Emoji Manager",
+        permissions: PermissionBits.combine([:manage_emojis_and_stickers])
+      })
+
+    user =
+      user_fixture(%{
+        email: "emoji-manager@example.com",
+        username: "emoji_manager",
+        display_name: "Emoji Manager"
+      })
+
+    _member_role = member_role_fixture(user, manager_role)
+    token = Rfchat.Accounts.generate_user_session_token(user)
+
+    conn =
+      conn
+      |> Phoenix.ConnTest.init_test_session(%{})
+      |> Plug.Conn.put_session(:user_token, token)
+      |> Plug.Conn.put_session(:live_socket_id, "users_sessions:emoji-manager")
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("#open-emoji-manager") |> render_click()
+
+    upload =
+      file_input(view, "#emoji-form", :emoji_image, [
+        %{
+          last_modified: 1_711_000_000_000,
+          name: "blob.png",
+          content: "fake png bytes",
+          type: "image/png"
+        }
+      ])
+
+    render_upload(upload, "blob.png")
+
+    view
+    |> form("#emoji-form", %{emoji: %{name: "blobhype", shortcode: ":blobhype:"}})
+    |> render_submit()
+
+    assert has_element?(view, "#manage-emoji-#{List.last(Chat.list_custom_emojis()).id}")
+
+    emoji = List.last(Chat.list_custom_emojis())
+    view |> element("#delete-emoji-#{emoji.id}") |> render_click()
+    refute Enum.any?(Chat.list_custom_emojis(), &(&1.id == emoji.id))
+  end
+
   defp log_in_member_user(conn, suffix \\ "default") do
     _owner =
       user_fixture(%{
@@ -657,6 +751,11 @@ defmodule RfchatWeb.GuildLiveTest do
     |> Phoenix.ConnTest.init_test_session(%{})
     |> Plug.Conn.put_session(:user_token, token)
     |> Plug.Conn.put_session(:live_socket_id, "users_sessions:owner")
+  end
+
+  defp current_user_from_conn(conn) do
+    token = Plug.Conn.get_session(conn, :user_token)
+    Rfchat.Accounts.get_user_by_session_token(token)
   end
 
   defp category_id(slug), do: Chat.get_channel_by_slug!(slug).id
