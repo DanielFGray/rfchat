@@ -1105,6 +1105,154 @@
                   "%b %-d · %H:%M"
                 )}
               </p>
+
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span
+                  :if={member_timeout_label(entry)}
+                  class="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-amber-200"
+                >
+                  timed out until {member_timeout_label(entry)}
+                </span>
+
+                <span
+                  :if={
+                    entry.user.membership.deactivated_at &&
+                      Map.get(entry.user.membership.flags || %{}, "banned")
+                  }
+                  class="rounded bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-rose-200"
+                >
+                  banned
+                </span>
+              </div>
+
+              <button
+                :if={
+                  @can_moderate_members? && !entry.user.membership.is_owner &&
+                    entry.user.id != @current_user.id
+                }
+                type="button"
+                phx-click="toggle_member_actions"
+                phx-value-id={entry.user.id}
+                id={"open-member-actions-#{entry.user.id}"}
+                class="mt-3 rounded-md border border-white/8 px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition hover:border-white/15 hover:bg-white/5 hover:text-white"
+              >
+                Moderate
+              </button>
+            </div>
+          </div>
+
+          <div
+            :if={selected_member(entry, @member_action_user_id)}
+            id={"member-actions-#{entry.user.id}"}
+            class="mt-3 rounded-xl border border-white/8 bg-black/15 p-3"
+          >
+            <div class="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                  Moderation
+                </p>
+                <p class="mt-1 text-xs text-zinc-400">Take action on @{entry.user.username}</p>
+              </div>
+
+              <button
+                type="button"
+                phx-click="close_member_actions"
+                id={"close-member-actions-#{entry.user.id}"}
+                class="rounded-md px-2 py-1 text-[10px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <.form
+              for={@member_action_form}
+              id={"member-action-form-#{entry.user.id}"}
+              phx-submit="moderate_member"
+              class="space-y-3"
+            >
+              <input type="hidden" name="user_id" value={entry.user.id} />
+
+              <.input
+                field={@member_action_form[:action]}
+                type="select"
+                label="Action"
+                options={[
+                  {"Timeout", "timeout"},
+                  {"Kick", "kick"},
+                  {"Ban", "ban"}
+                ]}
+              />
+
+              <.input
+                field={@member_action_form[:duration_minutes]}
+                type="number"
+                label="Timeout minutes"
+                min="1"
+              />
+
+              <.input field={@member_action_form[:reason]} type="text" label="Reason" />
+
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  :if={member_action_available?(@current_user, entry, :moderate_members)}
+                  type="submit"
+                  class="rounded-md bg-amber-500 px-3 py-1.5 text-[11px] font-semibold text-black transition hover:bg-amber-400"
+                  name="moderation[action]"
+                  value="timeout"
+                >
+                  Timeout
+                </button>
+
+                <button
+                  :if={member_action_available?(@current_user, entry, :kick_members)}
+                  type="submit"
+                  class="rounded-md bg-orange-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-orange-400"
+                  name="moderation[action]"
+                  value="kick"
+                >
+                  Kick
+                </button>
+
+                <button
+                  :if={member_action_available?(@current_user, entry, :ban_members)}
+                  type="submit"
+                  class="rounded-md bg-rose-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-rose-400"
+                  name="moderation[action]"
+                  value="ban"
+                >
+                  Ban
+                </button>
+              </div>
+            </.form>
+
+            <div class="mt-4 border-t border-white/8 pt-3">
+              <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                Recent cases
+              </p>
+
+              <div :if={@moderation_cases != []} class="mt-2 space-y-2">
+                <div
+                  :for={moderation_case <- Enum.take(@moderation_cases, 5)}
+                  class="rounded-lg border border-white/8 bg-black/10 px-3 py-2"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <p class="text-[11px] font-semibold text-zinc-100">
+                      {moderation_case_label(moderation_case.action_type)}
+                    </p>
+                    <p class="text-[10px] text-zinc-500">Case #{moderation_case.case_number}</p>
+                  </div>
+                  <p class="mt-1 text-[11px] text-zinc-400">
+                    by {moderation_case.actor_user && moderation_case.actor_user.display_name}
+                  </p>
+                  <p :if={moderation_case.reason} class="mt-1 text-[11px] text-zinc-300">
+                    {moderation_case.reason}
+                  </p>
+                </div>
+              </div>
+
+              <p :if={@moderation_cases == []} class="mt-2 text-xs text-zinc-500">
+                No moderation cases yet.
+              </p>
             </div>
           </div>
         </div>

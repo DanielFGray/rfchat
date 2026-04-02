@@ -120,6 +120,7 @@ The root route now serves a minimal guild chat shell:
 - rich composer toolbar for bold, italic, inline code, code blocks, mentions, and slash commands
 - permission-aware transcript/composer UX for sending, reacting, deleting, and role-mention guidance
 - admins with emoji permission can upload/delete custom emoji and everyone can use them in a searchable full Unicode + custom reaction picker
+- moderation workflows for timeout, kick, and ban with member-sidebar actions plus a banned-account landing screen
 
 Login is rate limited, session metadata stores IP/user-agent, and channel rendering/posting now respects membership + permission checks.
 

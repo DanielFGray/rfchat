@@ -13,6 +13,7 @@ defmodule RfchatWeb.GuildLive do
     :ok = Chat.ensure_channel_memberships_for_user(current_user, channels)
     can_manage_channels? = can_manage_channels?(socket.assigns.current_scope)
     can_manage_emojis? = can_manage_emojis?(socket.assigns.current_scope)
+    can_moderate_members? = can_moderate_members?(socket.assigns.current_scope)
 
     if connected?(socket) do
       Chat.subscribe_to_channel_events()
@@ -29,6 +30,7 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:current_user, current_user)
       |> assign(:can_manage_channels?, can_manage_channels?)
       |> assign(:can_manage_emojis?, can_manage_emojis?)
+      |> assign(:can_moderate_members?, can_moderate_members?)
       |> assign(:channels, channels)
       |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
       |> assign(:all_channel_sections, channel_sections_for_manager(can_manage_channels?))
@@ -44,6 +46,9 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:manage_channels_open?, false)
       |> assign(:manage_emojis_open?, false)
       |> assign(:reaction_picker_message_id, nil)
+      |> assign(:member_action_user_id, nil)
+      |> assign(:member_action_form, to_form(Chat.change_moderation_action(%{}), as: :moderation))
+      |> assign(:moderation_cases, [])
       |> assign(:active_channel, nil)
       |> assign(:can_send_messages?, false)
       |> assign(:can_add_reactions?, false)
@@ -194,6 +199,36 @@ defmodule RfchatWeb.GuildLive do
   @impl true
   def handle_event("close_manage_emojis", _params, socket) do
     {:noreply, assign(socket, :manage_emojis_open?, false)}
+  end
+
+  @impl true
+  def handle_event("toggle_member_actions", %{"id" => user_id}, socket) do
+    if socket.assigns.can_moderate_members? do
+      next_user_id = if socket.assigns.member_action_user_id == user_id, do: nil, else: user_id
+
+      moderation_cases =
+        if next_user_id, do: Chat.list_moderation_cases_for_user(user_id), else: []
+
+      {:noreply,
+       socket
+       |> assign(:member_action_user_id, next_user_id)
+       |> assign(:moderation_cases, moderation_cases)
+       |> assign(
+         :member_action_form,
+         to_form(Chat.change_moderation_action(%{}), as: :moderation)
+       )}
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to moderate members.")}
+    end
+  end
+
+  @impl true
+  def handle_event("close_member_actions", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:member_action_user_id, nil)
+     |> assign(:moderation_cases, [])
+     |> assign(:member_action_form, to_form(Chat.change_moderation_action(%{}), as: :moderation))}
   end
 
   @impl true
@@ -541,6 +576,43 @@ defmodule RfchatWeb.GuildLive do
     end
   end
 
+  @impl true
+  def handle_event("moderate_member", %{"user_id" => user_id, "moderation" => params}, socket) do
+    if socket.assigns.can_moderate_members? do
+      actor = socket.assigns.current_user
+      subject = Accounts.get_user_with_membership!(user_id)
+
+      case run_member_moderation(actor, subject, params) do
+        {:ok, _subject, _case, message} ->
+          {:noreply,
+           socket
+           |> refresh_member_presence()
+           |> assign(:moderation_cases, Chat.list_moderation_cases_for_user(user_id))
+           |> assign(
+             :member_action_form,
+             to_form(Chat.change_moderation_action(%{}), as: :moderation)
+           )
+           |> put_flash(:info, message)}
+
+        {:error, :forbidden} ->
+          {:noreply,
+           put_flash(socket, :error, "You do not have permission to moderate that member.")}
+
+        {:error, :invalid_duration} ->
+          changeset =
+            Chat.change_moderation_action(params)
+            |> Ecto.Changeset.add_error(:duration_minutes, "must be greater than zero")
+
+          {:noreply, assign(socket, :member_action_form, to_form(changeset, as: :moderation))}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Could not complete that moderation action.")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to moderate members.")}
+    end
+  end
+
   defp assign_message_form(socket) do
     form =
       %Message{}
@@ -795,6 +867,19 @@ defmodule RfchatWeb.GuildLive do
       permissions = scope_permissions(scope)
 
       Authorization.has_permission?(permissions, :manage_emojis_and_stickers) or
+        Authorization.has_permission?(permissions, :administrator)
+    end
+  end
+
+  defp can_moderate_members?(scope) do
+    if is_nil(scope) do
+      false
+    else
+      permissions = scope_permissions(scope)
+
+      Authorization.has_permission?(permissions, :moderate_members) or
+        Authorization.has_permission?(permissions, :kick_members) or
+        Authorization.has_permission?(permissions, :ban_members) or
         Authorization.has_permission?(permissions, :administrator)
     end
   end
@@ -1164,6 +1249,71 @@ defmodule RfchatWeb.GuildLive do
   defp clear_reply_to_message(socket), do: assign(socket, :reply_to_message, nil)
 
   defp own_message?(message, current_user), do: message.author_id == current_user.id
+
+  defp selected_member(entry, member_action_user_id), do: entry.user.id == member_action_user_id
+
+  defp member_action_available?(current_user, entry, permission_name) do
+    current_user.id != entry.user.id and
+      not entry.user.membership.is_owner and
+      Chat.moderation_permission?(current_user, permission_name)
+  end
+
+  defp moderation_case_label(:timeout), do: "Timeout"
+  defp moderation_case_label(:kick), do: "Kick"
+  defp moderation_case_label(:ban), do: "Ban"
+
+  defp moderation_case_label(other),
+    do: other |> to_string() |> String.replace("_", " ") |> String.capitalize()
+
+  defp member_timeout_label(entry) do
+    timeout_until = entry.user.membership.timeout_until
+
+    if timeout_until && DateTime.compare(timeout_until, DateTime.utc_now()) == :gt do
+      Calendar.strftime(timeout_until, "%b %-d · %H:%M")
+    end
+  end
+
+  defp run_member_moderation(actor, subject, %{
+         "action" => "timeout",
+         "duration_minutes" => minutes,
+         "reason" => reason
+       }) do
+    case Integer.parse(to_string(minutes || "")) do
+      {duration_minutes, ""} when duration_minutes > 0 ->
+        case Chat.timeout_member(actor, subject, duration_minutes, blank_to_nil(reason)) do
+          {:ok, updated_subject, moderation_case} ->
+            {:ok, updated_subject, moderation_case, "Member timed out."}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      _ ->
+        {:error, :invalid_duration}
+    end
+  end
+
+  defp run_member_moderation(actor, subject, %{"action" => "kick", "reason" => reason}) do
+    case Chat.kick_member(actor, subject, blank_to_nil(reason)) do
+      {:ok, updated_subject, moderation_case} ->
+        {:ok, updated_subject, moderation_case, "Member kicked."}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp run_member_moderation(actor, subject, %{"action" => "ban", "reason" => reason}) do
+    case Chat.ban_member(actor, subject, blank_to_nil(reason)) do
+      {:ok, updated_subject, moderation_case} ->
+        {:ok, updated_subject, moderation_case, "Member banned."}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp run_member_moderation(_actor, _subject, _params), do: {:error, :invalid_action}
 
   defp deleted_message?(message) do
     not is_nil(message.deleted_at) or Map.get(message.metadata || %{}, "deleted", false)

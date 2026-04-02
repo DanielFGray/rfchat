@@ -22,6 +22,12 @@ defmodule Rfchat.Accounts do
 
   def get_user!(id), do: Repo.get!(User, id)
 
+  def get_user_with_membership!(id) do
+    User
+    |> Repo.get!(id)
+    |> Repo.preload([:membership, member_roles: :role])
+  end
+
   def list_members do
     User
     |> join(:inner, [user], membership in Membership, on: membership.user_id == user.id)
@@ -167,6 +173,28 @@ defmodule Rfchat.Accounts do
     }
   end
 
+  def membership_state(nil), do: :anonymous
+
+  def membership_state(%User{membership: nil}), do: :removed
+
+  def membership_state(%User{membership: membership}) do
+    cond do
+      is_nil(membership.deactivated_at) -> :active
+      membership_flag?(membership, "banned") -> :banned
+      true -> :removed
+    end
+  end
+
+  def banned?(%User{} = user), do: membership_state(user) == :banned
+  def removed?(%User{} = user), do: membership_state(user) == :removed
+
+  def timed_out?(%User{membership: %{timeout_until: timeout_until}})
+      when not is_nil(timeout_until) do
+    DateTime.compare(timeout_until, DateTime.utc_now()) == :gt
+  end
+
+  def timed_out?(%User{}), do: false
+
   def hash_token(token) when is_binary(token), do: :crypto.hash(:sha256, token)
 
   defp create_membership!(%User{} = user, now, owner_candidate?) do
@@ -217,6 +245,16 @@ defmodule Rfchat.Accounts do
       DateTime.diff(now, last_active_at, :second) <= 300 -> :online
       DateTime.diff(now, last_active_at, :second) <= 3_600 -> :recent
       true -> :offline
+    end
+  end
+
+  defp membership_flag?(membership, key) do
+    flags = membership.flags || %{}
+
+    case Map.get(flags, key) do
+      true -> true
+      "true" -> true
+      _ -> false
     end
   end
 end

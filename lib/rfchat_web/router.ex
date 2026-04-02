@@ -15,6 +15,10 @@ defmodule RfchatWeb.Router do
     plug(RfchatWeb.UserAuth, :require_authenticated_user)
   end
 
+  pipeline :require_banned_user do
+    plug(RfchatWeb.UserAuth, :require_banned_user)
+  end
+
   pipeline :redirect_if_user_is_authenticated do
     plug(RfchatWeb.UserAuth, :redirect_if_user_is_authenticated)
   end
@@ -47,6 +51,15 @@ defmodule RfchatWeb.Router do
     live_session :require_authenticated_user,
       on_mount: [{RfchatWeb.UserAuth, :ensure_authenticated}] do
       live("/", GuildLive, :index)
+    end
+  end
+
+  scope "/", RfchatWeb do
+    pipe_through([:browser, :require_banned_user])
+
+    live_session :require_banned_user,
+      on_mount: [{RfchatWeb.UserAuth, :ensure_banned_user}] do
+      live("/banned", BannedLive, :index)
     end
   end
 

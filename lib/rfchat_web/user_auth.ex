@@ -17,14 +17,27 @@ defmodule RfchatWeb.UserAuth do
   end
 
   def log_in_user(conn, user, params \\ %{}) do
-    token = Accounts.generate_user_session_token(user, session_metadata(conn))
-    user_return_to = get_session(conn, :user_return_to)
+    user = Accounts.get_user_with_membership!(user.id)
 
-    conn
-    |> renew_session()
-    |> put_session(:user_token, token)
-    |> maybe_write_remember_me_cookie(token, params)
-    |> redirect(to: user_return_to || signed_in_path(conn))
+    if Accounts.banned?(user) do
+      token = Accounts.generate_user_session_token(user, session_metadata(conn))
+
+      conn
+      |> renew_session()
+      |> put_session(:user_token, token)
+      |> maybe_write_remember_me_cookie(token, params)
+      |> put_flash(:error, banned_message(user))
+      |> redirect(to: ~p"/banned")
+    else
+      token = Accounts.generate_user_session_token(user, session_metadata(conn))
+      user_return_to = get_session(conn, :user_return_to)
+
+      conn
+      |> renew_session()
+      |> put_session(:user_token, token)
+      |> maybe_write_remember_me_cookie(token, params)
+      |> redirect(to: user_return_to || signed_in_path(conn))
+    end
   end
 
   def log_out_user(conn) do
@@ -51,13 +64,30 @@ defmodule RfchatWeb.UserAuth do
   end
 
   def require_authenticated_user(conn, _opts) do
-    if conn.assigns.current_user do
+    cond do
+      conn.assigns.current_user && Accounts.banned?(conn.assigns.current_user) ->
+        conn
+        |> redirect(to: ~p"/banned")
+        |> halt()
+
+      conn.assigns.current_user ->
+        conn
+
+      true ->
+        conn
+        |> put_flash(:error, "Please log in to continue.")
+        |> maybe_store_return_to()
+        |> redirect(to: ~p"/login")
+        |> halt()
+    end
+  end
+
+  def require_banned_user(conn, _opts) do
+    if conn.assigns.current_user && Accounts.banned?(conn.assigns.current_user) do
       conn
     else
       conn
-      |> put_flash(:error, "Please log in to continue.")
-      |> maybe_store_return_to()
-      |> redirect(to: ~p"/login")
+      |> redirect(to: if(conn.assigns.current_user, do: ~p"/", else: ~p"/login"))
       |> halt()
     end
   end
@@ -65,7 +95,13 @@ defmodule RfchatWeb.UserAuth do
   def redirect_if_user_is_authenticated(conn, _opts) do
     if conn.assigns.current_user do
       conn
-      |> redirect(to: signed_in_path(conn))
+      |> redirect(
+        to:
+          if(Accounts.banned?(conn.assigns.current_user),
+            do: ~p"/banned",
+            else: signed_in_path(conn)
+          )
+      )
       |> halt()
     else
       conn
@@ -79,13 +115,29 @@ defmodule RfchatWeb.UserAuth do
   def on_mount(:ensure_authenticated, _params, session, socket) do
     socket = mount_current_scope(socket, session)
 
-    if socket.assigns.current_user do
+    cond do
+      socket.assigns.current_user && Accounts.banned?(socket.assigns.current_user) ->
+        {:halt, LiveView.redirect(socket, to: ~p"/banned")}
+
+      socket.assigns.current_user ->
+        {:cont, socket}
+
+      true ->
+        {:halt,
+         socket
+         |> LiveView.put_flash(:error, "Please log in to continue.")
+         |> LiveView.redirect(to: ~p"/login")}
+    end
+  end
+
+  def on_mount(:ensure_banned_user, _params, session, socket) do
+    socket = mount_current_scope(socket, session)
+
+    if socket.assigns.current_user && Accounts.banned?(socket.assigns.current_user) do
       {:cont, socket}
     else
       {:halt,
-       socket
-       |> LiveView.put_flash(:error, "Please log in to continue.")
-       |> LiveView.redirect(to: ~p"/login")}
+       LiveView.redirect(socket, to: if(socket.assigns.current_user, do: ~p"/", else: ~p"/login"))}
     end
   end
 
@@ -93,7 +145,11 @@ defmodule RfchatWeb.UserAuth do
     socket = mount_current_scope(socket, session)
 
     if socket.assigns.current_user do
-      {:halt, LiveView.redirect(socket, to: ~p"/")}
+      {:halt,
+       LiveView.redirect(
+         socket,
+         to: if(Accounts.banned?(socket.assigns.current_user), do: ~p"/banned", else: ~p"/")
+       )}
     else
       {:cont, socket}
     end
@@ -114,6 +170,16 @@ defmodule RfchatWeb.UserAuth do
 
   defp maybe_store_return_to(conn), do: conn
   defp signed_in_path(_conn), do: ~p"/"
+
+  defp banned_message(user) do
+    reason = user.membership.flags |> Kernel.||(%{}) |> Map.get("ban_reason")
+
+    if is_binary(reason) and String.trim(reason) != "" do
+      "This account is banned from this server. Reason: #{String.trim(reason)}"
+    else
+      "This account is banned from this server."
+    end
+  end
 
   defp maybe_write_remember_me_cookie(conn, token, %{"remember_me" => "true"}) do
     put_resp_cookie(conn, @remember_me_cookie, token, @remember_me_options)

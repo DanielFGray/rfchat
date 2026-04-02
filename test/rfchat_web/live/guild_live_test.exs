@@ -714,6 +714,95 @@ defmodule RfchatWeb.GuildLiveTest do
     refute Enum.any?(Chat.list_custom_emojis(), &(&1.id == emoji.id))
   end
 
+  test "moderators can timeout members from the member sidebar", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+
+    moderator_role =
+      role_fixture(%{
+        name: "Timeout Mod",
+        permissions: PermissionBits.combine([:moderate_members])
+      })
+
+    moderator =
+      user_fixture(%{
+        email: "timeout-mod@example.com",
+        username: "timeout_mod",
+        display_name: "Timeout Mod"
+      })
+
+    target =
+      user_fixture(%{
+        email: "timed-target@example.com",
+        username: "timed_target",
+        display_name: "Timed Target"
+      })
+
+    _member_role = member_role_fixture(moderator, moderator_role)
+    token = Rfchat.Accounts.generate_user_session_token(moderator)
+
+    conn =
+      conn
+      |> Phoenix.ConnTest.init_test_session(%{})
+      |> Plug.Conn.put_session(:user_token, token)
+      |> Plug.Conn.put_session(:live_socket_id, "users_sessions:timeout-mod")
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("#open-member-actions-#{target.id}") |> render_click()
+
+    view
+    |> form("#member-action-form-#{target.id}", %{
+      moderation: %{duration_minutes: 30, reason: "cool off"}
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#member-actions-#{target.id}")
+    assert render(view) =~ "timed out until"
+  end
+
+  test "moderators can ban members from the member sidebar", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+
+    moderator_role =
+      role_fixture(%{
+        name: "Ban Mod",
+        permissions: PermissionBits.combine([:ban_members])
+      })
+
+    moderator =
+      user_fixture(%{
+        email: "ban-mod@example.com",
+        username: "ban_mod",
+        display_name: "Ban Mod"
+      })
+
+    target =
+      user_fixture(%{
+        email: "banned-target@example.com",
+        username: "banned_target",
+        display_name: "Banned Target"
+      })
+
+    _member_role = member_role_fixture(moderator, moderator_role)
+    token = Rfchat.Accounts.generate_user_session_token(moderator)
+
+    conn =
+      conn
+      |> Phoenix.ConnTest.init_test_session(%{})
+      |> Plug.Conn.put_session(:user_token, token)
+      |> Plug.Conn.put_session(:live_socket_id, "users_sessions:ban-mod")
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("#open-member-actions-#{target.id}") |> render_click()
+
+    view
+    |> form("#member-action-form-#{target.id}", %{moderation: %{reason: "repeat abuse"}})
+    |> render_submit()
+
+    assert render(view) =~ "banned"
+  end
+
   defp log_in_member_user(conn, suffix \\ "default") do
     _owner =
       user_fixture(%{

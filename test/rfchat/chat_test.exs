@@ -341,6 +341,53 @@ defmodule Rfchat.ChatTest do
       assert Enum.any?(Chat.list_available_emojis(user), &(&1.id == emoji.id))
     end
 
+    test "timeout_member/4 blocks sending and reactions until timeout expires" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture()
+      actor_role = role_fixture(%{permissions: PermissionBits.combine([:moderate_members])})
+      actor = user_fixture(%{email: "timeout-actor@example.com", username: "timeout_actor"})
+      target = user_fixture(%{email: "timeout-target@example.com", username: "timeout_target"})
+      _member_role = member_role_fixture(actor, actor_role)
+
+      assert {:ok, updated_target, moderation_case} =
+               Chat.timeout_member(actor, target, 15, "cool off")
+
+      assert moderation_case.action_type == :timeout
+      assert Chat.timed_out?(updated_target)
+      refute Chat.can_send_messages?(channel, updated_target)
+      refute Chat.can_add_reactions?(channel, updated_target)
+    end
+
+    test "kick_member/3 deactivates membership without banned flag" do
+      Bootstrap.ensure_seed_data!()
+      actor_role = role_fixture(%{permissions: PermissionBits.combine([:kick_members])})
+      actor = user_fixture(%{email: "kick-actor@example.com", username: "kick_actor"})
+      target = user_fixture(%{email: "kick-target@example.com", username: "kick_target"})
+      _member_role = member_role_fixture(actor, actor_role)
+
+      assert {:ok, updated_target, moderation_case} = Chat.kick_member(actor, target, "bye")
+
+      assert moderation_case.action_type == :kick
+      assert updated_target.membership.deactivated_at
+      refute Map.get(updated_target.membership.flags || %{}, "banned")
+    end
+
+    test "ban_member/3 marks banned membership" do
+      Bootstrap.ensure_seed_data!()
+      actor_role = role_fixture(%{permissions: PermissionBits.combine([:ban_members])})
+      actor = user_fixture(%{email: "ban-actor@example.com", username: "ban_actor"})
+      target = user_fixture(%{email: "ban-target@example.com", username: "ban_target"})
+      _member_role = member_role_fixture(actor, actor_role)
+
+      assert {:ok, updated_target, moderation_case} =
+               Chat.ban_member(actor, target, "serious abuse")
+
+      assert moderation_case.action_type == :ban
+      assert updated_target.membership.deactivated_at
+      assert Map.get(updated_target.membership.flags || %{}, "banned")
+      assert Map.get(updated_target.membership.flags || %{}, "ban_reason") == "serious abuse"
+    end
+
     test "delete_message/2 allows moderators with manage_messages" do
       Bootstrap.ensure_seed_data!()
       channel = channel_fixture()

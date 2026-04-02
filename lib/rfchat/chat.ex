@@ -11,13 +11,16 @@ defmodule Rfchat.Chat do
   alias Rfchat.Chat.ChannelMembership
   alias Rfchat.Chat.Emoji
   alias Rfchat.Chat.MediaAsset
+  alias Rfchat.Chat.Membership
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.MessageRoleMention
   alias Rfchat.Chat.MessageUserMention
+  alias Rfchat.Chat.ModerationCase
   alias Rfchat.Chat.Reaction
   alias Rfchat.Chat.Role
   alias Rfchat.Chat.User
   alias Rfchat.Chat.UserNotificationSetting
+  alias Rfchat.Chat.AuditLogEntry
   alias Rfchat.Repo
 
   @channel_events_topic "chat:channels"
@@ -455,6 +458,11 @@ defmodule Rfchat.Chat do
     Message.changeset(message, attrs)
   end
 
+  def change_moderation_action(attrs \\ %{}) do
+    {%{}, %{reason: :string, duration_minutes: :integer, action: :string}}
+    |> Ecto.Changeset.cast(attrs, [:reason, :duration_minutes, :action])
+  end
+
   def create_message(channel, author, attrs) do
     attrs = normalize_message_attrs(attrs)
     channel = Repo.preload(channel, [:permission_overwrites])
@@ -483,6 +491,61 @@ defmodule Rfchat.Chat do
     else
       {:error, reason} -> {:error, reason}
       {:error, changeset, :changeset} -> {:error, changeset}
+    end
+  end
+
+  def list_moderation_cases_for_user(user_id) do
+    ModerationCase
+    |> where([moderation_case], moderation_case.subject_user_id == ^user_id)
+    |> order_by([moderation_case], desc: moderation_case.inserted_at)
+    |> preload([:actor_user, :subject_user])
+    |> Repo.all()
+  end
+
+  def timeout_member(%User{} = actor, %User{} = subject, duration_minutes, reason \\ nil)
+      when is_integer(duration_minutes) and duration_minutes > 0 do
+    with :ok <- authorize_member_moderation(actor, subject, :moderate_members) do
+      timeout_until = DateTime.add(DateTime.utc_now(), duration_minutes * 60, :second)
+
+      Repo.transaction(fn ->
+        membership = Repo.preload(subject, [:membership]).membership || Repo.rollback(:not_member)
+
+        {:ok, membership} =
+          membership
+          |> Membership.changeset(%{timeout_until: timeout_until})
+          |> Repo.update()
+
+        moderation_case =
+          record_moderation_case!(actor, subject, :timeout, reason,
+            expires_at: timeout_until,
+            executed_at: DateTime.utc_now(),
+            details: %{"duration_minutes" => duration_minutes}
+          )
+
+        record_audit_log!(actor, subject, "timeout_member", reason, %{
+          "duration_minutes" => duration_minutes,
+          "timeout_until" => timeout_until
+        })
+
+        {Repo.preload(subject, [:membership, member_roles: :role])
+         |> Map.put(:membership, membership), moderation_case}
+      end)
+      |> case do
+        {:ok, {updated_subject, moderation_case}} -> {:ok, updated_subject, moderation_case}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  def kick_member(%User{} = actor, %User{} = subject, reason \\ nil) do
+    with :ok <- authorize_member_moderation(actor, subject, :kick_members) do
+      deactivate_member(actor, subject, :kick, reason, %{"kicked" => true})
+    end
+  end
+
+  def ban_member(%User{} = actor, %User{} = subject, reason \\ nil) do
+    with :ok <- authorize_member_moderation(actor, subject, :ban_members) do
+      deactivate_member(actor, subject, :ban, reason, %{"banned" => true, "ban_reason" => reason})
     end
   end
 
@@ -703,7 +766,8 @@ defmodule Rfchat.Chat do
   end
 
   def can_send_messages?(%Channel{} = channel, %User{} = user) do
-    channel_permission?(channel, user, :send_messages) and can_view_channel?(channel, user)
+    not timed_out?(user) and channel_permission?(channel, user, :send_messages) and
+      can_view_channel?(channel, user)
   end
 
   def can_view_channel?(%Channel{} = channel, %User{} = user) do
@@ -711,7 +775,8 @@ defmodule Rfchat.Chat do
   end
 
   def can_add_reactions?(%Channel{} = channel, %User{} = user) do
-    can_view_channel?(channel, user) and channel_permission?(channel, user, :add_reactions)
+    not timed_out?(user) and can_view_channel?(channel, user) and
+      channel_permission?(channel, user, :add_reactions)
   end
 
   def can_manage_messages?(%Channel{} = channel, %User{} = user) do
@@ -732,6 +797,13 @@ defmodule Rfchat.Chat do
       Authorization.has_permission?(permissions, :administrator)
   end
 
+  def timed_out?(%User{membership: %{timeout_until: timeout_until}})
+      when not is_nil(timeout_until) do
+    DateTime.compare(timeout_until, DateTime.utc_now()) == :gt
+  end
+
+  def timed_out?(%User{}), do: false
+
   def message_count(channel_id) do
     Message
     |> where([message], message.channel_id == ^channel_id)
@@ -744,6 +816,16 @@ defmodule Rfchat.Chat do
 
   def default_role do
     Repo.get_by(Role, is_default: true)
+  end
+
+  def moderation_permission?(%User{} = user, permission_name) do
+    permissions =
+      user
+      |> Repo.preload([:membership, member_roles: :role])
+      |> Authorization.base_permissions(default_role())
+
+    Authorization.has_permission?(permissions, permission_name) or
+      Authorization.has_permission?(permissions, :administrator)
   end
 
   def asset_url(%MediaAsset{storage_key: storage_key}) when is_binary(storage_key),
@@ -913,6 +995,84 @@ defmodule Rfchat.Chat do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
+
+  defp deactivate_member(%User{} = actor, %User{} = subject, action_type, reason, extra_flags) do
+    Repo.transaction(fn ->
+      membership = Repo.preload(subject, [:membership]).membership || Repo.rollback(:not_member)
+      now = DateTime.utc_now()
+      flags = Map.merge(membership.flags || %{}, extra_flags)
+
+      {:ok, membership} =
+        membership
+        |> Membership.changeset(%{
+          deactivated_at: now,
+          timeout_until: nil,
+          flags: flags
+        })
+        |> Repo.update()
+
+      moderation_case =
+        record_moderation_case!(actor, subject, action_type, reason,
+          executed_at: now,
+          details: flags
+        )
+
+      record_audit_log!(actor, subject, "#{action_type}_member", reason, flags)
+
+      {Repo.preload(subject, [:membership, member_roles: :role])
+       |> Map.put(:membership, membership), moderation_case}
+    end)
+    |> case do
+      {:ok, {updated_subject, moderation_case}} -> {:ok, updated_subject, moderation_case}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp authorize_member_moderation(%User{} = actor, %User{} = subject, permission_name) do
+    actor = Repo.preload(actor, [:membership, member_roles: :role])
+    subject = Repo.preload(subject, [:membership, member_roles: :role])
+
+    cond do
+      actor.id == subject.id -> {:error, :forbidden}
+      subject.membership && subject.membership.is_owner -> {:error, :forbidden}
+      not moderation_permission?(actor, permission_name) -> {:error, :forbidden}
+      true -> :ok
+    end
+  end
+
+  defp record_moderation_case!(%User{} = actor, %User{} = subject, action_type, reason, attrs) do
+    %ModerationCase{}
+    |> ModerationCase.changeset(%{
+      case_number: next_case_number(),
+      action_type: action_type,
+      state: :executed,
+      actor_user_id: actor.id,
+      subject_user_id: subject.id,
+      reason: reason,
+      details: Keyword.get(attrs, :details, %{}),
+      expires_at: Keyword.get(attrs, :expires_at),
+      executed_at: Keyword.get(attrs, :executed_at)
+    })
+    |> Repo.insert!()
+  end
+
+  defp record_audit_log!(%User{} = actor, %User{} = subject, action_type, reason, metadata) do
+    %AuditLogEntry{}
+    |> AuditLogEntry.changeset(%{
+      action_type: action_type,
+      actor_user_id: actor.id,
+      subject_user_id: subject.id,
+      target_type: "user",
+      target_id: subject.id,
+      reason: reason,
+      metadata: metadata
+    })
+    |> Repo.insert!()
+  end
+
+  defp next_case_number do
+    (Repo.aggregate(ModerationCase, :max, :case_number) || 0) + 1
+  end
 
   defp sync_message_mentions(%Message{id: message_id, body: body}, attrs) do
     clear_message_mentions(message_id)
