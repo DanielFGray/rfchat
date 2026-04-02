@@ -389,6 +389,17 @@ defmodule Rfchat.Chat do
     |> Repo.insert_or_update()
   end
 
+  def update_channel_membership_notification(%User{} = user, channel_id, attrs)
+      when is_binary(channel_id) and is_map(attrs) do
+    membership =
+      Repo.get_by(ChannelMembership, user_id: user.id, channel_id: channel_id) ||
+        %ChannelMembership{user_id: user.id, channel_id: channel_id}
+
+    membership
+    |> ChannelMembership.changeset(Map.put_new(attrs, :joined_at, DateTime.utc_now()))
+    |> Repo.insert_or_update()
+  end
+
   def unread_counts_for_user(%User{} = user, channels) when is_list(channels) do
     channel_ids = Enum.map(channels, & &1.id)
 

@@ -105,6 +105,16 @@ defmodule Rfchat.Accounts do
     User.registration_changeset(user, attrs)
   end
 
+  def change_profile_user(%User{} = user, attrs \\ %{}) do
+    User.changeset(user, attrs)
+  end
+
+  def update_profile_user(%User{} = user, attrs) when is_map(attrs) do
+    user
+    |> User.changeset(attrs)
+    |> Repo.update()
+  end
+
   def dummy_login_changeset do
     User.login_changeset(%User{}, %{})
   end

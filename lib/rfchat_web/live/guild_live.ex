@@ -13,6 +13,7 @@ defmodule RfchatWeb.GuildLive do
     :ok = Chat.ensure_channel_memberships_for_user(current_user, channels)
     can_manage_channels? = can_manage_channels?(socket.assigns.current_scope)
     can_manage_emojis? = can_manage_emojis?(socket.assigns.current_scope)
+    can_moderate_members? = can_moderate_members?(socket.assigns.current_scope)
 
     if connected?(socket) do
       Chat.subscribe_to_channel_events()
@@ -29,6 +30,7 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:current_user, current_user)
       |> assign(:can_manage_channels?, can_manage_channels?)
       |> assign(:can_manage_emojis?, can_manage_emojis?)
+      |> assign(:can_moderate_members?, can_moderate_members?)
       |> assign(:channels, channels)
       |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
       |> assign(:all_channel_sections, channel_sections_for_manager(can_manage_channels?))
@@ -41,9 +43,16 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:unread_counts, Chat.unread_counts_for_user(current_user, channels))
       |> assign(:unread_mentions, Chat.unread_mentions_for_user(current_user, channels))
       |> assign(:mobile_sidebar_open?, false)
+      |> assign(:mobile_members_open?, false)
       |> assign(:manage_channels_open?, false)
       |> assign(:manage_emojis_open?, false)
       |> assign(:reaction_picker_message_id, nil)
+      |> assign(:active_message_controls_id, nil)
+      |> assign(:message_action_menu_id, nil)
+      |> assign(:delete_confirmation_message_id, nil)
+      |> assign(:member_action_user_id, nil)
+      |> assign(:moderation_cases, [])
+      |> assign(:member_action_form, to_form(Chat.change_moderation_action(%{}), as: :moderation))
       |> assign(:active_channel, nil)
       |> assign(:can_send_messages?, false)
       |> assign(:can_add_reactions?, false)
@@ -160,12 +169,34 @@ defmodule RfchatWeb.GuildLive do
 
   @impl true
   def handle_event("toggle_mobile_sidebar", _params, socket) do
-    {:noreply, assign(socket, :mobile_sidebar_open?, !socket.assigns.mobile_sidebar_open?)}
+    next_open? = !socket.assigns.mobile_sidebar_open?
+
+    {:noreply,
+     socket
+     |> close_message_ui()
+     |> assign(:mobile_members_open?, false)
+     |> assign(:mobile_sidebar_open?, next_open?)}
   end
 
   @impl true
   def handle_event("close_mobile_sidebar", _params, socket) do
     {:noreply, assign(socket, :mobile_sidebar_open?, false)}
+  end
+
+  @impl true
+  def handle_event("toggle_mobile_members", _params, socket) do
+    next_open? = !socket.assigns.mobile_members_open?
+
+    {:noreply,
+     socket
+     |> close_message_ui()
+     |> assign(:mobile_sidebar_open?, false)
+     |> assign(:mobile_members_open?, next_open?)}
+  end
+
+  @impl true
+  def handle_event("close_mobile_members", _params, socket) do
+    {:noreply, assign(socket, :mobile_members_open?, false)}
   end
 
   @impl true
@@ -194,6 +225,36 @@ defmodule RfchatWeb.GuildLive do
   @impl true
   def handle_event("close_manage_emojis", _params, socket) do
     {:noreply, assign(socket, :manage_emojis_open?, false)}
+  end
+
+  @impl true
+  def handle_event("toggle_member_actions", %{"id" => user_id}, socket) do
+    if socket.assigns.can_moderate_members? do
+      next_user_id = if socket.assigns.member_action_user_id == user_id, do: nil, else: user_id
+
+      moderation_cases =
+        if next_user_id, do: Chat.list_moderation_cases_for_user(user_id), else: []
+
+      {:noreply,
+       socket
+       |> assign(:member_action_user_id, next_user_id)
+       |> assign(:moderation_cases, moderation_cases)
+       |> assign(
+         :member_action_form,
+         to_form(Chat.change_moderation_action(%{}), as: :moderation)
+       )}
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to moderate members.")}
+    end
+  end
+
+  @impl true
+  def handle_event("close_member_actions", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:member_action_user_id, nil)
+     |> assign(:moderation_cases, [])
+     |> assign(:member_action_form, to_form(Chat.change_moderation_action(%{}), as: :moderation))}
   end
 
   @impl true
@@ -541,6 +602,43 @@ defmodule RfchatWeb.GuildLive do
     end
   end
 
+  @impl true
+  def handle_event("moderate_member", %{"user_id" => user_id, "moderation" => params}, socket) do
+    if socket.assigns.can_moderate_members? do
+      actor = socket.assigns.current_user
+      subject = Accounts.get_user_with_membership!(user_id)
+
+      case run_member_moderation(actor, subject, params) do
+        {:ok, _subject, _case, message} ->
+          {:noreply,
+           socket
+           |> refresh_member_presence()
+           |> assign(:moderation_cases, Chat.list_moderation_cases_for_user(user_id))
+           |> assign(
+             :member_action_form,
+             to_form(Chat.change_moderation_action(%{}), as: :moderation)
+           )
+           |> put_flash(:info, message)}
+
+        {:error, :forbidden} ->
+          {:noreply,
+           put_flash(socket, :error, "You do not have permission to moderate that member.")}
+
+        {:error, :invalid_duration} ->
+          changeset =
+            Chat.change_moderation_action(params)
+            |> Ecto.Changeset.add_error(:duration_minutes, "must be greater than zero")
+
+          {:noreply, assign(socket, :member_action_form, to_form(changeset, as: :moderation))}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Could not complete that moderation action.")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to moderate members.")}
+    end
+  end
+
   defp assign_message_form(socket) do
     form =
       %Message{}
@@ -771,10 +869,6 @@ defmodule RfchatWeb.GuildLive do
 
   defp unread_mentions_for(channel, unread_mentions) do
     Map.get(unread_mentions, channel.id, 0)
-  end
-
-  defp mention_alerts_enabled?(setting) do
-    setting.desktop_enabled && setting.notify_on_mentions
   end
 
   defp can_manage_channels?(scope) do
@@ -1010,12 +1104,6 @@ defmodule RfchatWeb.GuildLive do
     |> String.trim("-")
   end
 
-  defp manageable_categories(sections) do
-    sections
-    |> Enum.map(& &1.category)
-    |> Enum.reject(&is_nil/1)
-  end
-
   defp section_dom_id(nil), do: "channel-section-uncategorized"
   defp section_dom_id(category), do: "channel-section-#{category.slug}"
 
@@ -1042,10 +1130,58 @@ defmodule RfchatWeb.GuildLive do
   defp mobile_sidebar_overlay_class(true), do: "opacity-100 pointer-events-auto"
   defp mobile_sidebar_overlay_class(false), do: "pointer-events-none opacity-0"
 
-  defp emoji_upload_error(:too_large), do: "That file is too large."
-  defp emoji_upload_error(:too_many_files), do: "Choose only one file."
-  defp emoji_upload_error(:not_accepted), do: "That file type is not allowed."
-  defp emoji_upload_error(_error), do: "Upload failed."
+  defp scrollbar_classes do
+    [
+      "[scrollbar-width:thin]",
+      "[scrollbar-color:rgba(255,255,255,0.12)_transparent]",
+      "[&::-webkit-scrollbar]:h-2.5",
+      "[&::-webkit-scrollbar]:w-2.5",
+      "[&::-webkit-scrollbar-track]:bg-transparent",
+      "[&::-webkit-scrollbar-thumb]:rounded-full",
+      "[&::-webkit-scrollbar-thumb]:border-2",
+      "[&::-webkit-scrollbar-thumb]:border-transparent",
+      "[&::-webkit-scrollbar-thumb]:bg-[rgba(255,255,255,0.12)]",
+      "[&::-webkit-scrollbar-thumb]:bg-clip-padding",
+      "[&::-webkit-scrollbar-thumb:hover]:bg-[rgba(255,255,255,0.2)]"
+    ]
+    |> Enum.join(" ")
+  end
+
+  defp composer_shell_classes do
+    "flex flex-col gap-2 px-3 py-3"
+  end
+
+  defp composer_toolbar_region_classes do
+    [
+      "grid gap-[0.45rem] max-h-0 overflow-hidden opacity-0 pointer-events-none -translate-y-1",
+      "transition-[max-height,opacity,transform] duration-200 ease-out",
+      "data-[expanded=true]:max-h-24 data-[expanded=true]:translate-y-0",
+      "data-[expanded=true]:opacity-100 data-[expanded=true]:pointer-events-auto"
+    ]
+    |> Enum.join(" ")
+  end
+
+  defp composer_toolbar_button_classes do
+    [
+      "inline-flex min-h-[1.9rem] min-w-[1.9rem] items-center justify-center rounded-lg border",
+      "border-white/8 bg-black/14 px-[0.2rem] text-[11px] font-bold text-zinc-400 transition",
+      "hover:border-violet-400/55 hover:bg-violet-500/14 hover:text-violet-100",
+      "data-[active=true]:border-violet-400/55 data-[active=true]:bg-violet-500/14",
+      "data-[active=true]:text-violet-100"
+    ]
+    |> Enum.join(" ")
+  end
+
+  defp message_body_classes do
+    [
+      "mt-0.5 break-words text-[15px] leading-6 text-zinc-100",
+      "[&>p]:m-0 [&>ul]:m-0 [&>ul]:pl-5 [&>ol]:m-0 [&>ol]:pl-5",
+      "[&_li+li]:mt-0.5 [&>p+p]:mt-[0.55rem] [&>p+ul]:mt-[0.55rem] [&>p+ol]:mt-[0.55rem]",
+      "[&>ul+p]:mt-[0.55rem] [&>ol+p]:mt-[0.55rem] [&_.message-code-block]:mt-[0.55rem]",
+      "[&_.message-link-embed]:mt-[0.55rem]"
+    ]
+    |> Enum.join(" ")
+  end
 
   defp reaction_summaries(message, current_user) do
     message.reactions

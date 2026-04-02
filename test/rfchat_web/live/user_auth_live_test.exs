@@ -81,6 +81,10 @@ defmodule RfchatWeb.UserAuthLiveTest do
     assert {:error, {:redirect, %{to: "/login"}}} = live(conn, ~p"/")
   end
 
+  test "settings route requires authentication", %{conn: conn} do
+    assert {:error, {:redirect, %{to: "/login"}}} = live(conn, ~p"/settings")
+  end
+
   test "login rate limiting blocks repeated invalid attempts", %{conn: conn} do
     user_fixture(%{email: "ratelimit@example.com", username: "ratelimit_user"})
 

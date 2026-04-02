@@ -49,11 +49,13 @@ test('user can log in, switch channels, and send a chat message', async ({ page 
   await page.locator('#channel-link-engineering').click()
   await expect(page).toHaveURL(/\?channel=engineering$/)
   await expect(page.locator('#message-form')).toBeVisible()
+  await expect(page.locator('#rich-composer-shell')).not.toHaveClass(/is-expanded/)
 
   const composer = page.locator('#message-form [contenteditable="true"]').first()
 
   await expect(composer).toBeVisible()
   await composer.click()
+  await expect(page.locator('#rich-composer-shell')).toHaveClass(/is-focused/)
   await composer.pressSequentially(message)
   await page.getByRole('button', { name: 'Code block' }).click()
   await composer.pressSequentially(code)
@@ -68,6 +70,25 @@ test('user can log in, switch channels, and send a chat message', async ({ page 
   await expect(sentMessage).toContainText(code)
   await expect(sentMessage).toContainText(link)
   await expect(page.locator('#message-list')).toContainText(displayName)
+})
+
+test('settings trigger is visible and navigates to authenticated settings route', async ({ page }) => {
+  await page.goto('/login')
+  await page.getByLabel('Email').fill('e2e@example.com')
+  await page.getByLabel('Password').fill('supersecurepass')
+  await page.getByRole('button', { name: 'Log in' }).click()
+
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.locator('#open-settings-link')).toBeVisible()
+
+  await page.locator('#open-settings-link').click()
+  await expect(page).toHaveURL(/\/settings$/)
+  await expect(page.locator('#settings-panel-title')).toBeVisible()
+
+  const guest = await page.context().browser().newPage()
+  await guest.goto('/settings')
+  await expect(guest).toHaveURL(/\/login$/)
+  await guest.close()
 })
 
 test('inactive channel mention triggers browser notification', async ({ browser }) => {

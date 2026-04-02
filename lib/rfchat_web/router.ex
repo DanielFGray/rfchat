@@ -47,6 +47,7 @@ defmodule RfchatWeb.Router do
     live_session :require_authenticated_user,
       on_mount: [{RfchatWeb.UserAuth, :ensure_authenticated}] do
       live("/", GuildLive, :index)
+      live("/settings", SettingsLive, :index)
     end
   end
 

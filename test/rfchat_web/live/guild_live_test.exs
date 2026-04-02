@@ -286,13 +286,11 @@ defmodule RfchatWeb.GuildLiveTest do
   test "enables desktop mention alerts and requests browser permission", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=notifications")
 
     assert has_element?(view, "#disable-desktop-mentions")
-
     view |> element("#disable-desktop-mentions") |> render_click()
     assert has_element?(view, "#enable-desktop-mentions")
-
     view |> element("#enable-desktop-mentions") |> render_click()
 
     assert_push_event(view, "notifications:request-permission", %{})
@@ -548,6 +546,15 @@ defmodule RfchatWeb.GuildLiveTest do
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(view, "#message-form", "@everyone and locked roles need extra permission")
+    refute has_element?(view, "#message-form", "mentions enabled")
+
+    refute has_element?(
+             view,
+             "#message-form",
+             "Markdown, mentions, slash commands, code blocks, and rich links"
+           )
+
+    assert has_element?(view, "#rich-composer-toolbar [aria-label='Bold']")
   end
 
   test "supports opening and closing the mobile channel drawer", %{conn: conn} do
@@ -564,10 +571,24 @@ defmodule RfchatWeb.GuildLiveTest do
     assert has_element?(view, "#mobile-channel-drawer.-translate-x-full")
   end
 
-  test "owners can open channel manager and create a category plus child channel", %{conn: conn} do
+  test "settings trigger opens consolidated settings panel", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(view, "#open-settings-link")
+
+    assert {:error, {:live_redirect, %{to: "/settings"}}} =
+             view |> element("#open-settings-link") |> render_click()
+
+    {:ok, settings_view, _html} = live(conn, ~p"/settings")
+    assert has_element?(settings_view, "#settings-panel-title")
+  end
+
+  test "owners can open server settings and create a category plus child channel", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_owner_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
 
     view |> element("#open-channel-manager") |> render_click()
 
@@ -589,14 +610,14 @@ defmodule RfchatWeb.GuildLiveTest do
     })
     |> render_submit()
 
-    assert has_element?(view, "#channel-link-roadmap")
+    assert has_element?(view, "#manage-channel-roadmap")
     assert has_element?(view, "#manager-channel-section-product", "Roadmap")
   end
 
-  test "owners can edit and reorder channels from the manager", %{conn: conn} do
+  test "owners can edit and reorder channels from server settings", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_owner_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
 
     view |> element("#open-channel-manager") |> render_click()
     view |> element("#edit-channel-engineering") |> render_click()
@@ -609,8 +630,8 @@ defmodule RfchatWeb.GuildLiveTest do
     })
     |> render_submit()
 
-    assert has_element?(view, "#channel-link-platform")
-    refute has_element?(view, "#channel-link-engineering")
+    assert has_element?(view, "#manage-channel-platform")
+    refute has_element?(view, "#manage-channel-engineering")
 
     view |> element("#move-channel-down-general") |> render_click()
 
@@ -620,16 +641,16 @@ defmodule RfchatWeb.GuildLiveTest do
     assert general.position > platform.position
   end
 
-  test "non-managers do not see channel management controls", %{conn: conn} do
+  test "non-managers do not see server management controls", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
 
     refute has_element?(view, "#open-channel-manager")
     refute has_element?(view, "#channel-manager-panel")
   end
 
-  test "administrator role surfaces channel management controls", %{conn: conn} do
+  test "administrator role surfaces server management controls", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
 
     _owner =
@@ -657,7 +678,7 @@ defmodule RfchatWeb.GuildLiveTest do
       |> Plug.Conn.put_session(:user_token, token)
       |> Plug.Conn.put_session(:live_socket_id, "users_sessions:admin-ui")
 
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
 
     assert has_element?(view, "#open-channel-manager")
   end
@@ -687,7 +708,7 @@ defmodule RfchatWeb.GuildLiveTest do
       |> Plug.Conn.put_session(:user_token, token)
       |> Plug.Conn.put_session(:live_socket_id, "users_sessions:emoji-manager")
 
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
 
     view |> element("#open-emoji-manager") |> render_click()
 
