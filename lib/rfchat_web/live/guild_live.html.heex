@@ -52,6 +52,16 @@
             </span>
 
             <button
+              :if={@can_manage_emojis?}
+              type="button"
+              phx-click="toggle_manage_emojis"
+              id="open-emoji-manager"
+              class="rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 transition hover:bg-white/8 hover:text-white"
+            >
+              Emoji
+            </button>
+
+            <button
               :if={@can_manage_channels?}
               type="button"
               phx-click="toggle_manage_channels"
@@ -412,6 +422,146 @@
       </div>
     </aside>
 
+    <div
+      :if={@can_manage_emojis?}
+      id="emoji-manager-overlay"
+      class={[
+        "fixed inset-0 z-40 bg-black/70 transition",
+        @manage_emojis_open? && "opacity-100 pointer-events-auto",
+        !@manage_emojis_open? && "pointer-events-none opacity-0"
+      ]}
+      phx-click="close_manage_emojis"
+    />
+
+    <aside
+      :if={@can_manage_emojis?}
+      id="emoji-manager-panel"
+      class={[
+        "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-black/30 bg-[#202225] shadow-[-16px_0_48px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out",
+        @manage_emojis_open? && "translate-x-0",
+        !@manage_emojis_open? && "translate-x-full"
+      ]}
+    >
+      <div class="flex items-center justify-between border-b border-black/20 px-5 py-4">
+        <div>
+          <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+            Server assets
+          </p>
+          <h2 class="mt-1 text-lg font-semibold text-white">Custom emoji</h2>
+        </div>
+
+        <button
+          type="button"
+          phx-click="close_manage_emojis"
+          id="close-emoji-manager"
+          class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+        >
+          Close
+        </button>
+      </div>
+
+      <div class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[1.05fr_0.95fr]">
+        <div class="min-h-0 overflow-y-auto border-b border-black/20 px-4 py-4 lg:border-b-0 lg:border-r chat-scrollbar">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                Library
+              </p>
+              <p class="mt-1 text-xs text-zinc-400">Upload small reaction-ready emoji assets.</p>
+            </div>
+            <span class="rounded bg-black/20 px-2 py-1 text-[10px] font-semibold text-zinc-400">
+              {length(@custom_emojis)} total
+            </span>
+          </div>
+
+          <div class="mt-4 grid gap-3 sm:grid-cols-2">
+            <div
+              :for={emoji <- @custom_emojis}
+              id={"manage-emoji-#{emoji.id}"}
+              class="rounded-xl border border-white/8 bg-black/10 p-3"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex min-w-0 items-center gap-3">
+                  <img
+                    src={emoji.url}
+                    alt={emoji.name}
+                    class="size-10 rounded-lg bg-black/20 object-cover"
+                  />
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-semibold text-zinc-100">{emoji.name}</p>
+                    <p class="truncate text-[11px] text-zinc-400">{emoji.shortcode}</p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  phx-click="delete_emoji"
+                  phx-value-id={emoji.id}
+                  id={"delete-emoji-#{emoji.id}"}
+                  class="rounded px-2 py-1 text-[11px] font-semibold text-rose-300 transition hover:bg-rose-500/10 hover:text-rose-100"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="min-h-0 overflow-y-auto px-4 py-4 chat-scrollbar">
+          <div class="rounded-xl border border-white/8 bg-black/10 p-4">
+            <div>
+              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                Upload
+              </p>
+              <h3 class="mt-1 text-base font-semibold text-white">Add custom emoji</h3>
+            </div>
+
+            <.form
+              for={@emoji_form}
+              id="emoji-form"
+              phx-submit="save_emoji"
+              class="mt-4 space-y-4"
+            >
+              <.input field={@emoji_form[:name]} type="text" label="Name" />
+              <.input field={@emoji_form[:shortcode]} type="text" label="Shortcode" />
+
+              <div>
+                <label class="mb-2 block text-sm font-medium text-zinc-200">Image</label>
+                <div class="rounded-xl border border-dashed border-white/10 bg-black/10 p-4">
+                  <.live_file_input
+                    upload={@uploads.emoji_image}
+                    class="block w-full text-sm text-zinc-200"
+                  />
+                  <p class="mt-2 text-[11px] text-zinc-500">
+                    png, jpg, gif, or webp. keep it tiny.
+                  </p>
+                </div>
+                <p
+                  :for={err <- upload_errors(@uploads.emoji_image)}
+                  class="mt-2 text-[11px] text-rose-300"
+                >
+                  {emoji_upload_error(err)}
+                </p>
+              </div>
+
+              <div class="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  phx-click="close_manage_emojis"
+                  class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                >
+                  Close
+                </button>
+                <.button class="rounded-md bg-violet-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-violet-400">
+                  Save emoji
+                </.button>
+              </div>
+            </.form>
+          </div>
+        </div>
+      </div>
+    </aside>
+
     <section class="flex min-h-0 min-w-0 flex-1 flex-col bg-[#313338]">
       <%= if @active_channel do %>
         <header class="flex items-center justify-between border-b border-black/20 bg-[#313338]/95 px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.2)] backdrop-blur">
@@ -554,26 +704,173 @@
 
                   <div class="mt-2 flex flex-wrap items-center gap-1.5">
                     <button
-                      :for={emoji <- ["👍", "🔥", "❤️"]}
+                      :for={reaction <- reaction_summaries(message, @current_user)}
                       type="button"
-                      phx-click="toggle_reaction"
+                      phx-click={
+                        if reaction.kind == :unicode,
+                          do: "toggle_reaction",
+                          else: "toggle_custom_reaction"
+                      }
                       phx-value-id={message.id}
-                      phx-value-emoji={emoji}
-                      id={"reaction-#{message.id}-#{Base.url_encode64(emoji, padding: false)}"}
+                      phx-value-emoji={reaction.emoji_unicode}
+                      phx-value-emoji_id={reaction.emoji_id}
+                      id={
+                        if reaction.kind == :unicode,
+                          do:
+                            "reaction-#{message.id}-#{Base.url_encode64(reaction.emoji_unicode, padding: false)}",
+                          else: "reaction-#{message.id}-custom-#{reaction.emoji_id}"
+                      }
                       disabled={!@can_add_reactions? or deleted_message?(message)}
                       class={[
                         "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition",
-                        reacted_by_current_user?(message, @current_user, emoji) &&
+                        reaction.reacted? &&
                           "border-violet-400/60 bg-violet-500/20 text-violet-100",
-                        not reacted_by_current_user?(message, @current_user, emoji) &&
+                        !reaction.reacted? &&
                           "border-white/8 bg-black/10 text-zinc-400 hover:border-white/15 hover:text-zinc-200",
                         (!@can_add_reactions? or deleted_message?(message)) &&
                           "cursor-not-allowed opacity-50 hover:border-white/8 hover:text-zinc-400"
                       ]}
                     >
-                      <span>{emoji}</span>
-                      <span>{reaction_count(message, emoji)}</span>
+                      <span :if={reaction.kind == :unicode}>{reaction.emoji_unicode}</span>
+                      <img
+                        :if={reaction.kind == :custom}
+                        src={reaction.url}
+                        alt={reaction.label}
+                        class="size-4 rounded object-cover"
+                      />
+                      <span>{reaction.count}</span>
                     </button>
+
+                    <div class="relative">
+                      <button
+                        type="button"
+                        phx-click="toggle_reaction_picker"
+                        phx-value-id={message.id}
+                        id={"open-reaction-picker-#{message.id}"}
+                        disabled={!@can_add_reactions? or deleted_message?(message)}
+                        class={[
+                          "inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-[11px] font-semibold transition",
+                          reaction_picker_open?(message, @reaction_picker_message_id) &&
+                            "border-violet-400/60 bg-violet-500/20 text-violet-100",
+                          !reaction_picker_open?(message, @reaction_picker_message_id) &&
+                            "border-white/10 bg-black/10 text-zinc-400 hover:border-white/20 hover:text-zinc-200",
+                          (!@can_add_reactions? or deleted_message?(message)) &&
+                            "cursor-not-allowed opacity-50 hover:border-white/10 hover:text-zinc-400"
+                        ]}
+                      >
+                        <span>+</span>
+                        <span>Add reaction</span>
+                      </button>
+
+                      <div
+                        :if={reaction_picker_open?(message, @reaction_picker_message_id)}
+                        id={"reaction-picker-#{message.id}"}
+                        phx-hook="ReactionPickerHook"
+                        data-custom-emojis={@custom_emojis_json}
+                        class="absolute left-0 top-full z-20 mt-2 w-72 rounded-2xl border border-white/10 bg-[#1c1d21] p-3 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+                      >
+                        <div class="mb-2 flex items-center justify-between gap-3">
+                          <div>
+                            <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                              Reactions
+                            </p>
+                            <p class="mt-1 text-xs text-zinc-400">
+                              Pick a default or custom emoji.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            phx-click="close_reaction_picker"
+                            id={"close-reaction-picker-#{message.id}"}
+                            class="rounded-md px-2 py-1 text-[10px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                          >
+                            Close
+                          </button>
+                        </div>
+
+                        <div class="space-y-3">
+                          <div>
+                            <label
+                              for={"reaction-picker-search-#{message.id}"}
+                              class="mb-2 block text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500"
+                            >
+                              Search
+                            </label>
+                            <input
+                              id={"reaction-picker-search-#{message.id}"}
+                              type="search"
+                              placeholder="Search emojis"
+                              data-reaction-picker-search
+                              class="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-violet-400/60"
+                            />
+                          </div>
+
+                          <div>
+                            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                              Default
+                            </p>
+                            <div
+                              data-reaction-picker-categories
+                              class="mb-2 flex flex-wrap gap-1.5"
+                            />
+                            <div
+                              data-reaction-picker-defaults
+                              data-message-id={message.id}
+                              class="grid max-h-72 grid-cols-6 gap-2 overflow-y-auto pr-1 chat-scrollbar"
+                            >
+                              <button
+                                :for={emoji <- Chat.default_reaction_emojis()}
+                                type="button"
+                                phx-click="toggle_reaction"
+                                phx-value-id={message.id}
+                                phx-value-emoji={emoji}
+                                id={"reaction-picker-default-#{message.id}-#{Base.url_encode64(emoji, padding: false)}"}
+                                class="flex h-10 items-center justify-center rounded-xl border border-white/8 bg-black/10 text-lg transition hover:border-white/20 hover:bg-white/6"
+                              >
+                                <span>{emoji}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div>
+                            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                              Custom
+                            </p>
+                            <div
+                              :if={@custom_emojis != []}
+                              class="grid grid-cols-4 gap-2"
+                              data-reaction-picker-custom
+                            >
+                              <button
+                                :for={emoji <- @custom_emojis}
+                                type="button"
+                                phx-click="toggle_custom_reaction"
+                                phx-value-id={message.id}
+                                phx-value-emoji_id={emoji.id}
+                                id={"reaction-picker-custom-#{message.id}-#{emoji.id}"}
+                                data-custom-emoji-id={emoji.id}
+                                data-custom-emoji-name={emoji.name}
+                                data-custom-emoji-shortcode={emoji.shortcode}
+                                class="flex flex-col items-center gap-1 rounded-xl border border-white/8 bg-black/10 px-2 py-2 text-[10px] font-medium text-zinc-300 transition hover:border-white/20 hover:bg-white/6 hover:text-white"
+                              >
+                                <img
+                                  src={emoji.url}
+                                  alt={emoji.name}
+                                  class="size-6 rounded-md object-cover"
+                                />
+                                <span class="max-w-full truncate">{emoji.name}</span>
+                              </button>
+                            </div>
+                            <p
+                              :if={@custom_emojis == []}
+                              class="rounded-xl border border-dashed border-white/8 bg-black/10 px-3 py-3 text-xs text-zinc-500"
+                            >
+                              No custom emoji uploaded yet.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <p :if={!@can_add_reactions?} class="mt-2 text-[11px] text-zinc-500">

@@ -11,6 +11,7 @@
   "license": "Unlicense",
   "type": "commonjs",
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
     "@tiptap/core": "^3.22.0",
     "@tiptap/extension-link": "^3.22.0",
     "@tiptap/extension-mention": "^3.22.0",

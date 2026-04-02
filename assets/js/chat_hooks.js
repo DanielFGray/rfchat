@@ -5,6 +5,7 @@ import Mention from "@tiptap/extension-mention"
 import Link from "@tiptap/extension-link"
 import MarkdownIt from "markdown-it"
 import DOMPurify from "dompurify"
+import { CATEGORY_ORDER, CATEGORY_LABELS, filterEmojiCatalog } from "./emoji_catalog"
 
 const md = new MarkdownIt({
   html: false,
@@ -271,6 +272,120 @@ const MessageListHook = {
   },
 }
 
+const ReactionPickerHook = {
+  mounted() {
+    this.searchInput = this.el.querySelector("[data-reaction-picker-search]")
+    this.defaultsContainer = this.el.querySelector("[data-reaction-picker-defaults]")
+    this.categoriesContainer = this.el.querySelector("[data-reaction-picker-categories]")
+    this.customContainer = this.el.querySelector("[data-reaction-picker-custom]")
+    this.messageId = this.defaultsContainer?.dataset.messageId
+    this.activeCategory = null
+    this.query = ""
+
+    this.customEmojiIds = new Set(parseDatasetJson(this.el.dataset.customEmojis).map(item => item.id))
+
+    this.handleSearch = event => {
+      this.query = event.target.value || ""
+      this.renderCatalog()
+    }
+
+    this.handleCategoryClick = event => {
+      const button = event.target.closest("[data-reaction-picker-category]")
+      if(!button) return
+      event.preventDefault()
+
+      const nextCategory = button.dataset.reactionPickerCategory || null
+      this.activeCategory = this.activeCategory === nextCategory ? null : nextCategory
+      this.renderCatalog()
+    }
+
+    this.searchInput?.addEventListener("input", this.handleSearch)
+    this.categoriesContainer?.addEventListener("click", this.handleCategoryClick)
+    this.renderCatalog()
+    this.searchInput?.focus()
+  },
+
+  updated() {
+    this.customEmojiIds = new Set(parseDatasetJson(this.el.dataset.customEmojis).map(item => item.id))
+    this.renderCatalog()
+  },
+
+  destroyed() {
+    this.searchInput?.removeEventListener("input", this.handleSearch)
+    this.categoriesContainer?.removeEventListener("click", this.handleCategoryClick)
+  },
+
+  renderCatalog() {
+    if(!this.defaultsContainer || !this.categoriesContainer || !this.messageId) return
+
+    const items = filterEmojiCatalog(this.query, this.activeCategory)
+    this.renderCategories(items)
+    this.renderDefaults(items)
+    this.filterCustomEmojis()
+  },
+
+  renderCategories(items) {
+    const availableCategories = new Set(items.map(item => item.category))
+
+    this.categoriesContainer.innerHTML = ""
+
+    CATEGORY_ORDER.forEach(categoryId => {
+      if(this.query && !availableCategories.has(categoryId)) return
+
+      const button = document.createElement("button")
+      button.type = "button"
+      button.dataset.reactionPickerCategory = categoryId
+      button.className = [
+        "rounded-full border px-2 py-1 text-[10px] font-semibold transition",
+        this.activeCategory === categoryId
+          ? "border-violet-400/60 bg-violet-500/20 text-violet-100"
+          : "border-white/10 bg-black/10 text-zinc-400 hover:border-white/20 hover:text-zinc-200",
+      ].join(" ")
+      button.textContent = CATEGORY_LABELS[categoryId] || categoryId
+      this.categoriesContainer.appendChild(button)
+    })
+  },
+
+  renderDefaults(items) {
+    this.defaultsContainer.innerHTML = ""
+
+    if(items.length === 0) {
+      const empty = document.createElement("p")
+      empty.className = "col-span-6 rounded-xl border border-dashed border-white/8 bg-black/10 px-3 py-4 text-center text-xs text-zinc-500"
+      empty.textContent = "No default emojis match that search."
+      this.defaultsContainer.appendChild(empty)
+      return
+    }
+
+    items.forEach(entry => {
+      const button = document.createElement("button")
+      button.type = "button"
+      button.setAttribute("phx-click", "toggle_reaction")
+      button.setAttribute("phx-value-id", this.messageId)
+      button.setAttribute("phx-value-emoji", entry.emoji)
+      button.id = `reaction-picker-default-${this.messageId}-${entry.unified}`
+      button.className = "flex h-10 items-center justify-center rounded-xl border border-white/8 bg-black/10 text-lg transition hover:border-white/20 hover:bg-white/6"
+      button.title = entry.name
+      button.setAttribute("aria-label", entry.name)
+      button.textContent = entry.emoji
+      this.defaultsContainer.appendChild(button)
+    })
+  },
+
+  filterCustomEmojis() {
+    if(!this.customContainer) return
+
+    const normalizedQuery = this.query.trim().toLowerCase()
+
+    this.customContainer.querySelectorAll("[data-custom-emoji-id]").forEach(node => {
+      const name = (node.dataset.customEmojiName || "").toLowerCase()
+      const shortcode = (node.dataset.customEmojiShortcode || "").toLowerCase()
+      const visible = normalizedQuery === "" || name.includes(normalizedQuery) || shortcode.includes(normalizedQuery)
+      node.classList.toggle("hidden", !visible)
+    })
+  },
+}
+
 function buildSuggestion({ char, items, startOfLine = false }) {
   return {
     char,
@@ -531,4 +646,4 @@ function enhanceEmbeds(container) {
   })
 }
 
-export { MessageListHook, RichComposerHook }
+export { MessageListHook, ReactionPickerHook, RichComposerHook }
