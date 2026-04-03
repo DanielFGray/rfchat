@@ -30,14 +30,7 @@
       ]}
     >
       <div class="flex items-center justify-between border-b border-base-300 px-4 py-3 shadow-sm">
-        <div class="min-w-0">
-          <p class="truncate text-[15px] font-semibold tracking-tight text-base-content">
-            {@guild_name}
-          </p>
-          <p class="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-base-content/50">
-            single guild
-          </p>
-        </div>
+        <Layouts.server_identity server={@server_settings} />
 
         <div class="flex items-center gap-2">
           <button
@@ -242,21 +235,9 @@
                   phx-click="toggle_message_controls"
                   phx-value-id={message.id}
                 >
-                  <div class="flex items-baseline gap-2">
-                    <p class="truncate text-[15px] font-medium leading-5 text-base-content">
-                      {message.author.display_name}
-                    </p>
-                    <span class="truncate text-[11px] text-base-content/50">
-                      @{message.author.username}
-                    </span>
-                    <time class="shrink-0 text-[11px] text-base-content/50">
-                      {Calendar.strftime(message.inserted_at, "%b %-d at %H:%M")}
-                    </time>
-                  </div>
-
                   <div
                     :if={message.reply_to}
-                    class="mt-1 flex items-center gap-2 border-l-2 border-base-300 pl-3 text-xs text-base-content/65"
+                    class="mt-1 text-xs text-base-content/65"
                   >
                     <span class="truncate">
                       Replying to
@@ -265,6 +246,15 @@
                       </span>
                       · {message.reply_to.body}
                     </span>
+                  </div>
+
+                  <div class="flex items-baseline gap-2">
+                    <p class="truncate text-[15px] font-medium leading-5 text-base-content">
+                      {message.author.display_name}
+                    </p>
+                    <time class="shrink-0 text-[11px] text-base-content/50">
+                      {Calendar.strftime(message.inserted_at, "%b %-d at %H:%M")}
+                    </time>
                   </div>
 
                   <%= if @editing_message_id == message.id do %>
@@ -352,153 +342,474 @@
                       />
                       <span>{reaction.count}</span>
                     </button>
+                  </div>
 
-                    <div class="relative">
-                      <button
-                        type="button"
-                        phx-click="toggle_reaction_picker"
-                        phx-value-id={message.id}
-                        id={"open-reaction-picker-#{message.id}"}
-                        disabled={!@can_add_reactions? or deleted_message?(message)}
-                        class={[
-                          "inline-flex size-7 items-center justify-center rounded-full border border-dashed text-sm transition",
-                          reaction_picker_open?(message, @reaction_picker_message_id) &&
-                            "border-violet-400/60 bg-violet-500/20 text-violet-100",
-                          !reaction_picker_open?(message, @reaction_picker_message_id) &&
-                            "border-base-300 bg-base-100 text-base-content/70 hover:border-base-content/20 hover:text-base-content",
-                          (!@can_add_reactions? or deleted_message?(message)) &&
-                            "cursor-not-allowed opacity-50 hover:border-base-300 hover:text-base-content/70"
-                        ]}
-                        aria-label="Add reaction"
-                      >
-                        <span>😊</span>
-                      </button>
+                  <button
+                    :if={reaction_picker_open?(message, @reaction_picker_message_id)}
+                    type="button"
+                    phx-click="close_reaction_picker"
+                    id={"reaction-picker-overlay-#{message.id}"}
+                    class="fixed inset-0 z-10 bg-black/50 md:hidden"
+                    aria-label="Close reaction picker"
+                  />
 
-                      <div class="pointer-events-none absolute right-full top-1/2 mr-2 hidden -translate-y-1/2 items-center gap-1 rounded-full border border-base-300 bg-base-100 px-2 py-1 text-base-content/50 md:flex">
-                        <span class="text-xs">↩</span>
-                        <span class="text-xs">#</span>
+                  <div
+                    :if={reaction_picker_open?(message, @reaction_picker_message_id)}
+                    id={"reaction-picker-#{message.id}"}
+                    phx-hook="ReactionPickerHook"
+                    data-custom-emojis={@custom_emojis_json}
+                    class="fixed inset-x-0 bottom-0 z-20 rounded-t-[1.4rem] border border-base-300 bg-base-100 p-3 shadow-2xl md:absolute md:right-4 md:top-14 md:left-auto md:bottom-auto md:w-[22rem] md:rounded-2xl"
+                  >
+                    <div class="mb-2 flex items-center justify-between gap-3">
+                      <div>
+                        <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-base-content/50">
+                          Reactions
+                        </p>
+                        <p class="mt-1 text-xs text-base-content/65">
+                          Pick a default or custom emoji.
+                        </p>
                       </div>
-
                       <button
-                        :if={reaction_picker_open?(message, @reaction_picker_message_id)}
                         type="button"
                         phx-click="close_reaction_picker"
-                        id={"reaction-picker-overlay-#{message.id}"}
-                        class="fixed inset-0 z-10 bg-black/50 md:hidden"
-                        aria-label="Close reaction picker"
-                      />
-
-                      <div
-                        :if={reaction_picker_open?(message, @reaction_picker_message_id)}
-                        id={"reaction-picker-#{message.id}"}
-                        phx-hook="ReactionPickerHook"
-                        data-custom-emojis={@custom_emojis_json}
-                        class="fixed inset-x-0 bottom-0 z-20 rounded-t-[1.4rem] border border-base-300 bg-base-100 p-3 shadow-2xl md:absolute md:inset-auto md:left-0 md:top-full md:mt-2 md:w-72 md:rounded-2xl"
+                        id={"close-reaction-picker-#{message.id}"}
+                        class="rounded-md px-2 py-1 text-[10px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
                       >
-                        <div class="mb-2 flex items-center justify-between gap-3">
-                          <div>
-                            <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-base-content/50">
-                              Reactions
-                            </p>
-                            <p class="mt-1 text-xs text-base-content/65">
-                              Pick a default or custom emoji.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            phx-click="close_reaction_picker"
-                            id={"close-reaction-picker-#{message.id}"}
-                            class="rounded-md px-2 py-1 text-[10px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
+                        Close
+                      </button>
+                    </div>
+
+                    <div class="space-y-3">
+                      <div>
+                        <label
+                          for={"reaction-picker-search-#{message.id}"}
+                          class="mb-2 block text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50"
+                        >
+                          Search
+                        </label>
+                        <input
+                          id={"reaction-picker-search-#{message.id}"}
+                          type="search"
+                          placeholder="Search emojis"
+                          data-reaction-picker-search
+                          class="w-full rounded-xl border border-base-300 bg-base-200 px-3 py-2 text-sm text-base-content outline-none transition placeholder:text-base-content/45 focus:border-primary/60"
+                        />
+                      </div>
+
+                      <div>
+                        <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50">
+                          Default
+                        </p>
+
+                        <div class="grid min-h-0 grid-cols-[2.75rem_minmax(0,1fr)] gap-3">
+                          <div
+                            data-reaction-picker-categories
+                            class={[
+                              "flex max-h-[40vh] flex-col gap-2 overflow-y-auto pr-1 md:max-h-72",
+                              scrollbar_classes()
+                            ]}
+                          />
+
+                          <div
+                            data-reaction-picker-defaults
+                            data-message-id={message.id}
+                            class={[
+                              "grid max-h-[40vh] grid-cols-8 gap-1 overflow-y-auto pr-1 md:max-h-72 md:grid-cols-8",
+                              scrollbar_classes()
+                            ]}
                           >
-                            Close
-                          </button>
-                        </div>
-
-                        <div class="space-y-3">
-                          <div>
-                            <label
-                              for={"reaction-picker-search-#{message.id}"}
-                              class="mb-2 block text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50"
+                            <button
+                              :for={emoji <- Chat.default_reaction_emojis()}
+                              type="button"
+                              phx-click="toggle_reaction"
+                              phx-value-id={message.id}
+                              phx-value-emoji={emoji}
+                              id={"reaction-picker-default-#{message.id}-#{Base.url_encode64(emoji, padding: false)}"}
+                              class="flex aspect-square size-10 items-center justify-center rounded-xl text-xl transition hover:bg-base-200 md:size-9 md:text-lg"
                             >
-                              Search
-                            </label>
-                            <input
-                              id={"reaction-picker-search-#{message.id}"}
-                              type="search"
-                              placeholder="Search emojis"
-                              data-reaction-picker-search
-                              class="w-full rounded-xl border border-base-300 bg-base-200 px-3 py-2 text-sm text-base-content outline-none transition placeholder:text-base-content/45 focus:border-primary/60"
-                            />
-                          </div>
-
-                          <div>
-                            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50">
-                              Default
-                            </p>
-                            <div
-                              data-reaction-picker-categories
-                              class="mb-2 flex flex-wrap gap-1.5"
-                            />
-                            <div
-                              data-reaction-picker-defaults
-                              data-message-id={message.id}
-                              class={[
-                                "grid max-h-[40vh] grid-cols-7 gap-2 overflow-y-auto pr-1 md:max-h-72 md:grid-cols-6",
-                                scrollbar_classes()
-                              ]}
-                            >
-                              <button
-                                :for={emoji <- Chat.default_reaction_emojis()}
-                                type="button"
-                                phx-click="toggle_reaction"
-                                phx-value-id={message.id}
-                                phx-value-emoji={emoji}
-                                id={"reaction-picker-default-#{message.id}-#{Base.url_encode64(emoji, padding: false)}"}
-                                class="flex h-11 items-center justify-center rounded-xl border border-base-300 bg-base-200 text-xl transition hover:border-base-content/20 hover:bg-base-300 md:h-9 md:text-lg"
-                              >
-                                <span>{emoji}</span>
-                              </button>
-                            </div>
-                          </div>
-
-                          <div>
-                            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50">
-                              Custom
-                            </p>
-                            <div
-                              :if={@custom_emojis != []}
-                              class="grid grid-cols-5 gap-2 md:grid-cols-4"
-                              data-reaction-picker-custom
-                            >
-                              <button
-                                :for={emoji <- @custom_emojis}
-                                type="button"
-                                phx-click="toggle_custom_reaction"
-                                phx-value-id={message.id}
-                                phx-value-emoji_id={emoji.id}
-                                id={"reaction-picker-custom-#{message.id}-#{emoji.id}"}
-                                data-custom-emoji-id={emoji.id}
-                                data-custom-emoji-name={emoji.name}
-                                data-custom-emoji-shortcode={emoji.shortcode}
-                                class="flex flex-col items-center gap-1 rounded-xl border border-base-300 bg-base-200 px-2 py-2 text-[10px] font-medium text-base-content/80 transition hover:border-base-content/20 hover:bg-base-300 hover:text-base-content"
-                              >
-                                <img
-                                  src={emoji.url}
-                                  alt={emoji.name}
-                                  class="size-6 rounded-md object-cover"
-                                />
-                                <span class="max-w-full truncate">{emoji.name}</span>
-                              </button>
-                            </div>
-                            <p
-                              :if={@custom_emojis == []}
-                              class="rounded-xl border border-dashed border-base-300 bg-base-200 px-3 py-3 text-xs text-base-content/50"
-                            >
-                              No custom emoji uploaded yet.
-                            </p>
+                              <span>{emoji}</span>
+                            </button>
                           </div>
                         </div>
                       </div>
+
+                      <div>
+                        <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50">
+                          Custom
+                        </p>
+                        <div
+                          :if={@custom_emojis != []}
+                          class="grid grid-cols-6 gap-1.5 md:grid-cols-6"
+                          data-reaction-picker-custom
+                        >
+                          <button
+                            :for={emoji <- @custom_emojis}
+                            type="button"
+                            phx-click="toggle_custom_reaction"
+                            phx-value-id={message.id}
+                            phx-value-emoji_id={emoji.id}
+                            id={"reaction-picker-custom-#{message.id}-#{emoji.id}"}
+                            data-custom-emoji-id={emoji.id}
+                            data-custom-emoji-name={emoji.name}
+                            data-custom-emoji-shortcode={emoji.shortcode}
+                            class="group flex aspect-square size-11 items-center justify-center rounded-xl text-[10px] font-medium text-base-content/80 transition hover:bg-base-200 hover:text-base-content md:size-10"
+                          >
+                            <img
+                              src={emoji.url}
+                              alt={emoji.name}
+                              class="size-7 rounded-md object-cover transition group-hover:scale-105"
+                            />
+                            <span class="sr-only">{emoji.name}</span>
+                          </button>
+                        </div>
+                        <p
+                          :if={@custom_emojis == []}
+                          class="rounded-xl border border-dashed border-base-300 bg-base-200 px-3 py-3 text-xs text-base-content/50"
+                        >
+                          No custom emoji uploaded yet.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <% thread = thread_for_message(message, @thread_summaries) %>
+
+                  <div :if={thread} class="mt-3 flex flex-wrap items-center gap-2">
+                    <span
+                      id={"thread-summary-#{message.id}"}
+                      class={[
+                        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold transition",
+                        thread_open_for_message?(message, @active_thread) &&
+                          "border-primary/40 bg-primary/10 text-primary",
+                        !thread_open_for_message?(message, @active_thread) &&
+                          "border-base-300 bg-base-100 text-base-content/75"
+                      ]}
+                    >
+                      <.icon name="hero-chat-bubble-left-right" class="size-3.5" />
+                      <span>{thread_reply_count(message, @thread_summaries)} replies</span>
+                      <span class="truncate text-base-content/45">{thread_title(thread)}</span>
+                    </span>
+
+                    <.link
+                      patch={thread_path(@active_channel, thread)}
+                      id={"focus-thread-#{message.id}"}
+                      class="inline-flex items-center gap-2 rounded-full border border-base-300 bg-base-100 px-3 py-1 text-[11px] font-semibold text-base-content/70 transition hover:border-base-content/20 hover:bg-base-200 hover:text-base-content"
+                    >
+                      Full thread
+                    </.link>
+                  </div>
+
+                  <div
+                    :if={thread && thread_open_for_message?(message, @active_thread)}
+                    id={"thread-panel-#{message.id}"}
+                    class={[
+                      "mt-4 overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm",
+                      @thread_focus? && "ring-1 ring-primary/25"
+                    ]}
+                  >
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 bg-base-200/80 px-4 py-3">
+                      <div class="min-w-0">
+                        <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-base-content/45">
+                          Thread
+                        </p>
+                        <div class="mt-1 flex items-center gap-2">
+                          <h3 class="truncate text-sm font-semibold text-base-content">
+                            {thread_title(thread)}
+                          </h3>
+                          <span class="rounded-full bg-base-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-base-content/60">
+                            {@thread_message_count} replies
+                          </span>
+                        </div>
+                        <p class="mt-1 truncate text-xs text-base-content/55">
+                          Started by {message.author.display_name}
+                        </p>
+                      </div>
+
+                      <div class="flex items-center gap-2">
+                        <.link
+                          patch={thread_path(@active_channel, thread)}
+                          id={"thread-view-focus-#{message.id}"}
+                          class="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-base-content/75 transition hover:bg-base-100 hover:text-base-content"
+                        >
+                          {if @thread_focus?, do: "Focused", else: "Focus"}
+                        </.link>
+                        <.link
+                          :if={@thread_focus?}
+                          patch={channel_path(@active_channel)}
+                          id={"thread-back-to-channel-#{message.id}"}
+                          class="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-base-content/75 transition hover:bg-base-100 hover:text-base-content"
+                        >
+                          Back to channel
+                        </.link>
+                        <button
+                          type="button"
+                          phx-click="close_thread"
+                          id={"close-thread-#{message.id}"}
+                          class="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-base-content/75 transition hover:bg-base-100 hover:text-base-content"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+
+                    <div
+                      id={"thread-scroll-region-#{message.id}"}
+                      data-enable-notifications="false"
+                      class={[
+                        "max-h-[28rem] overflow-y-auto px-4 py-3",
+                        scrollbar_classes()
+                      ]}
+                      phx-hook="MessageListHook"
+                    >
+                      <div
+                        :if={@thread_messages_empty?}
+                        class="rounded-xl border border-dashed border-base-300 bg-base-200/60 px-4 py-5 text-sm text-base-content/65"
+                      >
+                        No thread replies yet. Kick this conversation off.
+                      </div>
+
+                      <div
+                        id={"thread-message-list-#{message.id}"}
+                        phx-update="stream"
+                        class="space-y-3"
+                      >
+                        <div
+                          :for={{thread_dom_id, thread_message} <- @streams.thread_messages}
+                          id={thread_dom_id}
+                          class="rounded-xl border border-base-300 bg-base-200/60 px-3 py-3"
+                        >
+                          <div class="flex gap-3">
+                            <div class="flex size-8 shrink-0 items-center justify-center rounded-full bg-base-300 text-[11px] font-semibold text-base-content">
+                              {thread_message.author.display_name |> String.first()}
+                            </div>
+
+                            <div class="min-w-0 flex-1">
+                              <div class="flex flex-wrap items-center gap-2">
+                                <p class="text-[13px] font-semibold text-base-content">
+                                  {thread_message.author.display_name}
+                                </p>
+                                <span class="text-[11px] text-base-content/45">
+                                  @{thread_message.author.username}
+                                </span>
+                                <time class="text-[11px] text-base-content/45">
+                                  {Calendar.strftime(
+                                    thread_message.inserted_at,
+                                    "%b %-d at %H:%M"
+                                  )}
+                                </time>
+                              </div>
+
+                              <div
+                                :if={thread_message.reply_to}
+                                class="mt-1 flex items-center gap-2 border-l-2 border-base-300 pl-3 text-xs text-base-content/60"
+                              >
+                                <span class="truncate">
+                                  Replying to
+                                  <span class="font-semibold text-base-content/80">
+                                    {thread_message.reply_to.author.display_name}
+                                  </span>
+                                  · {thread_message.reply_to.body}
+                                </span>
+                              </div>
+
+                              <div
+                                class={[
+                                  "message-body mt-2 text-sm",
+                                  message_body_classes()
+                                ]}
+                                data-markdown-source={thread_message.body}
+                              >
+                                {thread_message.body}
+                              </div>
+
+                              <div class="mt-2 flex items-center gap-2 text-[11px] text-base-content/50">
+                                <span :if={edited_message?(thread_message)}>(edited)</span>
+                                <span
+                                  :if={deleted_message?(thread_message)}
+                                  class="text-amber-300"
+                                >
+                                  deleted
+                                </span>
+
+                                <button
+                                  type="button"
+                                  phx-click="reply_in_thread"
+                                  phx-value-id={thread_message.id}
+                                  id={"reply-in-thread-#{thread_message.id}"}
+                                  disabled={
+                                    !@can_send_thread_messages? or
+                                      deleted_message?(thread_message)
+                                  }
+                                  class="rounded-md px-1.5 py-0.5 font-semibold text-base-content/65 transition hover:bg-base-100 hover:text-base-content disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Reply
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="border-t border-base-300 bg-base-100 px-4 py-4">
+                      <%= if @can_send_thread_messages? do %>
+                        <.form
+                          for={@thread_message_form}
+                          id="thread-message-form"
+                          phx-submit="send_thread_message"
+                          phx-hook="RichComposerHook"
+                          data-composer-target="thread"
+                          data-placeholder="Reply in thread"
+                          data-mentions={@composer_mentions_json}
+                          data-commands={@composer_commands_json}
+                        >
+                          <div class="rounded-xl border border-base-300 bg-base-200/70 shadow-sm">
+                            <div
+                              :if={@thread_reply_to_message}
+                              id="thread-replying-to-banner"
+                              class="flex items-center justify-between border-b border-base-300 bg-primary/10 px-3 py-2 text-xs text-primary"
+                            >
+                              <div class="min-w-0">
+                                Replying to
+                                <span class="font-semibold">
+                                  {@thread_reply_to_message.author.display_name}
+                                </span>
+                                <p class="truncate text-[11px] text-primary/70">
+                                  {@thread_reply_to_message.body}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                phx-click="cancel_thread_reply"
+                                class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-primary transition hover:bg-base-100"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+
+                            <div class="flex items-end gap-2 px-3 py-3">
+                              <div
+                                id="thread-rich-composer-shell"
+                                data-rich-composer-shell
+                                phx-update="ignore"
+                                class={composer_shell_classes()}
+                              >
+                                <div
+                                  class={composer_toolbar_region_classes()}
+                                  data-expanded="false"
+                                >
+                                  <div
+                                    data-rich-composer-toolbar
+                                    class="flex flex-wrap items-center gap-1.5"
+                                  >
+                                    <button
+                                      type="button"
+                                      data-editor-action="bold"
+                                      class={composer_toolbar_button_classes()}
+                                      data-active="false"
+                                      aria-label="Bold"
+                                      title="Bold"
+                                    >
+                                      <span
+                                        aria-hidden="true"
+                                        class="text-[13px] font-black leading-none"
+                                      >
+                                        B
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      data-editor-action="italic"
+                                      class={composer_toolbar_button_classes()}
+                                      data-active="false"
+                                      aria-label="Italic"
+                                      title="Italic"
+                                    >
+                                      <span
+                                        aria-hidden="true"
+                                        class="text-[13px] italic font-semibold leading-none"
+                                      >
+                                        I
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      data-editor-action="inline-code"
+                                      class={composer_toolbar_button_classes()}
+                                      data-active="false"
+                                      aria-label="Inline code"
+                                      title="Inline code"
+                                    >
+                                      <span
+                                        aria-hidden="true"
+                                        class="text-[11px] font-black leading-none"
+                                      >
+                                        &lt;/&gt;
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      data-editor-action="code-block"
+                                      class={composer_toolbar_button_classes()}
+                                      data-active="false"
+                                      aria-label="Code block"
+                                      title="Code block"
+                                    >
+                                      <span
+                                        aria-hidden="true"
+                                        class="text-[11px] font-black leading-none"
+                                      >
+                                        ```
+                                      </span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      data-editor-action="mention"
+                                      class={composer_toolbar_button_classes()}
+                                      data-active="false"
+                                      aria-label="Insert mention"
+                                      title="Insert mention"
+                                    >
+                                      <span
+                                        aria-hidden="true"
+                                        class="text-[13px] font-black leading-none"
+                                      >
+                                        @
+                                      </span>
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div data-rich-composer-editor class="min-h-0" />
+
+                                <textarea
+                                  data-rich-composer-body
+                                  name={@thread_message_form[:body].name}
+                                  class="hidden"
+                                >{@thread_message_form[:body].value || ""}</textarea>
+                                <textarea
+                                  data-rich-composer-metadata
+                                  name={@thread_message_form[:metadata].name}
+                                  class="hidden"
+                                ></textarea>
+                              </div>
+
+                              <.button
+                                aria-label="Send thread message"
+                                title="Send thread message"
+                                id="send-thread-message-button"
+                                class="inline-flex size-8 items-center justify-center rounded-md bg-violet-500 p-0 text-white transition hover:bg-violet-400"
+                              >
+                                <.icon name="hero-paper-airplane" class="size-4" />
+                              </.button>
+                            </div>
+                          </div>
+                        </.form>
+                      <% else %>
+                        <div class="rounded-xl border border-warning/30 bg-warning/15 px-4 py-3 text-sm text-warning-content">
+                          You can view this thread, but you do not have permission to reply in it.
+                        </div>
+                      <% end %>
                     </div>
                   </div>
 
@@ -532,12 +843,70 @@
                       )
                     }
                     type="button"
+                    phx-click="reply_message"
+                    phx-value-id={message.id}
+                    id={"quick-reply-message-#{message.id}"}
+                    disabled={!@can_send_messages? or deleted_message?(message)}
+                    class="inline-flex size-8 items-center justify-center rounded-full text-base-content/75 transition hover:bg-base-200 hover:text-base-content disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Reply"
+                    title="Reply"
+                  >
+                    <.icon name="hero-arrow-uturn-left" class="size-4" />
+                  </button>
+
+                  <button
+                    :if={thread}
+                    type="button"
+                    phx-click="open_thread"
+                    phx-value-id={thread.id}
+                    id={"open-thread-#{message.id}"}
+                    class="inline-flex size-8 items-center justify-center rounded-full text-base-content/75 transition hover:bg-base-200 hover:text-base-content"
+                    aria-label="Open thread"
+                    title="Open thread"
+                  >
+                    <.icon name="hero-chat-bubble-left-right" class="size-4" />
+                  </button>
+
+                  <button
+                    :if={
+                      is_nil(thread) and @can_create_public_threads? and
+                        not deleted_message?(message)
+                    }
+                    type="button"
+                    phx-click="create_thread"
+                    phx-value-id={message.id}
+                    id={"create-thread-#{message.id}"}
+                    class="inline-flex size-8 items-center justify-center rounded-full text-base-content/75 transition hover:bg-base-200 hover:text-base-content"
+                    aria-label="Start thread"
+                    title="Start thread"
+                  >
+                    <.icon name="hero-chat-bubble-bottom-center-text" class="size-4" />
+                  </button>
+
+                  <button
+                    type="button"
+                    phx-click="toggle_reaction_picker"
+                    phx-value-id={message.id}
+                    id={"open-reaction-picker-#{message.id}"}
+                    disabled={!@can_add_reactions? or deleted_message?(message)}
+                    class="inline-flex size-8 items-center justify-center rounded-full text-base-content/75 transition hover:bg-base-200 hover:text-base-content disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Add reaction"
+                    title="Add reaction"
+                  >
+                    <.icon name="hero-face-smile" class="size-4" />
+                  </button>
+
+                  <button
+                    :if={own_message?(message, @current_user) or @can_manage_messages?}
+                    type="button"
                     phx-click="toggle_message_action_menu"
                     phx-value-id={message.id}
                     id={"open-message-actions-#{message.id}"}
-                    class="rounded-full px-2 py-1 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
+                    class="inline-flex size-8 items-center justify-center rounded-full text-base-content/75 transition hover:bg-base-200 hover:text-base-content"
+                    aria-label="More actions"
+                    title="More actions"
                   >
-                    ⋯
+                    <.icon name="hero-ellipsis-horizontal" class="size-4" />
                   </button>
 
                   <div
@@ -545,17 +914,30 @@
                     id={"message-actions-menu-#{message.id}"}
                     class="absolute right-0 top-full mt-2 min-w-40 rounded-xl border border-base-300 bg-base-100 p-1.5 shadow-xl"
                   >
-                    <button
-                      type="button"
-                      phx-click="reply_message"
-                      phx-value-id={message.id}
-                      id={"reply-message-#{message.id}"}
-                      disabled={!@can_send_messages? or deleted_message?(message)}
-                      class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <span>Reply</span>
-                      <span class="text-base-content/50">↩</span>
-                    </button>
+                    <%= if thread do %>
+                      <button
+                        type="button"
+                        phx-click="open_thread"
+                        phx-value-id={thread.id}
+                        id={"open-thread-menu-#{message.id}"}
+                        class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
+                      >
+                        <span>Open thread</span>
+                        <span class="text-base-content/50">#</span>
+                      </button>
+                    <% else %>
+                      <button
+                        :if={@can_create_public_threads? and not deleted_message?(message)}
+                        type="button"
+                        phx-click="create_thread"
+                        phx-value-id={message.id}
+                        id={"create-thread-menu-#{message.id}"}
+                        class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
+                      >
+                        <span>Start thread</span>
+                        <span class="text-base-content/50">#</span>
+                      </button>
+                    <% end %>
 
                     <button
                       :if={own_message?(message, @current_user) and not deleted_message?(message)}
@@ -625,6 +1007,7 @@
               id="message-form"
               phx-submit="send_message"
               phx-hook="RichComposerHook"
+              data-composer-target="channel"
               data-placeholder="Message channel"
               data-mentions={@composer_mentions_json}
               data-commands={@composer_commands_json}
@@ -654,11 +1037,16 @@
                 <div class="flex items-end gap-2 px-3 py-3">
                   <div
                     id="rich-composer-shell"
+                    data-rich-composer-shell
                     phx-update="ignore"
                     class={composer_shell_classes()}
                   >
                     <div class={composer_toolbar_region_classes()} data-expanded="false">
-                      <div id="rich-composer-toolbar" class="flex flex-wrap items-center gap-1.5">
+                      <div
+                        id="rich-composer-toolbar"
+                        data-rich-composer-toolbar
+                        class="flex flex-wrap items-center gap-1.5"
+                      >
                         <button
                           type="button"
                           data-editor-action="bold"
@@ -744,15 +1132,15 @@
                       </p>
                     </div>
 
-                    <div id="rich-composer-editor" class="min-h-0" />
+                    <div data-rich-composer-editor class="min-h-0" />
 
                     <textarea
-                      id="message-body-input"
+                      data-rich-composer-body
                       name={@message_form[:body].name}
                       class="hidden"
                     >{@message_form[:body].value || ""}</textarea>
                     <textarea
-                      id="message-metadata-input"
+                      data-rich-composer-metadata
                       name={@message_form[:metadata].name}
                       class="hidden"
                     ></textarea>

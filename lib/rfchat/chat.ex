@@ -18,6 +18,7 @@ defmodule Rfchat.Chat do
   alias Rfchat.Chat.ModerationCase
   alias Rfchat.Chat.Reaction
   alias Rfchat.Chat.Role
+  alias Rfchat.Chat.ServerSettings
   alias Rfchat.Chat.User
   alias Rfchat.Chat.UserNotificationSetting
   alias Rfchat.Chat.AuditLogEntry
@@ -25,10 +26,77 @@ defmodule Rfchat.Chat do
 
   @channel_events_topic "chat:channels"
   @emoji_upload_dir "uploads/emojis"
+  @server_icon_upload_dir "uploads/server_icons"
   @allowed_emoji_content_types ~w(image/png image/jpeg image/gif image/webp)
   @default_reaction_emojis ["👍", "🔥", "❤️"]
 
   def default_reaction_emojis, do: @default_reaction_emojis
+
+  def get_server_settings do
+    ServerSettings
+    |> preload([:icon_asset])
+    |> Repo.one()
+    |> case do
+      nil ->
+        %ServerSettings{name: default_server_name(), singleton: true}
+
+      settings ->
+        settings
+    end
+  end
+
+  def change_server_settings(%ServerSettings{} = server_settings, attrs \\ %{}) do
+    ServerSettings.changeset(server_settings, attrs)
+  end
+
+  def update_server_settings(attrs, %User{} = actor) when is_map(attrs) do
+    server_settings =
+      ServerSettings
+      |> preload([:icon_asset])
+      |> Repo.one()
+      |> case do
+        nil -> %ServerSettings{}
+        settings -> settings
+      end
+
+    attrs = Map.put_new(attrs, "name", default_server_name())
+
+    Repo.transaction(fn ->
+      previous_icon_asset = server_settings.icon_asset
+
+      with {:ok, icon_asset_id, _icon_asset} <- maybe_persist_server_icon(attrs, actor),
+           attrs <- persistable_server_settings_attrs(attrs, icon_asset_id),
+           {:ok, settings} <-
+             server_settings
+             |> ServerSettings.changeset(attrs)
+             |> Repo.insert_or_update() do
+        settings = Repo.preload(settings, [:icon_asset])
+
+        if not is_nil(previous_icon_asset) and icon_asset_id != :keep and
+             previous_icon_asset.id != icon_asset_id do
+          delete_media_asset(previous_icon_asset)
+        end
+
+        settings
+      else
+        {:error, changeset} -> Repo.rollback(changeset)
+        {:error, reason, :upload} -> Repo.rollback({:upload, reason})
+      end
+    end)
+    |> case do
+      {:ok, settings} -> {:ok, settings}
+      {:error, {:upload, reason}} -> {:error, reason}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  def server_icon_url(%ServerSettings{icon_asset: %MediaAsset{} = asset}), do: asset_url(asset)
+  def server_icon_url(%ServerSettings{icon_asset: %Ecto.Association.NotLoaded{}}), do: nil
+  def server_icon_url(_settings), do: nil
+
+  def default_server_name do
+    Application.get_env(:rfchat, :guild_name, "RFChat")
+  end
 
   def list_channels do
     Channel
@@ -163,6 +231,14 @@ defmodule Rfchat.Chat do
       {:error, {:upload, reason}} -> {:error, reason}
       {:error, changeset} -> {:error, changeset}
     end
+  end
+
+  def create_server_icon_from_upload(%User{} = creator, upload) do
+    create_media_asset_from_upload(upload, creator,
+      allowed_types: @allowed_emoji_content_types,
+      upload_dir: @server_icon_upload_dir,
+      kind: :server_icon
+    )
   end
 
   def delete_custom_emoji(%Emoji{} = emoji) do
@@ -306,6 +382,14 @@ defmodule Rfchat.Chat do
     %Channel{}
     |> Channel.changeset(attrs)
     |> Repo.insert()
+    |> case do
+      {:ok, channel} ->
+        broadcast({:channel_created, channel})
+        {:ok, channel}
+
+      error ->
+        error
+    end
   end
 
   def change_channel(%Channel{} = channel, attrs \\ %{}) do
@@ -468,6 +552,123 @@ defmodule Rfchat.Chat do
     |> preload([:author, reactions: [emoji: :asset], reply_to: :author])
     |> Repo.all()
     |> Enum.reverse()
+  end
+
+  def list_thread_messages(channel_or_id, opts \\ [])
+
+  def list_thread_messages(%Channel{id: channel_id}, opts),
+    do: list_thread_messages(channel_id, opts)
+
+  def list_thread_messages(channel_id, opts) do
+    list_messages(channel_id, opts)
+  end
+
+  def list_threads_for_channel(channel_id) do
+    Channel
+    |> where(
+      [channel],
+      channel.parent_channel_id == ^channel_id and channel.kind == :thread_public and
+        is_nil(channel.archived_at)
+    )
+    |> order_by([channel], asc: channel.inserted_at, asc: channel.id)
+    |> preload([:parent_channel, starter_message: :author])
+    |> Repo.all()
+  end
+
+  def thread_summaries_for_channel(channel_id) do
+    threads = list_threads_for_channel(channel_id)
+    thread_ids = Enum.map(threads, & &1.id)
+
+    reply_counts =
+      if thread_ids == [] do
+        %{}
+      else
+        from(message in Message,
+          where: message.channel_id in ^thread_ids and is_nil(message.deleted_at),
+          group_by: message.channel_id,
+          select: {message.channel_id, count(message.id)}
+        )
+        |> Repo.all()
+        |> Map.new()
+      end
+
+    Enum.into(threads, %{}, fn thread ->
+      {thread.starter_message_id,
+       %{
+         thread: thread,
+         reply_count: Map.get(reply_counts, thread.id, 0)
+       }}
+    end)
+  end
+
+  def get_thread_for_starter_message(starter_message_id) do
+    Channel
+    |> where(
+      [channel],
+      channel.starter_message_id == ^starter_message_id and channel.kind == :thread_public and
+        is_nil(channel.archived_at)
+    )
+    |> preload([:parent_channel, starter_message: :author])
+    |> Repo.one()
+  end
+
+  def get_thread_for_user(thread_id, %User{} = user) do
+    thread = get_channel(thread_id)
+
+    cond do
+      is_nil(thread) ->
+        {:error, :not_found}
+
+      not thread_channel?(thread) ->
+        {:error, :not_found}
+
+      can_view_channel?(thread, user) ->
+        {:ok, Repo.preload(thread, [:parent_channel, starter_message: :author])}
+
+      true ->
+        {:error, :forbidden}
+    end
+  end
+
+  def create_public_thread(
+        %Channel{} = parent_channel,
+        %Message{} = starter_message,
+        %User{} = author,
+        attrs \\ %{}
+      ) do
+    parent_channel = Repo.preload(parent_channel, [:permission_overwrites])
+    author = Repo.preload(author, [:membership, member_roles: :role])
+    starter_message = Repo.preload(starter_message, [:author, :channel])
+
+    with :ok <- authorize_public_thread_create(parent_channel, starter_message, author) do
+      case get_thread_for_starter_message(starter_message.id) do
+        %Channel{} = thread ->
+          {:ok, thread}
+
+        nil ->
+          attrs = normalize_thread_attrs(attrs, starter_message, parent_channel)
+
+          Repo.transaction(fn ->
+            with {:ok, thread} <-
+                   %Channel{created_by_id: author.id}
+                   |> Channel.changeset(attrs)
+                   |> Repo.insert() do
+              :ok = ensure_channel_memberships_for_user(author, [thread])
+              Repo.preload(thread, [:parent_channel, starter_message: :author])
+            else
+              {:error, changeset} -> Repo.rollback(changeset)
+            end
+          end)
+          |> case do
+            {:ok, thread} ->
+              broadcast({:channel_created, thread})
+              {:ok, thread}
+
+            {:error, changeset} ->
+              {:error, changeset}
+          end
+      end
+    end
   end
 
   def create_user(attrs) do
@@ -788,12 +989,39 @@ defmodule Rfchat.Chat do
   end
 
   def can_send_messages?(%Channel{} = channel, %User{} = user) do
-    not timed_out?(user) and channel_permission?(channel, user, :send_messages) and
-      can_view_channel?(channel, user)
+    cond do
+      thread_channel?(channel) ->
+        can_send_messages_in_threads?(channel, user)
+
+      true ->
+        not timed_out?(user) and channel_permission?(channel, user, :send_messages) and
+          can_view_channel?(channel, user)
+    end
   end
 
   def can_view_channel?(%Channel{} = channel, %User{} = user) do
-    channel_permission?(channel, user, :view_channel)
+    cond do
+      thread_channel?(channel) ->
+        can_view_thread_channel?(channel, user)
+
+      true ->
+        channel_permission?(channel, user, :view_channel)
+    end
+  end
+
+  def can_create_public_threads?(%Channel{} = channel, %User{} = user) do
+    thread_host_channel?(channel) and not timed_out?(user) and can_send_messages?(channel, user) and
+      channel_permission?(channel, user, :create_public_threads)
+  end
+
+  def can_send_messages_in_threads?(%Channel{} = channel, %User{} = user) do
+    if thread_channel?(channel) do
+      not timed_out?(user) and can_view_thread_channel?(channel, user) and
+        channel_permission?(channel, user, :send_messages_in_threads) and
+        thread_parent_allows_messages?(channel, user)
+    else
+      false
+    end
   end
 
   def can_add_reactions?(%Channel{} = channel, %User{} = user) do
@@ -920,12 +1148,17 @@ defmodule Rfchat.Chat do
 
   defp create_media_asset_from_upload(
          %{path: path, client_name: client_name, client_type: client_type},
-         %User{} = creator
+         %User{} = creator,
+         opts \\ []
        ) do
-    with :ok <- validate_emoji_upload(client_type),
+    allowed_types = Keyword.get(opts, :allowed_types, @allowed_emoji_content_types)
+    upload_dir = Keyword.get(opts, :upload_dir, @emoji_upload_dir)
+    kind = Keyword.get(opts, :kind, :emoji)
+
+    with :ok <- validate_upload_type(client_type, allowed_types),
          {:ok, %{size: byte_size}} <- File.stat(path),
          ext <- upload_extension(client_name, client_type),
-         storage_key <- Path.join(@emoji_upload_dir, "#{Ecto.UUID.generate()}#{ext}"),
+         storage_key <- Path.join(upload_dir, "#{Ecto.UUID.generate()}#{ext}"),
          destination <- asset_destination_path(storage_key),
          :ok <- File.mkdir_p(Path.dirname(destination)),
          :ok <- File.cp(path, destination),
@@ -934,7 +1167,7 @@ defmodule Rfchat.Chat do
            %MediaAsset{}
            |> MediaAsset.changeset(%{
              uploader_id: creator.id,
-             kind: :emoji,
+             kind: kind,
              storage_key: storage_key,
              original_filename: client_name,
              content_type: client_type,
@@ -948,10 +1181,45 @@ defmodule Rfchat.Chat do
     end
   end
 
-  defp validate_emoji_upload(content_type) when content_type in @allowed_emoji_content_types,
-    do: :ok
+  defp validate_upload_type(content_type, allowed_types) do
+    if content_type in allowed_types, do: :ok, else: {:error, :invalid_upload_type}
+  end
 
-  defp validate_emoji_upload(_content_type), do: {:error, :invalid_upload_type}
+  defp maybe_persist_server_icon(attrs, actor) do
+    case Map.get(attrs, "icon_upload") do
+      nil ->
+        if Map.has_key?(attrs, "icon_asset_id") do
+          {:ok, blank_to_nil(Map.get(attrs, "icon_asset_id")), nil}
+        else
+          {:ok, :keep, nil}
+        end
+
+      upload ->
+        case create_server_icon_from_upload(actor, upload) do
+          {:ok, asset} -> {:ok, asset.id, asset}
+          {:error, reason, :upload} -> {:error, reason, :upload}
+          {:error, reason} -> {:error, reason, :upload}
+        end
+    end
+  end
+
+  defp persistable_server_settings_attrs(attrs, icon_asset_id) do
+    attrs =
+      attrs
+      |> Map.take(["name"])
+      |> Map.put("singleton", true)
+
+    if icon_asset_id == :keep do
+      attrs
+    else
+      Map.put(attrs, "icon_asset_id", blank_to_nil(icon_asset_id))
+    end
+  end
+
+  defp delete_media_asset(%MediaAsset{} = asset) do
+    maybe_delete_asset_file(asset)
+    Repo.delete(asset)
+  end
 
   defp upload_extension(filename, content_type) do
     ext = filename |> Path.extname() |> String.downcase()
@@ -1266,6 +1534,34 @@ defmodule Rfchat.Chat do
     channel.kind not in [:category, :thread_public, :thread_private, :thread_announcement]
   end
 
+  defp thread_channel?(%Channel{kind: kind}),
+    do: kind in [:thread_public, :thread_private, :thread_announcement]
+
+  defp thread_host_channel?(%Channel{kind: kind}), do: kind in [:text, :announcement, :forum]
+
+  defp thread_parent_channel(%Channel{} = channel) do
+    channel = Repo.preload(channel, [:parent_channel])
+    channel.parent_channel
+  end
+
+  defp can_view_thread_channel?(%Channel{} = channel, %User{} = user) do
+    case thread_parent_channel(channel) do
+      %Channel{} = parent_channel ->
+        can_view_channel?(parent_channel, user) and
+          channel_permission?(channel, user, :view_channel)
+
+      _ ->
+        false
+    end
+  end
+
+  defp thread_parent_allows_messages?(%Channel{} = channel, %User{} = user) do
+    case thread_parent_channel(channel) do
+      %Channel{} = parent_channel -> can_send_messages?(parent_channel, user)
+      _ -> false
+    end
+  end
+
   defp channel_permission?(%Channel{} = channel, %User{} = user, permission_name) do
     channel = Repo.preload(channel, [:permission_overwrites])
     user = Repo.preload(user, [:membership, member_roles: :role])
@@ -1280,7 +1576,47 @@ defmodule Rfchat.Chat do
         {:error, :forbidden}
 
       true ->
-        authorize_message_mentions(channel, author, attrs)
+        with :ok <- validate_reply_target(channel, attrs) do
+          authorize_message_mentions(channel, author, attrs)
+        end
+    end
+  end
+
+  defp authorize_public_thread_create(
+         %Channel{} = parent_channel,
+         %Message{} = starter_message,
+         %User{} = author
+       ) do
+    cond do
+      starter_message.channel_id != parent_channel.id ->
+        {:error,
+         invalid_thread_changeset(
+           parent_channel,
+           starter_message,
+           "starter message must belong to that channel"
+         )}
+
+      not thread_host_channel?(parent_channel) ->
+        {:error,
+         invalid_thread_changeset(
+           parent_channel,
+           starter_message,
+           "threads can only start from text-like channels"
+         )}
+
+      not can_create_public_threads?(parent_channel, author) ->
+        {:error, :forbidden}
+
+      deleted_message?(starter_message) ->
+        {:error,
+         invalid_thread_changeset(
+           parent_channel,
+           starter_message,
+           "cannot start a thread from a deleted message"
+         )}
+
+      true ->
+        :ok
     end
   end
 
@@ -1337,9 +1673,88 @@ defmodule Rfchat.Chat do
     |> Repo.all()
   end
 
+  defp validate_reply_target(%Channel{} = channel, attrs) do
+    case normalize_optional_binary_id(Map.get(attrs, "reply_to_id")) do
+      nil ->
+        :ok
+
+      reply_to_id ->
+        case Repo.get(Message, reply_to_id) do
+          %Message{} = reply_to when reply_to.channel_id == channel.id ->
+            :ok
+
+          %Message{} ->
+            {:error,
+             invalid_reply_changeset(attrs, "must reference a message in the same conversation"),
+             :changeset}
+
+          nil ->
+            {:error, invalid_reply_changeset(attrs, "does not exist"), :changeset}
+        end
+    end
+  end
+
+  defp invalid_reply_changeset(attrs, message) do
+    %Message{}
+    |> Message.changeset(Map.put(attrs, "body", Map.get(attrs, "body", "")))
+    |> Ecto.Changeset.add_error(:reply_to_id, message)
+  end
+
+  defp invalid_thread_changeset(parent_channel, starter_message, message) do
+    %Channel{created_by_id: starter_message.author_id}
+    |> Channel.changeset(normalize_thread_attrs(%{}, starter_message, parent_channel))
+    |> Ecto.Changeset.add_error(:starter_message_id, message)
+  end
+
+  defp normalize_thread_attrs(attrs, starter_message, parent_channel) do
+    attrs =
+      attrs
+      |> Enum.into(%{})
+      |> Enum.reduce(%{}, fn
+        {key, value}, acc when is_atom(key) -> Map.put(acc, Atom.to_string(key), value)
+        {key, value}, acc -> Map.put(acc, key, value)
+      end)
+
+    parent_channel = parent_channel || starter_message.channel
+
+    attrs
+    |> Map.put_new("name", thread_name_from_message(starter_message))
+    |> Map.put_new("slug", "thread-#{Ecto.UUID.generate()}")
+    |> Map.put_new("kind", :thread_public)
+    |> Map.put_new("position", next_thread_position(parent_channel.id))
+    |> Map.put_new("parent_channel_id", parent_channel.id)
+    |> Map.put_new("starter_message_id", starter_message.id)
+    |> Map.put_new("topic", nil)
+  end
+
+  defp thread_name_from_message(%Message{body: body}) do
+    body
+    |> String.trim()
+    |> case do
+      "" -> "Thread"
+      value -> String.slice(value, 0, 40)
+    end
+  end
+
+  defp next_thread_position(parent_channel_id) do
+    from(channel in Channel,
+      where: channel.parent_channel_id == ^parent_channel_id and channel.kind == :thread_public,
+      select: max(channel.position)
+    )
+    |> Repo.one()
+    |> case do
+      nil -> 0
+      position -> position + 1
+    end
+  end
+
   defp normalize_optional_binary_id(nil), do: nil
   defp normalize_optional_binary_id(""), do: nil
   defp normalize_optional_binary_id(value), do: value
+
+  defp deleted_message?(%Message{} = message) do
+    not is_nil(message.deleted_at) or Map.get(message.metadata || %{}, "deleted", false)
+  end
 
   defp unread_count_for_channel(channel_id, user_id, membership) do
     Message

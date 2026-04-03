@@ -15,6 +15,7 @@ defmodule Rfchat.Chat.MediaAsset do
         :sticker,
         :role_icon,
         :server_avatar,
+        :server_icon,
         :other
       ]
     )

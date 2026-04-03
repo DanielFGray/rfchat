@@ -22,7 +22,9 @@ defmodule Rfchat.ChatTest do
       later = channel_fixture(%{name: "Later", slug: unique_slug(), position: 2})
       earlier = channel_fixture(%{name: "Earlier", slug: unique_slug(), position: 1})
 
-      assert Enum.map(Chat.list_channels(), & &1.id) == [earlier.id, later.id]
+      channels = Chat.list_channels() |> Enum.filter(&(&1.id in [earlier.id, later.id]))
+
+      assert Enum.map(channels, & &1.id) == [earlier.id, later.id]
     end
 
     test "ensure_channel_memberships_for_user/2 initializes read state and unread_counts_for_user/2 tracks new messages" do
@@ -192,6 +194,61 @@ defmodule Rfchat.ChatTest do
 
       assert {:error, changeset} = Chat.create_message(channel, author, %{body: "   "})
       assert "can't be blank" in errors_on(changeset).body
+    end
+
+    test "create_message/3 rejects cross-channel reply targets" do
+      channel = channel_fixture(%{slug: unique_slug()})
+      other_channel = channel_fixture(%{slug: unique_slug()})
+      author = user_fixture()
+      other_message = message_fixture(other_channel, author, %{body: "elsewhere"})
+
+      assert {:error, changeset} =
+               Chat.create_message(channel, author, %{
+                 body: "bad reply",
+                 reply_to_id: other_message.id
+               })
+
+      assert "must reference a message in the same conversation" in errors_on(changeset).reply_to_id
+    end
+
+    test "create_public_thread/4 creates a thread channel linked to a starter message" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture(%{slug: unique_slug()})
+      author = user_fixture()
+      starter = message_fixture(channel, author, %{body: "Discuss roadmap here"})
+
+      assert {:ok, thread} = Chat.create_public_thread(channel, starter, author)
+      assert thread.parent_channel_id == channel.id
+      assert thread.starter_message_id == starter.id
+      assert thread.kind == :thread_public
+      assert Chat.get_thread_for_starter_message(starter.id).id == thread.id
+    end
+
+    test "list_threads_for_channel/1 and list_thread_messages/2 return thread conversations" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture(%{slug: unique_slug()})
+      author = user_fixture()
+      starter = message_fixture(channel, author, %{body: "Thread topic"})
+      thread = thread_fixture(channel, starter, author)
+      _reply = message_fixture(thread, author, %{body: "thread reply"})
+
+      assert [listed_thread] = Chat.list_threads_for_channel(channel.id)
+      assert listed_thread.id == thread.id
+      assert [%Message{body: "thread reply"}] = Chat.list_thread_messages(thread.id)
+
+      summary = Chat.thread_summaries_for_channel(channel.id)[starter.id]
+
+      assert summary.thread.id == thread.id
+      assert summary.reply_count == 1
+    end
+
+    test "create_public_thread/4 is allowed for members by default" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture(%{slug: unique_slug()})
+      author = user_fixture()
+      _starter = message_fixture(channel, author, %{body: "restricted thread"})
+
+      assert Chat.can_create_public_threads?(channel, author)
     end
 
     test "create_message/3 rejects invalid metadata json" do

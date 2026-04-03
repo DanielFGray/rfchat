@@ -7,6 +7,7 @@ defmodule Rfchat.Bootstrap do
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.PermissionBits
   alias Rfchat.Chat.Role
+  alias Rfchat.Chat.ServerSettings
   alias Rfchat.Chat.User
   alias Rfchat.Repo
 
@@ -45,6 +46,7 @@ defmodule Rfchat.Bootstrap do
       general_channel = Enum.find(channels, &(&1.slug == "general"))
 
       ensure_welcome_message!(general_channel, user)
+      ensure_server_settings!()
 
       %{system_user: user, default_role: default_role, channels: channels}
     end)
@@ -143,6 +145,26 @@ defmodule Rfchat.Bootstrap do
     |> Repo.insert!(
       on_conflict: :nothing,
       conflict_target: {:unsafe_fragment, "(channel_id, nonce) WHERE nonce IS NOT NULL"}
+    )
+  end
+
+  defp ensure_server_settings! do
+    now = DateTime.utc_now()
+
+    %ServerSettings{}
+    |> ServerSettings.changeset(%{
+      singleton: true,
+      name: Application.get_env(:rfchat, :guild_name, "RFChat")
+    })
+    |> Repo.insert!(
+      on_conflict: [
+        set: [
+          name: Application.get_env(:rfchat, :guild_name, "RFChat"),
+          updated_at: now
+        ]
+      ],
+      conflict_target: :singleton,
+      returning: true
     )
   end
 end

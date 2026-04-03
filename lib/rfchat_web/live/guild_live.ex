@@ -19,6 +19,8 @@ defmodule RfchatWeb.GuildLive do
       Chat.subscribe_to_channel_events()
     end
 
+    server_settings = Chat.get_server_settings()
+
     socket =
       socket
       |> allow_upload(:emoji_image,
@@ -26,7 +28,10 @@ defmodule RfchatWeb.GuildLive do
         max_entries: 1,
         max_file_size: 512_000
       )
-      |> assign(:guild_name, Application.get_env(:rfchat, :guild_name, "RFChat"))
+      |> assign(:server_settings, server_settings)
+      |> assign(:guild_name, server_settings.name)
+      |> assign(:current_server, server_settings)
+      |> assign(:page_title, server_settings.name)
       |> assign(:current_user, current_user)
       |> assign(:can_manage_channels?, can_manage_channels?)
       |> assign(:can_manage_emojis?, can_manage_emojis?)
@@ -61,7 +66,10 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:can_add_reactions?, false)
       |> assign(:can_manage_messages?, false)
       |> assign(:can_mention_everyone?, false)
+      |> assign(:can_create_public_threads?, false)
+      |> assign(:can_send_thread_messages?, false)
       |> assign(:reply_to_message, nil)
+      |> assign(:thread_reply_to_message, nil)
       |> assign(:editing_message_id, nil)
       |> assign(:editing_form, nil)
       |> assign(:channel_form_mode, :create_text)
@@ -70,9 +78,16 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:emoji_form, to_form(Chat.change_emoji(%Chat.Emoji{}, %{}), as: :emoji))
       |> assign(:message_count, 0)
       |> assign(:messages_empty?, true)
+      |> assign(:thread_summaries, %{})
+      |> assign(:active_thread, nil)
+      |> assign(:thread_focus?, false)
+      |> assign(:thread_message_count, 0)
+      |> assign(:thread_messages_empty?, true)
       |> assign_message_form()
+      |> assign_thread_message_form()
       |> SharedHelpers.assign_channel_form()
       |> stream(:messages, [], reset: true)
+      |> stream(:thread_messages, [], reset: true)
 
     case {Chat.list_channels(), List.first(channels)} do
       {[], _none_visible} ->
@@ -94,10 +109,45 @@ defmodule RfchatWeb.GuildLive do
   end
 
   @impl true
+  def handle_params(%{"thread" => thread_id} = params, _uri, socket) do
+    socket =
+      case params do
+        %{"channel" => slug} ->
+          case Chat.get_channel_by_slug_for_user(slug, socket.assigns.current_user) do
+            {:ok, channel} ->
+              socket
+              |> assign(:active_thread, nil)
+              |> assign(:thread_focus?, false)
+              |> load_channel(channel)
+
+            _ ->
+              socket
+          end
+
+        _ ->
+          socket
+      end
+
+    case Chat.get_thread_for_user(thread_id, socket.assigns.current_user) do
+      {:ok, thread} ->
+        {:noreply, open_thread(socket, thread, focus?: true)}
+
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "That thread does not exist.")}
+
+      {:error, :forbidden} ->
+        {:noreply, put_flash(socket, :error, "You do not have access to that thread.")}
+    end
+  end
+
   def handle_params(%{"channel" => slug}, _uri, socket) do
     case Chat.get_channel_by_slug_for_user(slug, socket.assigns.current_user) do
       {:ok, channel} ->
-        {:noreply, load_channel(socket, channel)}
+        {:noreply,
+         socket
+         |> assign(:active_thread, nil)
+         |> assign(:thread_focus?, false)
+         |> load_channel(channel)}
 
       {:error, :not_found} ->
         {:noreply,
@@ -125,6 +175,7 @@ defmodule RfchatWeb.GuildLive do
     socket =
       socket
       |> maybe_insert_message(message)
+      |> maybe_insert_thread_message(message)
       |> maybe_push_mention_notification(message)
 
     {:noreply,
@@ -136,12 +187,23 @@ defmodule RfchatWeb.GuildLive do
 
   @impl true
   def handle_info({:message_updated, message}, socket) do
-    {:noreply, stream_insert(socket, :messages, message)}
+    {:noreply,
+     socket
+     |> maybe_stream_update_message(message)
+     |> maybe_stream_update_thread_message(message)}
   end
 
   @impl true
   def handle_info({:message_deleted, message}, socket) do
-    {:noreply, stream_insert(socket, :messages, message)}
+    {:noreply,
+     socket
+     |> maybe_stream_update_message(message)
+     |> maybe_stream_update_thread_message(message)}
+  end
+
+  @impl true
+  def handle_info({:channel_created, channel}, socket) do
+    {:noreply, maybe_refresh_thread_summaries(socket, channel)}
   end
 
   @impl true
@@ -518,7 +580,7 @@ defmodule RfchatWeb.GuildLive do
               message
             )
 
-            socket = push_event(socket, "composer:clear", %{})
+            socket = push_event(socket, "composer:clear", %{target: "channel"})
 
             {:noreply,
              socket
@@ -540,6 +602,131 @@ defmodule RfchatWeb.GuildLive do
 
           {:error, changeset} ->
             {:noreply, assign(socket, :message_form, to_form(changeset))}
+        end
+    end
+  end
+
+  @impl true
+  def handle_event("create_thread", %{"id" => message_id}, socket) do
+    message = Chat.get_message!(normalize_message_id(message_id))
+
+    case Chat.create_public_thread(
+           socket.assigns.active_channel,
+           message,
+           socket.assigns.current_user
+         ) do
+      {:ok, thread} ->
+        {:noreply,
+         socket
+         |> close_message_ui()
+         |> refresh_thread_summaries_for_active_channel()
+         |> open_thread(thread)}
+
+      {:error, :forbidden} ->
+        {:noreply,
+         put_flash(socket, :error, "You do not have permission to create threads here.")}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Could not create that thread.")}
+    end
+  end
+
+  @impl true
+  def handle_event("open_thread", %{"id" => thread_id}, socket) do
+    case Chat.get_thread_for_user(thread_id, socket.assigns.current_user) do
+      {:ok, thread} ->
+        {:noreply, open_thread(socket, thread)}
+
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "That thread no longer exists.")}
+
+      {:error, :forbidden} ->
+        {:noreply, put_flash(socket, :error, "You do not have access to that thread.")}
+    end
+  end
+
+  @impl true
+  def handle_event("open_thread_focus", %{"id" => thread_id}, socket) do
+    case Chat.get_thread_for_user(thread_id, socket.assigns.current_user) do
+      {:ok, thread} ->
+        {:noreply, open_thread(socket, thread, focus?: true)}
+
+      {:error, :not_found} ->
+        {:noreply, put_flash(socket, :error, "That thread no longer exists.")}
+
+      {:error, :forbidden} ->
+        {:noreply, put_flash(socket, :error, "You do not have access to that thread.")}
+    end
+  end
+
+  @impl true
+  def handle_event("close_thread", _params, socket) do
+    {:noreply, close_thread(socket)}
+  end
+
+  @impl true
+  def handle_event("reply_in_thread", %{"id" => message_id}, socket) do
+    message_id = normalize_message_id(message_id)
+
+    {:noreply,
+     socket
+     |> assign(:thread_reply_to_message, Chat.get_message!(message_id))
+     |> rerender_active_thread_panel()}
+  end
+
+  @impl true
+  def handle_event("cancel_thread_reply", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(:thread_reply_to_message, nil)
+     |> rerender_active_thread_panel()}
+  end
+
+  @impl true
+  def handle_event("send_thread_message", %{"message" => message_params}, socket) do
+    cond do
+      is_nil(socket.assigns.active_thread) ->
+        {:noreply, put_flash(socket, :error, "Open a thread before replying.")}
+
+      not socket.assigns.can_send_thread_messages? ->
+        {:noreply,
+         put_flash(socket, :error, "You do not have permission to send messages in this thread.")}
+
+      true ->
+        case Chat.create_message(
+               socket.assigns.active_thread,
+               socket.assigns.current_user,
+               maybe_put_thread_reply(socket, message_params)
+             ) do
+          {:ok, message} ->
+            Chat.mark_channel_read(
+              socket.assigns.current_user,
+              socket.assigns.active_thread,
+              message
+            )
+
+            socket = push_event(socket, "composer:clear", %{target: "thread"})
+
+            {:noreply,
+             socket
+             |> assign_thread_message_form()
+             |> assign(:thread_reply_to_message, nil)
+             |> maybe_insert_thread_message(message)
+             |> refresh_thread_summaries_for_active_channel()}
+
+          {:error, :forbidden} ->
+            {:noreply,
+             put_flash(
+               socket,
+               :error,
+               "You do not have permission to send messages in this thread."
+             )}
+
+          {:error, changeset} ->
+            {:noreply,
+             socket
+             |> assign(:thread_message_form, to_form(changeset, as: :message))
+             |> rerender_active_thread_panel()}
         end
     end
   end
@@ -820,13 +1007,33 @@ defmodule RfchatWeb.GuildLive do
     assign(socket, :message_form, form)
   end
 
+  defp assign_thread_message_form(socket) do
+    form =
+      %Message{}
+      |> Chat.change_message(%{body: ""})
+      |> to_form(as: :message)
+
+    assign(socket, :thread_message_form, form)
+  end
+
   defp load_channel(socket, channel) do
     messages = Chat.list_messages(channel.id)
     last_message = List.last(messages)
     Chat.mark_channel_read(socket.assigns.current_user, channel, last_message)
+    thread_summaries = Chat.thread_summaries_for_channel(channel.id)
 
     refreshed_channels = Chat.list_channels_for_user(socket.assigns.current_user)
     refreshed_active_channel = Enum.find(refreshed_channels, &(&1.id == channel.id)) || channel
+
+    active_thread =
+      case socket.assigns.active_thread do
+        %{} = thread ->
+          Enum.find(Map.values(thread_summaries), &(&1.thread.id == thread.id))
+          |> then(&(&1 && &1.thread))
+
+        _ ->
+          nil
+      end
 
     socket
     |> assign(:channels, refreshed_channels)
@@ -839,6 +1046,7 @@ defmodule RfchatWeb.GuildLive do
     |> assign(:mobile_members_open?, false)
     |> close_message_ui()
     |> assign(:active_channel, refreshed_active_channel)
+    |> assign(:thread_summaries, thread_summaries)
     |> assign(
       :can_send_messages?,
       Chat.can_send_messages?(refreshed_active_channel, socket.assigns.current_user)
@@ -855,6 +1063,10 @@ defmodule RfchatWeb.GuildLive do
       :can_mention_everyone?,
       Chat.can_mention_everyone?(refreshed_active_channel, socket.assigns.current_user)
     )
+    |> assign(
+      :can_create_public_threads?,
+      Chat.can_create_public_threads?(refreshed_active_channel, socket.assigns.current_user)
+    )
     |> assign(:message_count, Chat.message_count(refreshed_active_channel.id))
     |> assign(:messages_empty?, messages == [])
     |> assign(
@@ -866,6 +1078,7 @@ defmodule RfchatWeb.GuildLive do
       Chat.unread_mentions_for_user(socket.assigns.current_user, refreshed_channels)
     )
     |> stream(:messages, messages, reset: true)
+    |> maybe_restore_thread(active_thread)
   end
 
   defp redirect_to_default_channel(socket) do
@@ -913,6 +1126,13 @@ defmodule RfchatWeb.GuildLive do
         else: false
       )
     )
+    |> assign(
+      :can_create_public_threads?,
+      if(active_channel,
+        do: Chat.can_create_public_threads?(active_channel, current_user),
+        else: false
+      )
+    )
   end
 
   defp maybe_insert_message(socket, message) do
@@ -935,6 +1155,65 @@ defmodule RfchatWeb.GuildLive do
         |> assign(:messages_empty?, false)
         |> assign(:message_count, socket.assigns.message_count + 1)
         |> stream_insert(:messages, message)
+    end
+  end
+
+  defp maybe_insert_thread_message(socket, message) do
+    active_thread = socket.assigns.active_thread
+
+    cond do
+      is_nil(active_thread) ->
+        socket
+
+      active_thread.id != message.channel_id ->
+        socket
+
+      true ->
+        Chat.mark_channel_read(socket.assigns.current_user, active_thread, message)
+        starter_message_id = active_thread.starter_message_id
+
+        socket
+        |> assign(:thread_messages_empty?, false)
+        |> assign(:thread_message_count, socket.assigns.thread_message_count + 1)
+        |> stream_insert(:thread_messages, message)
+        |> refresh_thread_summaries_for_active_channel()
+        |> rerender_messages([starter_message_id])
+    end
+  end
+
+  defp maybe_stream_update_message(socket, message) do
+    if socket.assigns.active_channel && socket.assigns.active_channel.id == message.channel_id do
+      stream_insert(socket, :messages, message)
+    else
+      socket
+    end
+  end
+
+  defp maybe_stream_update_thread_message(socket, message) do
+    if socket.assigns.active_thread && socket.assigns.active_thread.id == message.channel_id do
+      socket
+      |> stream_insert(:thread_messages, message)
+      |> refresh_thread_summaries_for_active_channel()
+      |> rerender_messages([socket.assigns.active_thread.starter_message_id])
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_thread_summaries(socket, channel) do
+    active_channel = socket.assigns.active_channel
+
+    cond do
+      is_nil(active_channel) ->
+        socket
+
+      channel.parent_channel_id == active_channel.id ->
+        socket
+        |> refresh_thread_summaries_for_active_channel()
+        |> rerender_messages([channel.starter_message_id])
+
+      true ->
+        socket
     end
   end
 
@@ -970,6 +1249,13 @@ defmodule RfchatWeb.GuildLive do
     Enum.reduce(Enum.reject(message_ids, &is_nil/1), socket, fn message_id, acc ->
       stream_insert(acc, :messages, Chat.get_message!(message_id))
     end)
+  end
+
+  defp rerender_active_thread_panel(socket) do
+    case current_thread_starter_id(socket) do
+      nil -> socket
+      starter_message_id -> rerender_messages(socket, [starter_message_id])
+    end
   end
 
   defp refresh_custom_emojis(socket) do
@@ -1012,7 +1298,71 @@ defmodule RfchatWeb.GuildLive do
     end
   end
 
+  defp refresh_thread_summaries_for_active_channel(socket) do
+    case socket.assigns.active_channel do
+      %{} = channel ->
+        assign(socket, :thread_summaries, Chat.thread_summaries_for_channel(channel.id))
+
+      nil ->
+        assign(socket, :thread_summaries, %{})
+    end
+  end
+
+  defp maybe_restore_thread(socket, nil), do: close_thread(socket)
+
+  defp maybe_restore_thread(socket, thread) do
+    open_thread(socket, thread, focus?: socket.assigns.thread_focus?)
+  end
+
+  defp open_thread(socket, thread, opts \\ []) do
+    previous_starter_message_id = current_thread_starter_id(socket)
+    thread_messages = Chat.list_thread_messages(thread.id)
+    last_message = List.last(thread_messages)
+    Chat.ensure_channel_memberships_for_user(socket.assigns.current_user, [thread])
+    Chat.mark_channel_read(socket.assigns.current_user, thread, last_message)
+
+    focus? = Keyword.get(opts, :focus?, false)
+
+    socket
+    |> assign(:active_thread, thread)
+    |> assign(:thread_focus?, focus?)
+    |> assign(:thread_reply_to_message, nil)
+    |> assign(
+      :can_send_thread_messages?,
+      Chat.can_send_messages_in_threads?(thread, socket.assigns.current_user)
+    )
+    |> assign(:thread_message_count, Chat.message_count(thread.id))
+    |> assign(:thread_messages_empty?, thread_messages == [])
+    |> assign_thread_message_form()
+    |> stream(:thread_messages, thread_messages, reset: true)
+    |> rerender_messages([previous_starter_message_id, thread.starter_message_id])
+  end
+
+  defp close_thread(socket) do
+    previous_starter_message_id = current_thread_starter_id(socket)
+
+    socket
+    |> assign(:active_thread, nil)
+    |> assign(:thread_focus?, false)
+    |> assign(:thread_reply_to_message, nil)
+    |> assign(:can_send_thread_messages?, false)
+    |> assign(:thread_message_count, 0)
+    |> assign(:thread_messages_empty?, true)
+    |> assign_thread_message_form()
+    |> stream(:thread_messages, [], reset: true)
+    |> rerender_messages([previous_starter_message_id])
+  end
+
+  defp current_thread_starter_id(socket) do
+    case socket.assigns.active_thread do
+      %{} = thread -> thread.starter_message_id
+      _ -> nil
+    end
+  end
+
   defp channel_path(channel), do: ~p"/?channel=#{channel.slug}"
+
+  defp thread_path(channel, thread), do: ~p"/?channel=#{channel.slug}&thread=#{thread.id}"
 
   defp channel_active?(nil, _channel), do: false
   defp channel_active?(active_channel, channel), do: active_channel.id == channel.id
@@ -1023,6 +1373,32 @@ defmodule RfchatWeb.GuildLive do
 
   defp unread_mentions_for(channel, unread_mentions) do
     Map.get(unread_mentions, channel.id, 0)
+  end
+
+  defp thread_summary_for(message, thread_summaries) do
+    Map.get(thread_summaries, message.id)
+  end
+
+  defp thread_reply_count(message, thread_summaries) do
+    case thread_summary_for(message, thread_summaries) do
+      %{reply_count: count} -> count
+      _ -> 0
+    end
+  end
+
+  defp thread_for_message(message, thread_summaries) do
+    case thread_summary_for(message, thread_summaries) do
+      %{thread: thread} -> thread
+      _ -> nil
+    end
+  end
+
+  defp thread_open_for_message?(message, active_thread) do
+    active_thread && active_thread.starter_message_id == message.id
+  end
+
+  defp thread_title(thread) do
+    thread.name || "Thread"
   end
 
   defp save_channel(socket, channel_params) do
@@ -1201,9 +1577,10 @@ defmodule RfchatWeb.GuildLive do
   end
 
   defp emoji_entries_json_for_picker(current_user) do
-    current_user
-    |> SharedHelpers.emoji_entries_for_picker()
-    |> Jason.encode!()
+    Jason.encode!(%{
+      custom: SharedHelpers.emoji_entries_for_picker(current_user),
+      branding: SharedHelpers.server_branding()
+    })
   end
 
   defp save_emoji(socket, emoji_params) do
@@ -1212,6 +1589,13 @@ defmodule RfchatWeb.GuildLive do
 
   defp maybe_put_reply(socket, message_params) do
     case socket.assigns.reply_to_message do
+      nil -> message_params
+      reply_to_message -> Map.put(message_params, "reply_to_id", reply_to_message.id)
+    end
+  end
+
+  defp maybe_put_thread_reply(socket, message_params) do
+    case socket.assigns.thread_reply_to_message do
       nil -> message_params
       reply_to_message -> Map.put(message_params, "reply_to_id", reply_to_message.id)
     end

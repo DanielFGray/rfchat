@@ -10,6 +10,7 @@ defmodule Rfchat.ChatFixtures do
   alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.Reaction
   alias Rfchat.Chat.Role
+  alias Rfchat.Chat.ServerSettings
   alias Rfchat.Repo
 
   def unique_username, do: "user_#{System.unique_integer([:positive])}"
@@ -45,6 +46,11 @@ defmodule Rfchat.ChatFixtures do
 
     {:ok, message} = Chat.create_message(channel, author, attrs)
     message
+  end
+
+  def thread_fixture(parent_channel, starter_message, author, attrs \\ %{}) do
+    {:ok, thread} = Chat.create_public_thread(parent_channel, starter_message, author, attrs)
+    thread
   end
 
   def role_fixture(attrs \\ %{}) do
@@ -139,6 +145,25 @@ defmodule Rfchat.ChatFixtures do
       |> Repo.insert()
 
     Repo.preload(emoji, [:asset, :emoji_roles])
+  end
+
+  def server_settings_fixture(attrs \\ %{}) do
+    attrs =
+      Enum.into(attrs, %{
+        singleton: true,
+        name: "Test Server #{System.unique_integer([:positive])}"
+      })
+
+    {:ok, settings} =
+      %ServerSettings{}
+      |> ServerSettings.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: [set: [name: attrs.name, icon_asset_id: Map.get(attrs, :icon_asset_id)]],
+        conflict_target: :singleton,
+        returning: true
+      )
+
+    settings
   end
 
   def bot_fixture(actor, attrs \\ %{}) do

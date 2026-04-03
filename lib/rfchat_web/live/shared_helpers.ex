@@ -175,6 +175,15 @@ defmodule RfchatWeb.Live.SharedHelpers do
     end)
   end
 
+  def server_branding do
+    settings = Chat.get_server_settings()
+
+    %{
+      name: settings.name,
+      icon_url: Chat.server_icon_url(settings)
+    }
+  end
+
   def assign_channel_form_mode(socket, mode) when is_binary(mode) do
     assign_channel_form_mode(socket, String.to_existing_atom(mode))
   rescue

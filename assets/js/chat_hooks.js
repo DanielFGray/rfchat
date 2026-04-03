@@ -5,7 +5,7 @@ import Mention from "@tiptap/extension-mention"
 import Link from "@tiptap/extension-link"
 import MarkdownIt from "markdown-it"
 import DOMPurify from "dompurify"
-import { CATEGORY_ORDER, CATEGORY_LABELS, filterEmojiCatalog } from "./emoji_catalog"
+import { CATEGORY_ICONS, CATEGORY_ORDER, CATEGORY_LABELS, filterEmojiCatalog } from "./emoji_catalog"
 
 const md = new MarkdownIt({
   html: false,
@@ -67,11 +67,12 @@ const ComposerEntity = Mention.extend({
 
 const RichComposerHook = {
   mounted() {
-    this.bodyInput = this.el.querySelector("#message-body-input")
-    this.metadataInput = this.el.querySelector("#message-metadata-input")
-    this.editorElement = this.el.querySelector("#rich-composer-editor")
-    this.toolbar = this.el.querySelector("#rich-composer-toolbar")
-    this.composerShell = this.el.querySelector("#rich-composer-shell")
+    this.bodyInput = this.el.querySelector("[data-rich-composer-body]")
+    this.metadataInput = this.el.querySelector("[data-rich-composer-metadata]")
+    this.editorElement = this.el.querySelector("[data-rich-composer-editor]")
+    this.toolbar = this.el.querySelector("[data-rich-composer-toolbar]")
+    this.composerShell = this.el.querySelector("[data-rich-composer-shell]")
+    this.composerTarget = this.el.dataset.composerTarget || "default"
     this.submitListener = () => this.syncInputs()
     this.editor = this.buildEditor()
 
@@ -81,7 +82,9 @@ const RichComposerHook = {
 
     this.el.addEventListener("submit", this.submitListener)
 
-    this.handleEvent("composer:clear", () => {
+    this.handleEvent("composer:clear", payload => {
+      if(payload?.target && payload.target !== this.composerTarget) return
+
       this.editor.commands.clearContent(true)
       this.syncInputs()
       this.syncComposerChrome()
@@ -242,8 +245,12 @@ const MessageListHook = {
 
     this.el.addEventListener("scroll", this.onScroll)
     this.renderMarkdownBodies()
-    this.handleEvent("notify:mention", payload => this.showMentionNotification(payload))
-    this.handleEvent("notifications:request-permission", () => this.requestNotificationPermission())
+
+    if(this.el.dataset.enableNotifications !== "false") {
+      this.handleEvent("notify:mention", payload => this.showMentionNotification(payload))
+      this.handleEvent("notifications:request-permission", () => this.requestNotificationPermission())
+    }
+
     requestAnimationFrame(() => this.scrollToBottom())
   },
 
@@ -321,7 +328,9 @@ const ReactionPickerHook = {
     this.activeCategory = null
     this.query = ""
 
-    this.customEmojiIds = new Set(parseDatasetJson(this.el.dataset.customEmojis).map(item => item.id))
+    this.customEmojiDataset = parseDatasetJson(this.el.dataset.customEmojis)
+    this.customEmojiIds = new Set((this.customEmojiDataset.custom || []).map(item => item.id))
+    this.branding = this.customEmojiDataset.branding || {}
 
     this.handleSearch = event => {
       this.query = event.target.value || ""
@@ -345,7 +354,9 @@ const ReactionPickerHook = {
   },
 
   updated() {
-    this.customEmojiIds = new Set(parseDatasetJson(this.el.dataset.customEmojis).map(item => item.id))
+    this.customEmojiDataset = parseDatasetJson(this.el.dataset.customEmojis)
+    this.customEmojiIds = new Set((this.customEmojiDataset.custom || []).map(item => item.id))
+    this.branding = this.customEmojiDataset.branding || {}
     this.renderCatalog()
   },
 
@@ -357,7 +368,7 @@ const ReactionPickerHook = {
   renderCatalog() {
     if(!this.defaultsContainer || !this.categoriesContainer || !this.messageId) return
 
-    const items = filterEmojiCatalog(this.query, this.activeCategory)
+    const items = this.activeCategory === "custom" ? [] : filterEmojiCatalog(this.query, this.activeCategory)
     this.renderCategories(items)
     this.renderDefaults(items)
     this.filterCustomEmojis()
@@ -374,15 +385,43 @@ const ReactionPickerHook = {
       const button = document.createElement("button")
       button.type = "button"
       button.dataset.reactionPickerCategory = categoryId
+      button.title = CATEGORY_LABELS[categoryId] || categoryId
+      button.setAttribute("aria-label", CATEGORY_LABELS[categoryId] || categoryId)
       button.className = [
-        "rounded-full border px-2.5 py-1.5 text-[10px] font-semibold transition md:px-2 md:py-1",
+        "flex size-10 items-center justify-center rounded-2xl border text-lg transition",
         this.activeCategory === categoryId
-          ? "border-violet-400/60 bg-violet-500/20 text-violet-100"
-          : "border-white/10 bg-black/10 text-zinc-400 hover:border-white/20 hover:text-zinc-200",
+          ? "border-primary/50 bg-primary/15 text-primary shadow-[0_8px_24px_rgba(139,92,246,0.18)]"
+          : "border-base-300 bg-base-200 text-base-content/65 hover:border-base-content/15 hover:bg-base-300 hover:text-base-content",
       ].join(" ")
-      button.textContent = CATEGORY_LABELS[categoryId] || categoryId
+      button.textContent = CATEGORY_ICONS[categoryId] || "•"
       this.categoriesContainer.appendChild(button)
     })
+
+    if(this.customContainer && this.customContainer.children.length > 0) {
+      const customButton = document.createElement("button")
+      customButton.type = "button"
+      customButton.dataset.reactionPickerCategory = "custom"
+      customButton.title = "Custom emoji"
+      customButton.setAttribute("aria-label", "Custom emoji")
+      customButton.className = [
+        "order-first mb-1 flex size-10 items-center justify-center overflow-hidden rounded-2xl border text-lg transition",
+        this.activeCategory === "custom"
+          ? "border-primary/50 bg-primary/15 text-primary shadow-[0_8px_24px_rgba(139,92,246,0.18)]"
+          : "border-base-300 bg-base-200 text-base-content/65 hover:border-base-content/15 hover:bg-base-300 hover:text-base-content",
+      ].join(" ")
+
+      if(this.branding.icon_url) {
+        const image = document.createElement("img")
+        image.src = this.branding.icon_url
+        image.alt = this.branding.name || "Server"
+        image.className = "size-6 rounded-lg object-cover"
+        customButton.appendChild(image)
+      } else {
+        customButton.textContent = "★"
+      }
+
+      this.categoriesContainer.prepend(customButton)
+    }
   },
 
   renderDefaults(items) {
@@ -390,7 +429,7 @@ const ReactionPickerHook = {
 
     if(items.length === 0) {
       const empty = document.createElement("p")
-      empty.className = "col-span-7 rounded-xl border border-dashed border-white/8 bg-black/10 px-3 py-4 text-center text-xs text-zinc-500 md:col-span-6"
+      empty.className = "col-span-8 rounded-2xl border border-dashed border-base-300 bg-base-200 px-3 py-4 text-center text-xs text-base-content/50"
       empty.textContent = "No default emojis match that search."
       this.defaultsContainer.appendChild(empty)
       return
@@ -403,7 +442,7 @@ const ReactionPickerHook = {
       button.setAttribute("phx-value-id", this.messageId)
       button.setAttribute("phx-value-emoji", entry.emoji)
       button.id = `reaction-picker-default-${this.messageId}-${entry.unified}`
-      button.className = "flex h-11 items-center justify-center rounded-xl border border-white/8 bg-black/10 text-xl transition hover:border-white/20 hover:bg-white/6 md:h-9 md:text-lg"
+      button.className = "flex aspect-square size-10 items-center justify-center rounded-xl text-xl transition hover:bg-base-200 md:size-9 md:text-lg"
       button.title = entry.name
       button.setAttribute("aria-label", entry.name)
       button.textContent = entry.emoji
@@ -415,6 +454,10 @@ const ReactionPickerHook = {
     if(!this.customContainer) return
 
     const normalizedQuery = this.query.trim().toLowerCase()
+    const customOnly = this.activeCategory === "custom"
+
+    this.customContainer.closest("div")?.classList.toggle("hidden", this.activeCategory && !customOnly)
+    this.defaultsContainer.closest("div")?.classList.toggle("hidden", customOnly)
 
     this.customContainer.querySelectorAll("[data-custom-emoji-id]").forEach(node => {
       const name = (node.dataset.customEmojiName || "").toLowerCase()

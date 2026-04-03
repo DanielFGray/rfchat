@@ -13,6 +13,17 @@ const CATEGORY_LABELS = {
   flags: "Flags",
 }
 
+const CATEGORY_ICONS = {
+  people: "🙂",
+  nature: "🌿",
+  foods: "🍔",
+  activity: "⚽",
+  places: "🌍",
+  objects: "💡",
+  symbols: "🔣",
+  flags: "🏳️",
+}
+
 const EMOJI_VERSION = emojiMartData.meta?.emojiVersion || 0
 
 const emojiById = emojiMartData.emojis || {}
@@ -84,4 +95,4 @@ function filterEmojiCatalog(query, activeCategory = null, limit = 240) {
   return filtered.slice(0, limit)
 }
 
-export { CATEGORY_ORDER, CATEGORY_LABELS, emojiCatalog, filterEmojiCatalog }
+export { CATEGORY_ICONS, CATEGORY_ORDER, CATEGORY_LABELS, emojiCatalog, filterEmojiCatalog }

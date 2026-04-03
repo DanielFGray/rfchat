@@ -44,6 +44,51 @@ defmodule RfchatWeb.Layouts do
     """
   end
 
+  attr(:server, :map, default: nil)
+  attr(:class, :string, default: nil)
+
+  def server_identity(assigns) do
+    ~H"""
+    <div class={[@class, "flex items-center gap-3"]}>
+      <%= if server_icon_url(@server) do %>
+        <img
+          src={server_icon_url(@server)}
+          alt={@server.name}
+          class="size-10 rounded-2xl border border-base-content/10 object-cover shadow-sm"
+        />
+      <% else %>
+        <div class="flex size-10 items-center justify-center rounded-2xl bg-primary/15 text-sm font-bold uppercase text-primary shadow-sm">
+          {server_initial(@server)}
+        </div>
+      <% end %>
+
+      <div class="min-w-0">
+        <p class="truncate text-sm font-semibold tracking-tight text-base-content">
+          {server_name(@server)}
+        </p>
+        <p class="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-base-content/50">
+          single guild
+        </p>
+      </div>
+    </div>
+    """
+  end
+
+  defp server_name(%{name: name}) when is_binary(name) and name != "", do: name
+  defp server_name(_server), do: Rfchat.Chat.default_server_name()
+
+  defp server_icon_url(server), do: Rfchat.Chat.server_icon_url(server)
+
+  defp server_initial(server) do
+    server
+    |> server_name()
+    |> String.first()
+    |> case do
+      nil -> "R"
+      initial -> String.upcase(initial)
+    end
+  end
+
   @doc """
   Shows the flash group with standard titles and content.
 

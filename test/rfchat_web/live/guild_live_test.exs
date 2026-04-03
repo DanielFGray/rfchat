@@ -355,8 +355,7 @@ defmodule RfchatWeb.GuildLiveTest do
       Chat.list_messages(Chat.get_channel_by_slug!("general").id)
       |> List.first()
 
-    view |> element("#open-message-actions-#{original.id}") |> render_click()
-    view |> element("#reply-message-#{original.id}") |> render_click()
+    view |> element("#quick-reply-message-#{original.id}") |> render_click()
 
     assert has_element?(view, "#replying-to-banner")
 
@@ -365,6 +364,86 @@ defmodule RfchatWeb.GuildLiveTest do
     |> render_submit()
 
     assert has_element?(view, "#message-list", "reply message body")
+    assert render(view) =~ "Replying to"
+  end
+
+  test "creates and replies inside an inline thread", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view
+    |> form("#message-form", %{message: %{body: "starter for inline thread"}})
+    |> render_submit()
+
+    starter =
+      Chat.get_channel_by_slug!("general").id
+      |> Chat.list_messages()
+      |> Enum.find(&(&1.body == "starter for inline thread"))
+
+    view |> element("#create-thread-#{starter.id}") |> render_click()
+
+    thread = Chat.get_thread_for_starter_message(starter.id)
+    assert thread
+    _ = :sys.get_state(view.pid)
+
+    view |> element("#open-thread-#{starter.id}") |> render_click()
+
+    assert has_element?(view, "#thread-panel-#{starter.id}")
+    assert has_element?(view, "#thread-message-form")
+
+    view
+    |> form("#thread-message-form", %{message: %{body: "thread reply body"}})
+    |> render_submit()
+
+    assert has_element?(view, "#thread-panel-#{starter.id}", "thread reply body")
+    assert has_element?(view, "#thread-summary-#{starter.id}", "1 replies")
+  end
+
+  test "opens focused thread view from params", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+    general = Chat.get_channel_by_slug!("general")
+    author = current_user_from_conn(conn)
+    starter = message_fixture(general, author, %{body: "focused thread starter"})
+    thread = thread_fixture(general, starter, author)
+    _reply = message_fixture(thread, author, %{body: "focused thread reply"})
+
+    {:ok, view, _html} = live(conn, ~p"/?channel=general&thread=#{thread.id}")
+
+    assert has_element?(view, "#thread-panel-#{starter.id}")
+    assert has_element?(view, "#thread-panel-#{starter.id}", "focused thread reply")
+    assert has_element?(view, "#thread-view-focus-#{starter.id}", "Focused")
+  end
+
+  test "supports replying to a thread message", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    general = Chat.get_channel_by_slug!("general")
+    author = current_user_from_conn(conn)
+    starter = message_fixture(general, author, %{body: "replyable thread starter"})
+    thread = thread_fixture(general, starter, author)
+    reply = message_fixture(thread, author, %{body: "first thread reply"})
+
+    _ = :sys.get_state(view.pid)
+
+    view |> element("#channel-link-general") |> render_click()
+    _ = :sys.get_state(view.pid)
+
+    view |> element("#open-thread-#{starter.id}") |> render_click()
+    view |> element("#reply-in-thread-#{reply.id}") |> render_click()
+
+    _ = :sys.get_state(view.pid)
+
+    assert has_element?(view, "#thread-replying-to-banner")
+
+    view
+    |> form("#thread-message-form", %{message: %{body: "nested thread reply"}})
+    |> render_submit()
+
+    assert has_element?(view, "#thread-panel-#{starter.id}", "nested thread reply")
     assert render(view) =~ "Replying to"
   end
 
@@ -461,6 +540,7 @@ defmodule RfchatWeb.GuildLiveTest do
     conn = log_in_member_user(conn, "picker_layout")
     user = current_user_from_conn(conn)
     emoji = emoji_fixture(user, %{name: "blobwow", shortcode: ":blobwow:"})
+    server_settings_fixture(%{name: "Picker Layout"})
 
     {:ok, view, _html} = live(conn, ~p"/")
     message = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
@@ -474,6 +554,21 @@ defmodule RfchatWeb.GuildLiveTest do
     assert render(view) =~ "reaction-picker-search-#{message.id}"
     assert render(view) =~ "data-reaction-picker-defaults"
     assert has_element?(view, "#reaction-picker-custom-#{message.id}-#{emoji.id}")
+    assert render(view) =~ "data-reaction-picker-custom"
+  end
+
+  test "server settings can update server branding name", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_owner_user(conn)
+
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
+
+    view
+    |> form("#server-settings-form", %{server_settings: %{name: "Orbit HQ"}})
+    |> render_submit()
+
+    assert Chat.get_server_settings().name == "Orbit HQ"
+    assert render(view) =~ "Orbit HQ"
   end
 
   test "opens reaction picker and toggles custom emoji reactions", %{conn: conn} do

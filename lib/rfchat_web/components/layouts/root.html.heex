@@ -4,9 +4,19 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <.live_title default="Rfchat" suffix=" · RFChat">
+    <.live_title
+      default={(@current_server && @current_server.name) || Rfchat.Chat.default_server_name()}
+      suffix=" · RFChat"
+    >
       {assigns[:page_title]}
     </.live_title>
+    <%= if Rfchat.Chat.server_icon_url(@current_server) do %>
+      <link
+        rel="icon"
+        type="image/png"
+        href={Rfchat.Chat.server_icon_url(@current_server)}
+      />
+    <% end %>
     <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
     <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
     </script>
