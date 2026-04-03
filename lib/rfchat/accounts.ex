@@ -108,6 +108,16 @@ defmodule Rfchat.Accounts do
     error in Ecto.InvalidChangesetError -> {:error, error.changeset}
   end
 
+  def register_user!(attrs) do
+    case register_user(attrs) do
+      {:ok, user} ->
+        user
+
+      {:error, changeset} ->
+        raise Ecto.InvalidChangesetError, action: :insert, changeset: changeset
+    end
+  end
+
   def change_registration_user(%User{} = user, attrs \\ %{}) do
     User.registration_changeset(user, attrs)
   end
@@ -226,35 +236,54 @@ defmodule Rfchat.Accounts do
 
   def hash_token(token) when is_binary(token), do: :crypto.hash(:sha256, token)
 
-  defp create_membership!(%User{} = user, now, owner_candidate?) do
-    attrs = %{joined_at: now, is_owner: owner_candidate?}
-
-    case %Membership{user_id: user.id}
-         |> Membership.changeset(attrs)
-         |> Repo.insert() do
-      {:ok, membership} ->
-        membership
-
-      {:error, changeset} ->
-        if owner_candidate? and owner_constraint_error?(changeset) do
-          %Membership{user_id: user.id}
-          |> Membership.changeset(%{joined_at: now, is_owner: false})
-          |> Repo.insert!()
-        else
-          raise Ecto.InvalidChangesetError, action: :insert, changeset: changeset
-        end
+  @doc """
+  Promote a user to owner. The `actor` must already be an owner.
+  Returns `{:ok, membership}` or `{:error, reason}`.
+  """
+  def promote_to_owner(%User{} = actor, %User{} = subject) do
+    with :ok <- authorize_owner_change(actor, subject) do
+      subject.membership
+      |> Membership.changeset(%{is_owner: true})
+      |> Repo.update()
     end
+  end
+
+  @doc """
+  Demote a user from owner. The `actor` must be an owner and cannot demote themselves.
+  Returns `{:ok, membership}` or `{:error, reason}`.
+  """
+  def demote_from_owner(%User{} = actor, %User{} = subject) do
+    with :ok <- authorize_owner_change(actor, subject) do
+      unless subject.membership && subject.membership.is_owner do
+        raise "user is not an owner"
+      end
+
+      subject.membership
+      |> Membership.changeset(%{is_owner: false})
+      |> Repo.update()
+    end
+  end
+
+  def owner?(%User{membership: %Membership{is_owner: true}}), do: true
+  def owner?(_), do: false
+
+  defp authorize_owner_change(%User{} = actor, %User{} = subject) do
+    cond do
+      not owner?(actor) -> {:error, :forbidden}
+      actor.id == subject.id -> {:error, :self}
+      is_nil(subject.membership) -> {:error, :no_membership}
+      true -> :ok
+    end
+  end
+
+  defp create_membership!(%User{} = user, now, owner_candidate?) do
+    %Membership{user_id: user.id}
+    |> Membership.changeset(%{joined_at: now, is_owner: owner_candidate?})
+    |> Repo.insert!()
   end
 
   defp owner_exists? do
     Repo.exists?(from(membership in Membership, where: membership.is_owner == true))
-  end
-
-  defp owner_constraint_error?(changeset) do
-    Enum.any?(changeset.errors, fn
-      {:is_owner, _details} -> true
-      _other -> false
-    end)
   end
 
   defp touch_session(token) do

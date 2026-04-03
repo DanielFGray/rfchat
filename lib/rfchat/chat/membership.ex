@@ -39,6 +39,5 @@ defmodule Rfchat.Chat.Membership do
     |> validate_length(:nickname, max: 40)
     |> validate_length(:pronouns, max: 32)
     |> unique_constraint(:user_id)
-    |> unique_constraint(:is_owner, name: :memberships_is_owner_index)
   end
 end
