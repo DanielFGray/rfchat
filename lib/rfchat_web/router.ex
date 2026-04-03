@@ -15,12 +15,21 @@ defmodule RfchatWeb.Router do
     plug(RfchatWeb.UserAuth, :require_authenticated_user)
   end
 
+  pipeline :require_banned_user do
+    plug(RfchatWeb.UserAuth, :require_banned_user)
+  end
+
   pipeline :redirect_if_user_is_authenticated do
     plug(RfchatWeb.UserAuth, :redirect_if_user_is_authenticated)
   end
 
   pipeline :api do
     plug(:accepts, ["json"])
+  end
+
+  pipeline :bot_api do
+    plug(:accepts, ["json"])
+    plug(RfchatWeb.Plugs.RequireBotAuth)
   end
 
   scope "/", RfchatWeb do
@@ -51,10 +60,35 @@ defmodule RfchatWeb.Router do
     end
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", RfchatWeb do
-  #   pipe_through :api
-  # end
+  scope "/", RfchatWeb do
+    pipe_through([:browser, :require_banned_user])
+
+    live_session :require_banned_user,
+      on_mount: [{RfchatWeb.UserAuth, :ensure_banned_user}] do
+      live("/banned", BannedLive, :index)
+    end
+  end
+
+  scope "/api/v1", RfchatWeb.API, as: :api do
+    pipe_through([:api, :browser, :require_authenticated_user])
+
+    get("/bots", BotController, :index)
+    post("/bots", BotController, :create)
+    patch("/bots/:id", BotController, :update)
+    delete("/bots/:id", BotController, :delete)
+    get("/bots/:id/tokens", BotController, :list_tokens)
+    post("/bots/:id/tokens", BotController, :create_token)
+    delete("/bot_tokens/:id", BotController, :revoke_token)
+  end
+
+  scope "/api/v1", RfchatWeb.API, as: :bot_api do
+    pipe_through :bot_api
+
+    get("/channels/:channel_id/messages", MessageController, :index)
+    post("/channels/:channel_id/messages", MessageController, :create)
+    post("/commands/execute", CommandController, :execute)
+    get("/events", BotController, :events)
+  end
 
   # Enable LiveDashboard in development
   if Application.compile_env(:rfchat, :dev_routes) do

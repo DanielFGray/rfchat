@@ -36,6 +36,7 @@ defmodule Rfchat.Chat.User do
 
     has_many(:message_reports, Rfchat.Chat.MessageReport, foreign_key: :reporter_user_id)
     has_many(:sessions, Rfchat.Chat.UserSession)
+    has_many(:bot_tokens, Rfchat.Chat.BotToken)
 
     timestamps(type: :utc_datetime_usec)
   end

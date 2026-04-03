@@ -8,6 +8,7 @@ defmodule Rfchat.Accounts do
   alias Ecto.Changeset
   alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.Authorization
+  alias Rfchat.Chat.BotToken
   alias Rfchat.Chat.Membership
   alias Rfchat.Chat.User
   alias Rfchat.Chat.UserSession
@@ -21,6 +22,12 @@ defmodule Rfchat.Accounts do
   end
 
   def get_user!(id), do: Repo.get!(User, id)
+
+  def get_user_with_membership!(id) do
+    User
+    |> Repo.get!(id)
+    |> Repo.preload([:membership, member_roles: :role])
+  end
 
   def list_members do
     User
@@ -109,10 +116,17 @@ defmodule Rfchat.Accounts do
     User.changeset(user, attrs)
   end
 
-  def update_profile_user(%User{} = user, attrs) when is_map(attrs) do
+  def update_profile_user(%User{} = user, attrs) do
     user
     |> User.changeset(attrs)
     |> Repo.update()
+    |> case do
+      {:ok, updated_user} ->
+        {:ok, Repo.preload(updated_user, [:membership, member_roles: :role])}
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
   end
 
   def dummy_login_changeset do
@@ -123,7 +137,8 @@ defmodule Rfchat.Accounts do
       when is_binary(email) and is_binary(password) do
     user = get_user_by_email(String.downcase(email))
 
-    if valid_user_password?(user, password), do: user
+    if valid_user_password?(user, password),
+      do: Repo.preload(user, [:membership, member_roles: :role])
   end
 
   def valid_user_password?(%User{} = user, password) when is_binary(password) do
@@ -166,6 +181,16 @@ defmodule Rfchat.Accounts do
     :ok
   end
 
+  def delete_bot_token(token) when is_binary(token) do
+    hashed_token = hash_token(token)
+    now = DateTime.utc_now()
+
+    from(bot_token in BotToken, where: bot_token.token_hash == ^hashed_token)
+    |> Repo.update_all(set: [revoked_at: now])
+
+    :ok
+  end
+
   def user_scope(%User{} = user) do
     default_role = Repo.get_by(Role, is_default: true)
 
@@ -176,6 +201,28 @@ defmodule Rfchat.Accounts do
       base_permissions: Authorization.base_permissions(user, default_role)
     }
   end
+
+  def membership_state(nil), do: :anonymous
+
+  def membership_state(%User{membership: nil}), do: :removed
+
+  def membership_state(%User{membership: membership}) do
+    cond do
+      is_nil(membership.deactivated_at) -> :active
+      membership_flag?(membership, "banned") -> :banned
+      true -> :removed
+    end
+  end
+
+  def banned?(%User{} = user), do: membership_state(user) == :banned
+  def removed?(%User{} = user), do: membership_state(user) == :removed
+
+  def timed_out?(%User{membership: %{timeout_until: timeout_until}})
+      when not is_nil(timeout_until) do
+    DateTime.compare(timeout_until, DateTime.utc_now()) == :gt
+  end
+
+  def timed_out?(%User{}), do: false
 
   def hash_token(token) when is_binary(token), do: :crypto.hash(:sha256, token)
 
@@ -227,6 +274,16 @@ defmodule Rfchat.Accounts do
       DateTime.diff(now, last_active_at, :second) <= 300 -> :online
       DateTime.diff(now, last_active_at, :second) <= 3_600 -> :recent
       true -> :offline
+    end
+  end
+
+  defp membership_flag?(membership, key) do
+    flags = membership.flags || %{}
+
+    case Map.get(flags, key) do
+      true -> true
+      "true" -> true
+      _ -> false
     end
   end
 end

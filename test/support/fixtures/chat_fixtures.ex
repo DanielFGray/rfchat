@@ -2,6 +2,7 @@ defmodule Rfchat.ChatFixtures do
   @moduledoc false
 
   alias Rfchat.Accounts
+  alias Rfchat.Bots
   alias Rfchat.Chat
   alias Rfchat.Chat.ChannelPermissionOverwrite
   alias Rfchat.Chat.Emoji
@@ -138,5 +139,19 @@ defmodule Rfchat.ChatFixtures do
       |> Repo.insert()
 
     Repo.preload(emoji, [:asset, :emoji_roles])
+  end
+
+  def bot_fixture(actor, attrs \\ %{}) do
+    attrs =
+      Enum.into(attrs, %{
+        "display_name" => "Bot #{System.unique_integer([:positive])}",
+        "username" => "bot_#{System.unique_integer([:positive])}",
+        "email" => "bot_#{System.unique_integer([:positive])}@example.com",
+        "bio" => "API bot",
+        "role_ids" => []
+      })
+
+    {:ok, bot_user} = Bots.create_bot(attrs, actor)
+    bot_user
   end
 end

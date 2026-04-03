@@ -194,6 +194,16 @@ defmodule Rfchat.ChatTest do
       assert "can't be blank" in errors_on(changeset).body
     end
 
+    test "create_message/3 rejects invalid metadata json" do
+      channel = channel_fixture()
+      author = user_fixture()
+
+      assert {:error, changeset} =
+               Chat.create_message(channel, author, %{body: "hello", metadata: "{"})
+
+      assert "must be valid JSON" in errors_on(changeset).metadata
+    end
+
     test "create_message/3 persists mention join rows from metadata and body" do
       channel = channel_fixture()
       author = user_fixture()

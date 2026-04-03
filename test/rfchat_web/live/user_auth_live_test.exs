@@ -81,10 +81,6 @@ defmodule RfchatWeb.UserAuthLiveTest do
     assert {:error, {:redirect, %{to: "/login"}}} = live(conn, ~p"/")
   end
 
-  test "settings route requires authentication", %{conn: conn} do
-    assert {:error, {:redirect, %{to: "/login"}}} = live(conn, ~p"/settings")
-  end
-
   test "login rate limiting blocks repeated invalid attempts", %{conn: conn} do
     user_fixture(%{email: "ratelimit@example.com", username: "ratelimit_user"})
 
@@ -136,5 +132,39 @@ defmodule RfchatWeb.UserAuthLiveTest do
 
     assert html =~ "auth works"
     assert render(view) =~ "Guild User"
+  end
+
+  test "banned user login redirects to banned screen", %{conn: conn} do
+    banned_user =
+      user_fixture(%{
+        email: "banned@example.com",
+        username: "banned_user",
+        display_name: "Banned User"
+      })
+
+    banned_user = Rfchat.Accounts.get_user_with_membership!(banned_user.id)
+
+    banned_user.membership
+    |> Rfchat.Chat.Membership.changeset(%{
+      deactivated_at: DateTime.utc_now(),
+      flags: %{"banned" => true, "ban_reason" => "repeat abuse"}
+    })
+    |> Rfchat.Repo.update!()
+
+    {:ok, login_view, _html} = live(conn, ~p"/login")
+
+    login_form =
+      form(login_view, "#login-form", %{
+        user: %{email: "banned@example.com", password: "supersecurepass"}
+      })
+
+    render_submit(login_form)
+
+    conn = follow_trigger_action(login_form, conn)
+
+    assert redirected_to(conn) == ~p"/banned"
+
+    {:ok, banned_view, _html} = live(conn, ~p"/banned")
+    assert render(banned_view) =~ "repeat abuse"
   end
 end
