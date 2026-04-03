@@ -4,11 +4,12 @@ defmodule RfchatWeb.SettingsLive do
   import Ecto.Query, warn: false
 
   alias Rfchat.Accounts
+  alias Rfchat.Bots
   alias Rfchat.Chat
-  alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.ChannelMembership
   alias Rfchat.Chat.UserNotificationSetting
   alias Rfchat.Repo
+  alias RfchatWeb.Live.SharedHelpers
 
   @impl true
   def mount(_params, _session, socket) do
@@ -16,9 +17,10 @@ defmodule RfchatWeb.SettingsLive do
     channels = Chat.list_channels_for_user(current_user)
     :ok = Chat.ensure_channel_memberships_for_user(current_user, channels)
 
-    can_manage_channels? = can_manage_channels?(socket.assigns.current_scope)
-    can_manage_emojis? = can_manage_emojis?(socket.assigns.current_scope)
-    can_moderate_members? = can_moderate_members?(socket.assigns.current_scope)
+    can_manage_channels? = SharedHelpers.can_manage_channels?(socket.assigns.current_scope)
+    can_manage_emojis? = SharedHelpers.can_manage_emojis?(socket.assigns.current_scope)
+    can_moderate_members? = SharedHelpers.can_moderate_members?(socket.assigns.current_scope)
+    can_manage_bots? = Bots.can_manage_bots?(socket.assigns.current_scope)
 
     socket =
       socket
@@ -32,12 +34,21 @@ defmodule RfchatWeb.SettingsLive do
       |> assign(:can_manage_channels?, can_manage_channels?)
       |> assign(:can_manage_emojis?, can_manage_emojis?)
       |> assign(:can_moderate_members?, can_moderate_members?)
+      |> assign(:can_manage_bots?, can_manage_bots?)
       |> assign(:notification_setting, Chat.get_user_notification_setting(current_user))
       |> assign(:channels, channels)
       |> assign(:channel_memberships, channel_memberships_map(current_user, channels))
       |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
-      |> assign(:all_channel_sections, channel_sections_for_manager(can_manage_channels?))
-      |> assign(:custom_emojis, emoji_entries_for_picker(current_user))
+      |> assign(
+        :all_channel_sections,
+        SharedHelpers.channel_sections_for_manager(can_manage_channels?)
+      )
+      |> assign(:custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
+      |> assign(:bot_users, if(can_manage_bots?, do: Bots.list_bot_users(), else: []))
+      |> assign(:manageable_roles, if(can_manage_bots?, do: manageable_roles(), else: []))
+      |> assign(:bot_form, to_form(bot_form_defaults(), as: :bot))
+      |> assign(:bot_token_forms, %{})
+      |> assign(:revealed_bot_tokens, %{})
       |> assign(:manage_channels_open?, false)
       |> assign(:manage_emojis_open?, false)
       |> assign(:member_presence, Accounts.list_members_with_presence())
@@ -49,7 +60,7 @@ defmodule RfchatWeb.SettingsLive do
       |> assign(:editing_channel_id, nil)
       |> assign(:profile_form, to_form(Accounts.change_profile_user(current_user), as: :user))
       |> assign_notification_form()
-      |> assign_channel_form()
+      |> SharedHelpers.assign_channel_form()
       |> assign(:emoji_form, to_form(Chat.change_emoji(%Chat.Emoji{}, %{}), as: :emoji))
 
     {:ok, socket}
@@ -187,6 +198,82 @@ defmodule RfchatWeb.SettingsLive do
   end
 
   @impl true
+  def handle_event("create_bot", %{"bot" => bot_params}, socket) do
+    if socket.assigns.can_manage_bots? do
+      role_ids = List.wrap(Map.get(bot_params, "role_ids", []))
+      bot_params = Map.put(bot_params, "role_ids", Enum.reject(role_ids, &(&1 == "")))
+
+      case Bots.create_bot(bot_params, socket.assigns.current_user) do
+        {:ok, _bot} ->
+          {:noreply,
+           socket
+           |> refresh_bot_assigns()
+           |> assign(:bot_form, to_form(bot_form_defaults(), as: :bot))
+           |> put_flash(:info, "Bot created.")}
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          {:noreply, assign(socket, :bot_form, to_form(changeset, as: :bot))}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Could not create bot: #{inspect(reason)}")}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to manage bots.")}
+    end
+  end
+
+  @impl true
+  def handle_event("create_bot_token", %{"id" => bot_id, "token" => token_params}, socket) do
+    if socket.assigns.can_manage_bots? do
+      bot_user = Bots.get_bot_user!(bot_id)
+
+      case Bots.create_bot_token(bot_user, token_params, socket.assigns.current_user) do
+        {:ok, token_info} ->
+          {:noreply,
+           socket
+           |> refresh_bot_assigns()
+           |> assign(
+             :revealed_bot_tokens,
+             Map.put(socket.assigns.revealed_bot_tokens, bot_id, token_info.token)
+           )
+           |> put_flash(:info, "Bot token created. Copy it now; it will not be shown again.")}
+
+        {:error, changeset} ->
+          token_forms =
+            Map.put(socket.assigns.bot_token_forms, bot_id, to_form(changeset, as: :token))
+
+          {:noreply, assign(socket, :bot_token_forms, token_forms)}
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to manage bots.")}
+    end
+  end
+
+  @impl true
+  def handle_event("revoke_bot_token", %{"id" => token_id}, socket) do
+    if socket.assigns.can_manage_bots? do
+      case Repo.get(Chat.BotToken, token_id) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "Bot token not found.")}
+
+        token ->
+          case Bots.revoke_bot_token(token, socket.assigns.current_user) do
+            {:ok, _revoked} ->
+              {:noreply,
+               socket
+               |> refresh_bot_assigns()
+               |> put_flash(:info, "Bot token revoked.")}
+
+            {:error, _changeset} ->
+              {:noreply, put_flash(socket, :error, "Could not revoke bot token.")}
+          end
+      end
+    else
+      {:noreply, put_flash(socket, :error, "You do not have permission to manage bots.")}
+    end
+  end
+
+  @impl true
   def handle_event("close_manage_emojis", _params, socket) do
     {:noreply, assign(socket, :manage_emojis_open?, false)}
   end
@@ -194,7 +281,10 @@ defmodule RfchatWeb.SettingsLive do
   @impl true
   def handle_event("new_channel_form", %{"mode" => mode}, socket) do
     if socket.assigns.can_manage_channels? do
-      {:noreply, socket |> assign_channel_form_mode(mode) |> assign_channel_form()}
+      {:noreply,
+       socket
+       |> SharedHelpers.assign_channel_form_mode(mode)
+       |> SharedHelpers.assign_channel_form()}
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to manage channels.")}
     end
@@ -209,8 +299,8 @@ defmodule RfchatWeb.SettingsLive do
        socket
        |> assign(:manage_channels_open?, true)
        |> assign(:editing_channel_id, channel.id)
-       |> assign_channel_form_mode(edit_mode_for(channel))
-       |> assign_channel_form(channel)}
+       |> SharedHelpers.assign_channel_form_mode(SharedHelpers.edit_mode_for(channel))
+       |> SharedHelpers.assign_channel_form(channel)}
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to manage channels.")}
     end
@@ -221,8 +311,8 @@ defmodule RfchatWeb.SettingsLive do
     {:noreply,
      socket
      |> assign(:editing_channel_id, nil)
-     |> assign_channel_form_mode(:create_text)
-     |> assign_channel_form()}
+     |> SharedHelpers.assign_channel_form_mode(:create_text)
+     |> SharedHelpers.assign_channel_form()}
   end
 
   @impl true
@@ -245,8 +335,8 @@ defmodule RfchatWeb.SettingsLive do
            socket
            |> refresh_channels()
            |> assign(:editing_channel_id, nil)
-           |> assign_channel_form_mode(:create_text)
-           |> assign_channel_form()
+           |> SharedHelpers.assign_channel_form_mode(:create_text)
+           |> SharedHelpers.assign_channel_form()
            |> put_flash(:info, "Channel deleted.")}
 
         {:error, _changeset} ->
@@ -386,33 +476,6 @@ defmodule RfchatWeb.SettingsLive do
     |> Map.new(&{&1.channel_id, &1})
   end
 
-  defp assign_channel_form(socket, channel \\ nil) do
-    channel = channel || %Chat.Channel{}
-
-    attrs =
-      if channel.id do
-        %{
-          name: channel.name,
-          slug: channel.slug,
-          topic: channel.topic,
-          kind: channel.kind,
-          parent_channel_id: channel.parent_channel_id,
-          nsfw: channel.nsfw
-        }
-      else
-        default_channel_attrs(socket.assigns.channel_form_mode)
-      end
-
-    form =
-      channel
-      |> Chat.change_channel(attrs)
-      |> to_form(as: :channel)
-
-    socket
-    |> assign(:channel_form, form)
-    |> assign(:editing_channel_id, channel.id)
-  end
-
   defp refresh_channels(socket) do
     current_user = socket.assigns.current_user
     channels = Chat.list_channels_for_user(current_user)
@@ -422,7 +485,7 @@ defmodule RfchatWeb.SettingsLive do
     |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
     |> assign(
       :all_channel_sections,
-      channel_sections_for_manager(socket.assigns.can_manage_channels?)
+      SharedHelpers.channel_sections_for_manager(socket.assigns.can_manage_channels?)
     )
     |> assign(:channel_memberships, channel_memberships_map(current_user, channels))
   end
@@ -432,22 +495,23 @@ defmodule RfchatWeb.SettingsLive do
   end
 
   defp save_channel(socket, channel_params) do
-    attrs = normalize_channel_params(channel_params, socket)
+    attrs =
+      SharedHelpers.normalize_channel_params(channel_params, socket.assigns.channel_form_mode)
 
     case socket.assigns.editing_channel_id do
       nil ->
-        attrs = Map.put_new(attrs, "position", next_channel_position())
+        attrs = Map.put_new(attrs, "position", SharedHelpers.next_channel_position())
 
         case Chat.create_channel(attrs) do
           {:ok, channel} ->
             {:noreply,
              socket
              |> refresh_channels()
-             |> assign_channel_form_mode(
+             |> SharedHelpers.assign_channel_form_mode(
                if(channel.kind == :category, do: :create_category, else: :create_text)
              )
-             |> assign_channel_form()
-             |> put_flash(:info, creation_flash(channel))}
+             |> SharedHelpers.assign_channel_form()
+             |> put_flash(:info, SharedHelpers.creation_flash(channel))}
 
           {:error, changeset} ->
             {:noreply, assign(socket, :channel_form, to_form(changeset, as: :channel))}
@@ -462,8 +526,10 @@ defmodule RfchatWeb.SettingsLive do
              socket
              |> refresh_channels()
              |> assign(:editing_channel_id, updated_channel.id)
-             |> assign_channel_form_mode(edit_mode_for(updated_channel))
-             |> assign_channel_form(updated_channel)
+             |> SharedHelpers.assign_channel_form_mode(
+               SharedHelpers.edit_mode_for(updated_channel)
+             )
+             |> SharedHelpers.assign_channel_form(updated_channel)
              |> put_flash(:info, "Channel updated.")}
 
           {:error, changeset} ->
@@ -472,295 +538,23 @@ defmodule RfchatWeb.SettingsLive do
     end
   end
 
-  defp assign_channel_form_mode(socket, mode) when is_binary(mode) do
-    assign_channel_form_mode(socket, String.to_existing_atom(mode))
-  rescue
-    ArgumentError -> assign_channel_form_mode(socket, :create_text)
-  end
-
-  defp assign_channel_form_mode(socket, :create_category) do
-    socket
-    |> assign(:channel_form_mode, :create_category)
-    |> assign(:channel_form_title, "Create category")
-    |> assign(:editing_channel_id, nil)
-  end
-
-  defp assign_channel_form_mode(socket, :edit_category) do
-    socket
-    |> assign(:channel_form_mode, :edit_category)
-    |> assign(:channel_form_title, "Edit category")
-  end
-
-  defp assign_channel_form_mode(socket, :edit_text) do
-    socket
-    |> assign(:channel_form_mode, :edit_text)
-    |> assign(:channel_form_title, "Edit channel")
-  end
-
-  defp assign_channel_form_mode(socket, _mode) do
-    socket
-    |> assign(:channel_form_mode, :create_text)
-    |> assign(:channel_form_title, "Create text channel")
-    |> assign(:editing_channel_id, nil)
-  end
-
-  defp default_channel_attrs(:create_category) do
-    %{kind: :category, name: "", slug: "", topic: nil, parent_channel_id: nil, nsfw: false}
-  end
-
-  defp default_channel_attrs(_mode) do
-    %{kind: :text, name: "", slug: "", topic: nil, parent_channel_id: nil, nsfw: false}
-  end
-
-  defp edit_mode_for(channel) do
-    if channel.kind == :category, do: :edit_category, else: :edit_text
-  end
-
-  defp normalize_channel_params(channel_params, socket) do
-    mode = socket.assigns.channel_form_mode
-    kind = if mode in [:create_category, :edit_category], do: "category", else: "text"
-
-    channel_params
-    |> Map.put("kind", kind)
-    |> Map.update("parent_channel_id", nil, fn parent_id ->
-      if kind == "category", do: nil, else: blank_to_nil(parent_id)
-    end)
-    |> Map.update("topic", nil, &blank_to_nil/1)
-    |> Map.update("slug", "", fn slug ->
-      slug = String.trim(slug || "")
-      if slug == "", do: slugify(Map.get(channel_params, "name", "")), else: slug
-    end)
-  end
-
-  defp creation_flash(channel) do
-    if channel.kind == :category, do: "Category created.", else: "Channel created."
-  end
-
-  defp next_channel_position do
-    Chat.list_channels()
-    |> Enum.map(& &1.position)
-    |> Enum.max(fn -> -1 end)
-    |> Kernel.+(1)
-  end
-
-  defp move_channel(channel_id, direction) do
-    sections = Chat.list_channel_tree()
-
-    case swap_in_sections(sections, channel_id, direction) do
-      {:ok, updated_sections} ->
-        case Chat.reorder_channels(updated_sections) do
-          {:ok, _channels} -> :ok
-          _ -> :error
-        end
-
-      :error ->
-        :error
-    end
-  end
-
-  defp swap_in_sections(sections, channel_id, direction) do
-    Enum.reduce_while(Enum.with_index(sections), :error, fn {section, section_index}, _acc ->
-      ids = Enum.map(section.channels, & &1.id)
-
-      case Enum.find_index(ids, &(&1 == channel_id)) do
-        nil ->
-          {:cont, :error}
-
-        index ->
-          target_index = if direction == "up", do: index - 1, else: index + 1
-
-          if target_index < 0 or target_index >= length(ids) do
-            {:halt, :error}
-          else
-            updated_ids = swap_positions(ids, index, target_index)
-
-            updated_sections =
-              List.update_at(sections, section_index, fn current_section ->
-                %{current_section | channels: updated_ids}
-              end)
-
-            {:halt, {:ok, serialize_sections(updated_sections)}}
-          end
-      end
-    end)
-  end
-
-  defp serialize_sections(sections) do
-    Enum.map(sections, fn section ->
-      %{
-        category: section.category && section.category.id,
-        channels:
-          Enum.map(section.channels, fn channel ->
-            if is_binary(channel), do: channel, else: channel.id
-          end)
-      }
-    end)
-  end
-
-  defp swap_positions(list, left, right) do
-    left_value = Enum.at(list, left)
-    right_value = Enum.at(list, right)
-
-    list
-    |> List.replace_at(left, right_value)
-    |> List.replace_at(right, left_value)
-  end
+  defp move_channel(channel_id, direction), do: SharedHelpers.move_channel(channel_id, direction)
 
   defp save_emoji(socket, emoji_params) do
-    upload = uploaded_entry(socket, :emoji_image)
-
-    if is_nil(upload) do
-      {:noreply, put_flash(socket, :error, "Choose an image before saving the emoji.")}
-    else
-      case consume_emoji_upload(socket, upload, emoji_params) do
-        {:ok, _emoji, socket} ->
-          {:noreply,
-           socket
-           |> refresh_custom_emojis()
-           |> assign(:emoji_form, to_form(Chat.change_emoji(%Chat.Emoji{}, %{}), as: :emoji))
-           |> put_flash(:info, "Emoji added.")}
-
-        {:error, :invalid_upload_type, socket} ->
-          {:noreply, put_flash(socket, :error, "Emoji uploads must be png, jpg, gif, or webp.")}
-
-        {:error, changeset, socket} ->
-          {:noreply, assign(socket, :emoji_form, to_form(changeset, as: :emoji))}
-      end
-    end
-  end
-
-  defp consume_emoji_upload(socket, _upload, emoji_params) do
-    result =
-      consume_uploaded_entries(socket, :emoji_image, fn %{path: path}, entry ->
-        {:ok,
-         Chat.create_custom_emoji_from_upload(emoji_params, socket.assigns.current_user, %{
-           path: path,
-           client_name: entry.client_name,
-           client_type: entry.client_type
-         })}
-      end)
-
-    case result do
-      [{:ok, emoji}] -> {:ok, emoji, socket}
-      [{:error, reason}] -> {:error, reason, socket}
-      [] -> {:error, :invalid_upload_type, socket}
-    end
-  end
-
-  defp uploaded_entry(socket, name) do
-    socket.assigns.uploads[name].entries |> List.first()
+    SharedHelpers.save_emoji(socket, emoji_params, &refresh_custom_emojis/1)
   end
 
   defp refresh_custom_emojis(socket) do
     current_user = socket.assigns.current_user
-    assign(socket, :custom_emojis, emoji_entries_for_picker(current_user))
+    assign(socket, :custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
   end
 
-  defp run_member_moderation(actor, subject, %{
-         "action" => "timeout",
-         "duration_minutes" => minutes,
-         "reason" => reason
-       }) do
-    case Integer.parse(to_string(minutes || "")) do
-      {duration_minutes, ""} when duration_minutes > 0 ->
-        case Chat.timeout_member(actor, subject, duration_minutes, blank_to_nil(reason)) do
-          {:ok, updated_subject, moderation_case} ->
-            {:ok, updated_subject, moderation_case, "Member timed out."}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-
-      _ ->
-        {:error, :invalid_duration}
-    end
-  end
-
-  defp run_member_moderation(actor, subject, %{"action" => "kick", "reason" => reason}) do
-    case Chat.kick_member(actor, subject, blank_to_nil(reason)) do
-      {:ok, updated_subject, moderation_case} ->
-        {:ok, updated_subject, moderation_case, "Member kicked."}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp run_member_moderation(actor, subject, %{"action" => "ban", "reason" => reason}) do
-    case Chat.ban_member(actor, subject, blank_to_nil(reason)) do
-      {:ok, updated_subject, moderation_case} ->
-        {:ok, updated_subject, moderation_case, "Member banned."}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp run_member_moderation(_actor, _subject, _params), do: {:error, :invalid_action}
+  defp run_member_moderation(actor, subject, params),
+    do: SharedHelpers.run_member_moderation(actor, subject, params)
 
   defp mention_alerts_enabled?(setting) do
     setting.desktop_enabled && setting.notify_on_mentions
   end
-
-  defp can_manage_channels?(scope) do
-    if is_nil(scope) do
-      false
-    else
-      permissions = scope_permissions(scope)
-
-      Authorization.has_permission?(permissions, :manage_channels) or
-        Authorization.has_permission?(permissions, :administrator)
-    end
-  end
-
-  defp can_manage_emojis?(scope) do
-    if is_nil(scope) do
-      false
-    else
-      permissions = scope_permissions(scope)
-
-      Authorization.has_permission?(permissions, :manage_emojis_and_stickers) or
-        Authorization.has_permission?(permissions, :administrator)
-    end
-  end
-
-  defp can_moderate_members?(scope) do
-    if is_nil(scope) do
-      false
-    else
-      permissions = scope_permissions(scope)
-
-      Authorization.has_permission?(permissions, :moderate_members) or
-        Authorization.has_permission?(permissions, :kick_members) or
-        Authorization.has_permission?(permissions, :ban_members) or
-        Authorization.has_permission?(permissions, :administrator)
-    end
-  end
-
-  defp scope_permissions(%{
-         base_permissions: base_permissions,
-         membership: membership,
-         roles: roles
-       }) do
-    role_permissions = Enum.reduce(roles || [], 0, &Bitwise.bor(&1.permissions, &2))
-
-    cond do
-      membership && membership.is_owner ->
-        Authorization.all_permissions()
-
-      Authorization.has_permission?(base_permissions || 0, :administrator) ->
-        Authorization.all_permissions()
-
-      Authorization.has_permission?(role_permissions, :administrator) ->
-        Authorization.all_permissions()
-
-      true ->
-        Bitwise.bor(base_permissions || 0, role_permissions)
-    end
-  end
-
-  defp channel_sections_for_manager(true), do: Chat.list_channel_tree()
-  defp channel_sections_for_manager(false), do: []
 
   defp manageable_categories(sections) do
     sections
@@ -771,6 +565,9 @@ defmodule RfchatWeb.SettingsLive do
   defp section_dom_id(nil), do: "channel-section-uncategorized"
   defp section_dom_id(category), do: "channel-section-#{category.slug}"
 
+  # ARCHITECTURE NOTE: Stage A cleanup can still extract shared presentation helpers
+  # like section_label/member_status_class/member_status_label/scrollbar_classes
+  # into a dedicated Live UI helper module once we want to reduce duplicate view glue further.
   defp section_label(nil), do: "Text channels"
   defp section_label(category), do: category.name
 
@@ -811,22 +608,44 @@ defmodule RfchatWeb.SettingsLive do
     end
   end
 
-  defp emoji_entries_for_picker(current_user) do
-    Chat.list_available_emojis(current_user)
-    |> Enum.map(fn emoji ->
-      %{
-        id: emoji.id,
-        name: emoji.name,
-        shortcode: emoji.shortcode,
-        url: Chat.asset_url(emoji.asset)
-      }
-    end)
-  end
-
   defp emoji_upload_error(:too_large), do: "That file is too large."
   defp emoji_upload_error(:too_many_files), do: "Choose only one file."
   defp emoji_upload_error(:not_accepted), do: "That file type is not allowed."
   defp emoji_upload_error(_error), do: "Upload failed."
+
+  defp refresh_bot_assigns(socket) do
+    if socket.assigns.can_manage_bots? do
+      bot_users = Bots.list_bot_users()
+
+      bot_token_forms =
+        Enum.reduce(bot_users, %{}, fn bot_user, acc ->
+          Map.put_new(
+            acc,
+            bot_user.id,
+            to_form(%{"label" => "", "expires_in_days" => ""}, as: :token)
+          )
+        end)
+
+      socket
+      |> assign(:bot_users, bot_users)
+      |> assign(:manageable_roles, manageable_roles())
+      |> assign(
+        :bot_token_forms,
+        Map.merge(bot_token_forms, socket.assigns.bot_token_forms || %{})
+      )
+    else
+      socket
+    end
+  end
+
+  defp bot_form_defaults do
+    %{"display_name" => "", "username" => "", "email" => "", "bio" => "", "role_ids" => []}
+  end
+
+  defp manageable_roles do
+    Chat.list_roles()
+    |> Enum.reject(& &1.is_default)
+  end
 
   defp tab_active?(active_tab, tab), do: active_tab == tab
 
@@ -858,11 +677,4 @@ defmodule RfchatWeb.SettingsLive do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
-
-  defp slugify(value) do
-    value
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/u, "-")
-    |> String.trim("-")
-  end
 end

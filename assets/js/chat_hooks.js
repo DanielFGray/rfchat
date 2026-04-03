@@ -13,8 +13,10 @@ const md = new MarkdownIt({
   breaks: true,
   typographer: false,
   highlight: (code, language) => {
-    const languageLabel = language ? `<span class="message-code-language">${escapeHtml(language)}</span>` : ""
-    return `<div class="message-code-block">${languageLabel}<pre><code>${escapeHtml(code)}</code></pre></div>`
+    const languageLabel = language
+      ? `<span class="inline-flex px-[0.9rem] pt-[0.55rem] text-[10px] font-extrabold uppercase tracking-[0.18em] text-zinc-400">${escapeHtml(language)}</span>`
+      : ""
+    return `<div class="message-code-block overflow-hidden rounded-[0.9rem] border border-white/6 bg-[rgb(17_18_20_/_0.92)]">${languageLabel}<pre class="m-0 overflow-x-auto px-[0.95rem] pt-[0.85rem] pb-4"><code class="text-[13px] text-zinc-200">${escapeHtml(code)}</code></pre></div>`
   },
 })
 
@@ -22,7 +24,7 @@ const defaultLinkRenderer = md.renderer.rules.link_open || ((tokens, idx, option
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   tokens[idx].attrSet("target", "_blank")
   tokens[idx].attrSet("rel", "noopener noreferrer nofollow")
-  tokens[idx].attrJoin("class", "message-link")
+  tokens[idx].attrJoin("class", "text-blue-300 underline decoration-[rgba(147,197,253,0.4)] underline-offset-2")
   return defaultLinkRenderer(tokens, idx, options, env, self)
 }
 
@@ -54,7 +56,9 @@ const ComposerEntity = Mention.extend({
       {
         ...HTMLAttributes,
         "data-entity-type": node.attrs.entityType || (isSlashCommand ? "slash_command" : "mention"),
-        class: isSlashCommand ? "composer-chip composer-chip-command" : "composer-chip composer-chip-mention",
+        class: isSlashCommand
+          ? "inline-flex items-center rounded-full bg-violet-500/18 px-2 py-0.5 text-[0.85em] font-bold text-violet-200"
+          : "inline-flex items-center rounded-full bg-blue-500/18 px-2 py-0.5 text-[0.85em] font-bold text-blue-200",
       },
       `${isSlashCommand ? "/" : "@"}${node.attrs.label ?? node.attrs.id}`,
     ]
@@ -67,6 +71,7 @@ const RichComposerHook = {
     this.metadataInput = this.el.querySelector("#message-metadata-input")
     this.editorElement = this.el.querySelector("#rich-composer-editor")
     this.toolbar = this.el.querySelector("#rich-composer-toolbar")
+    this.composerShell = this.el.querySelector("#rich-composer-shell")
     this.submitListener = () => this.syncInputs()
     this.editor = this.buildEditor()
 
@@ -79,8 +84,11 @@ const RichComposerHook = {
     this.handleEvent("composer:clear", () => {
       this.editor.commands.clearContent(true)
       this.syncInputs()
+      this.syncComposerChrome()
       this.editor.commands.focus("end")
     })
+
+    this.syncComposerChrome()
   },
 
   destroyed() {
@@ -159,19 +167,38 @@ const RichComposerHook = {
       ],
       editorProps: {
         attributes: {
-          class: "ProseMirror rich-composer-input",
+          class: [
+            "ProseMirror min-h-[44px] whitespace-pre-wrap break-words text-[15px] leading-6 text-zinc-100 outline-none",
+            "[&>p]:m-0",
+            "[&_p.is-editor-empty:first-child::before]:pointer-events-none",
+            "[&_p.is-editor-empty:first-child::before]:float-left",
+            "[&_p.is-editor-empty:first-child::before]:h-0",
+            "[&_p.is-editor-empty:first-child::before]:text-zinc-500",
+            "[&_p.is-editor-empty:first-child::before]:content-[attr(data-placeholder)]",
+            "[&_code]:rounded-md [&_code]:bg-[rgba(17,18,20,0.75)] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[0.88em] [&_code]:text-zinc-100",
+            "[&_pre]:mt-2 [&_pre]:overflow-x-auto [&_pre]:rounded-xl [&_pre]:bg-[rgb(17_18_20)] [&_pre]:px-4 [&_pre]:py-3.5",
+            "[&_pre_code]:bg-transparent [&_pre_code]:p-0"
+          ].join(" "),
           spellcheck: "true",
         },
       },
       autofocus: false,
       onCreate: () => {
         this.syncInputs()
+        this.syncComposerChrome()
       },
       onUpdate: () => {
         this.syncInputs()
+        this.syncComposerChrome()
       },
       onTransaction: ({ editor }) => {
         syncToolbarState(this.toolbar, editor)
+      },
+      onFocus: () => {
+        this.syncComposerChrome()
+      },
+      onBlur: () => {
+        requestAnimationFrame(() => this.syncComposerChrome())
       },
     })
   },
@@ -189,6 +216,18 @@ const RichComposerHook = {
 
     this.bodyInput.dispatchEvent(new Event("input", { bubbles: true }))
     this.metadataInput.dispatchEvent(new Event("input", { bubbles: true }))
+  },
+
+  syncComposerChrome() {
+    if(!this.composerShell || !this.editor) return
+
+    const isExpanded = this.editor.isFocused || !this.editor.isEmpty
+    this.composerShell.classList.toggle("is-focused", this.editor.isFocused)
+    this.composerShell.classList.toggle("is-expanded", isExpanded)
+
+    this.composerShell.querySelectorAll("[data-expanded]").forEach(node => {
+      node.dataset.expanded = isExpanded ? "true" : "false"
+    })
   },
 }
 
@@ -336,7 +375,7 @@ const ReactionPickerHook = {
       button.type = "button"
       button.dataset.reactionPickerCategory = categoryId
       button.className = [
-        "rounded-full border px-2 py-1 text-[10px] font-semibold transition",
+        "rounded-full border px-2.5 py-1.5 text-[10px] font-semibold transition md:px-2 md:py-1",
         this.activeCategory === categoryId
           ? "border-violet-400/60 bg-violet-500/20 text-violet-100"
           : "border-white/10 bg-black/10 text-zinc-400 hover:border-white/20 hover:text-zinc-200",
@@ -351,7 +390,7 @@ const ReactionPickerHook = {
 
     if(items.length === 0) {
       const empty = document.createElement("p")
-      empty.className = "col-span-6 rounded-xl border border-dashed border-white/8 bg-black/10 px-3 py-4 text-center text-xs text-zinc-500"
+      empty.className = "col-span-7 rounded-xl border border-dashed border-white/8 bg-black/10 px-3 py-4 text-center text-xs text-zinc-500 md:col-span-6"
       empty.textContent = "No default emojis match that search."
       this.defaultsContainer.appendChild(empty)
       return
@@ -364,7 +403,7 @@ const ReactionPickerHook = {
       button.setAttribute("phx-value-id", this.messageId)
       button.setAttribute("phx-value-emoji", entry.emoji)
       button.id = `reaction-picker-default-${this.messageId}-${entry.unified}`
-      button.className = "flex h-10 items-center justify-center rounded-xl border border-white/8 bg-black/10 text-lg transition hover:border-white/20 hover:bg-white/6"
+      button.className = "flex h-11 items-center justify-center rounded-xl border border-white/8 bg-black/10 text-xl transition hover:border-white/20 hover:bg-white/6 md:h-9 md:text-lg"
       button.title = entry.name
       button.setAttribute("aria-label", entry.name)
       button.textContent = entry.emoji
@@ -404,17 +443,20 @@ function buildSuggestion({ char, items, startOfLine = false }) {
         popup.innerHTML = ""
 
         if(activeItems.length === 0) {
-          popup.innerHTML = '<div class="composer-suggestion-empty">No matches</div>'
+          popup.innerHTML = '<div class="flex w-full flex-col gap-0.5 px-[0.85rem] py-[0.7rem] text-left text-[0.72rem] text-zinc-400">No matches</div>'
           return
         }
 
         activeItems.forEach((item, index) => {
           const option = document.createElement("button")
           option.type = "button"
-          option.className = `composer-suggestion-item ${index === selectedIndex ? "is-active" : ""}`
+          option.className = [
+            "flex w-full flex-col gap-0.5 px-[0.85rem] py-[0.7rem] text-left transition",
+            index === selectedIndex ? "bg-white/6" : "bg-transparent hover:bg-white/6",
+          ].join(" ")
           option.innerHTML = `
-            <span class="composer-suggestion-primary">${char}${escapeHtml(item.label)}</span>
-            <span class="composer-suggestion-secondary">${escapeHtml(item.description || "")}</span>
+            <span class="text-[0.86rem] font-bold text-zinc-100">${char}${escapeHtml(item.label)}</span>
+            <span class="text-[0.72rem] text-zinc-400">${escapeHtml(item.description || "")}</span>
           `
           option.addEventListener("mousedown", event => {
             event.preventDefault()
@@ -438,7 +480,7 @@ function buildSuggestion({ char, items, startOfLine = false }) {
           selectedIndex = 0
           command = props.command
           popup = document.createElement("div")
-          popup.className = "composer-suggestions"
+          popup.className = "absolute z-80 min-w-60 max-w-80 overflow-hidden rounded-[0.9rem] border border-white/8 bg-[rgb(17_18_20_/_0.97)] shadow-[0_18px_40px_rgba(0,0,0,0.35)]"
           document.body.appendChild(popup)
           renderPopup(props)
           reposition(props)
@@ -605,6 +647,7 @@ function syncToolbarState(toolbar, editor) {
       (action === "code-block" && editor.isActive("codeBlock"))
 
     button.classList.toggle("is-active", !!active)
+    button.dataset.active = active ? "true" : "false"
   })
 }
 
@@ -629,7 +672,7 @@ function enhanceEmbeds(container) {
     embed.href = link.href
     embed.target = "_blank"
     embed.rel = "noopener noreferrer nofollow"
-    embed.className = "message-link-embed"
+    embed.className = "flex flex-col gap-1 rounded-[0.85rem] border border-blue-400/20 bg-slate-800/55 px-[0.9rem] py-3 text-left no-underline"
 
     let url
     try {
@@ -638,8 +681,8 @@ function enhanceEmbeds(container) {
       return
     }
     embed.innerHTML = `
-      <span class="message-link-embed-domain">${escapeHtml(url.hostname)}</span>
-      <span class="message-link-embed-url">${escapeHtml(link.href)}</span>
+      <span class="text-[11px] font-extrabold uppercase tracking-[0.18em] text-slate-400">${escapeHtml(url.hostname)}</span>
+      <span class="break-all text-[13px] text-blue-200">${escapeHtml(link.href)}</span>
     `
 
     paragraph.replaceWith(embed)

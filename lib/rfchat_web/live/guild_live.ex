@@ -3,17 +3,17 @@ defmodule RfchatWeb.GuildLive do
 
   alias Rfchat.Accounts
   alias Rfchat.Chat
-  alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.Message
+  alias RfchatWeb.Live.SharedHelpers
 
   @impl true
   def mount(_params, _session, socket) do
     current_user = socket.assigns.current_user
     channels = Chat.list_channels_for_user(current_user)
     :ok = Chat.ensure_channel_memberships_for_user(current_user, channels)
-    can_manage_channels? = can_manage_channels?(socket.assigns.current_scope)
-    can_manage_emojis? = can_manage_emojis?(socket.assigns.current_scope)
-    can_moderate_members? = can_moderate_members?(socket.assigns.current_scope)
+    can_manage_channels? = SharedHelpers.can_manage_channels?(socket.assigns.current_scope)
+    can_manage_emojis? = SharedHelpers.can_manage_emojis?(socket.assigns.current_scope)
+    can_moderate_members? = SharedHelpers.can_moderate_members?(socket.assigns.current_scope)
 
     if connected?(socket) do
       Chat.subscribe_to_channel_events()
@@ -33,8 +33,11 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:can_moderate_members?, can_moderate_members?)
       |> assign(:channels, channels)
       |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
-      |> assign(:all_channel_sections, channel_sections_for_manager(can_manage_channels?))
-      |> assign(:custom_emojis, emoji_entries_for_picker(current_user))
+      |> assign(
+        :all_channel_sections,
+        SharedHelpers.channel_sections_for_manager(can_manage_channels?)
+      )
+      |> assign(:custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
       |> assign(:custom_emojis_json, emoji_entries_json_for_picker(current_user))
       |> assign(:member_presence, Accounts.list_members_with_presence())
       |> assign(:notification_setting, Chat.get_user_notification_setting(current_user))
@@ -68,7 +71,7 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:message_count, 0)
       |> assign(:messages_empty?, true)
       |> assign_message_form()
-      |> assign_channel_form()
+      |> SharedHelpers.assign_channel_form()
       |> stream(:messages, [], reset: true)
 
     case {Chat.list_channels(), List.first(channels)} do
@@ -200,6 +203,119 @@ defmodule RfchatWeb.GuildLive do
   end
 
   @impl true
+  def handle_event("toggle_message_controls", %{"id" => message_id}, socket) do
+    message_id = normalize_message_id(message_id)
+    message = Chat.get_message!(message_id)
+
+    if can_open_message_controls?(
+         message,
+         socket.assigns.current_user,
+         socket.assigns.can_send_messages?,
+         socket.assigns.can_manage_messages?
+       ) do
+      previous_controls_id = socket.assigns.active_message_controls_id
+      previous_menu_id = socket.assigns.message_action_menu_id
+      previous_delete_id = socket.assigns.delete_confirmation_message_id
+      previous_picker_id = socket.assigns.reaction_picker_message_id
+
+      next_message_id =
+        if previous_controls_id == message_id and is_nil(previous_menu_id) and
+             is_nil(previous_delete_id),
+           do: nil,
+           else: message_id
+
+      {:noreply,
+       socket
+       |> assign(:mobile_sidebar_open?, false)
+       |> assign(:mobile_members_open?, false)
+       |> assign(:reaction_picker_message_id, nil)
+       |> assign(:message_action_menu_id, nil)
+       |> assign(:delete_confirmation_message_id, nil)
+       |> assign(:active_message_controls_id, next_message_id)
+       |> rerender_messages([
+         previous_controls_id,
+         previous_menu_id,
+         previous_delete_id,
+         previous_picker_id,
+         next_message_id
+       ])}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_message_action_menu", %{"id" => message_id}, socket) do
+    message_id = normalize_message_id(message_id)
+    previous_controls_id = socket.assigns.active_message_controls_id
+    previous_menu_id = socket.assigns.message_action_menu_id
+    previous_delete_id = socket.assigns.delete_confirmation_message_id
+    previous_picker_id = socket.assigns.reaction_picker_message_id
+    next_menu_id = if previous_menu_id == message_id, do: nil, else: message_id
+
+    {:noreply,
+     socket
+     |> assign(:reaction_picker_message_id, nil)
+     |> assign(
+       :active_message_controls_id,
+       if(next_menu_id, do: message_id, else: previous_controls_id)
+     )
+     |> assign(:message_action_menu_id, next_menu_id)
+     |> assign(:delete_confirmation_message_id, nil)
+     |> rerender_messages([
+       previous_controls_id,
+       previous_menu_id,
+       previous_delete_id,
+       previous_picker_id,
+       message_id,
+       next_menu_id
+     ])}
+  end
+
+  @impl true
+  def handle_event("close_message_action_menu", _params, socket) do
+    previous_controls_id = socket.assigns.active_message_controls_id
+    previous_menu_id = socket.assigns.message_action_menu_id
+    previous_delete_id = socket.assigns.delete_confirmation_message_id
+
+    {:noreply,
+     socket
+     |> assign(:message_action_menu_id, nil)
+     |> assign(:delete_confirmation_message_id, nil)
+     |> rerender_messages([previous_controls_id, previous_menu_id, previous_delete_id])}
+  end
+
+  @impl true
+  def handle_event("confirm_delete_message", %{"id" => message_id}, socket) do
+    message_id = normalize_message_id(message_id)
+    previous_controls_id = socket.assigns.active_message_controls_id
+    previous_menu_id = socket.assigns.message_action_menu_id
+    previous_delete_id = socket.assigns.delete_confirmation_message_id
+
+    {:noreply,
+     socket
+     |> assign(:active_message_controls_id, message_id)
+     |> assign(:message_action_menu_id, message_id)
+     |> assign(:delete_confirmation_message_id, message_id)
+     |> rerender_messages([
+       previous_controls_id,
+       previous_menu_id,
+       previous_delete_id,
+       message_id
+     ])}
+  end
+
+  @impl true
+  def handle_event("cancel_delete_message", _params, socket) do
+    previous_delete_id = socket.assigns.delete_confirmation_message_id
+
+    {:noreply,
+     socket
+     |> assign(:delete_confirmation_message_id, nil)
+     |> rerender_messages([previous_delete_id, socket.assigns.message_action_menu_id])}
+  end
+
+  @impl true
   def handle_event("toggle_manage_channels", _params, socket) do
     if socket.assigns.can_manage_channels? do
       {:noreply, assign(socket, :manage_channels_open?, !socket.assigns.manage_channels_open?)}
@@ -260,7 +376,10 @@ defmodule RfchatWeb.GuildLive do
   @impl true
   def handle_event("new_channel_form", %{"mode" => mode}, socket) do
     if socket.assigns.can_manage_channels? do
-      {:noreply, socket |> assign_channel_form_mode(mode) |> assign_channel_form()}
+      {:noreply,
+       socket
+       |> SharedHelpers.assign_channel_form_mode(mode)
+       |> SharedHelpers.assign_channel_form()}
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to manage channels.")}
     end
@@ -275,8 +394,8 @@ defmodule RfchatWeb.GuildLive do
        socket
        |> assign(:manage_channels_open?, true)
        |> assign(:editing_channel_id, channel.id)
-       |> assign_channel_form_mode(edit_mode_for(channel))
-       |> assign_channel_form(channel)}
+       |> SharedHelpers.assign_channel_form_mode(SharedHelpers.edit_mode_for(channel))
+       |> SharedHelpers.assign_channel_form(channel)}
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to manage channels.")}
     end
@@ -287,8 +406,8 @@ defmodule RfchatWeb.GuildLive do
     {:noreply,
      socket
      |> assign(:editing_channel_id, nil)
-     |> assign_channel_form_mode(:create_text)
-     |> assign_channel_form()}
+     |> SharedHelpers.assign_channel_form_mode(:create_text)
+     |> SharedHelpers.assign_channel_form()}
   end
 
   @impl true
@@ -311,8 +430,8 @@ defmodule RfchatWeb.GuildLive do
             socket
             |> refresh_channels()
             |> assign(:editing_channel_id, nil)
-            |> assign_channel_form_mode(:create_text)
-            |> assign_channel_form()
+            |> SharedHelpers.assign_channel_form_mode(:create_text)
+            |> SharedHelpers.assign_channel_form()
             |> put_flash(:info, "Channel deleted.")
 
           if socket.assigns.active_channel && socket.assigns.active_channel.id == channel_id do
@@ -427,7 +546,21 @@ defmodule RfchatWeb.GuildLive do
 
   @impl true
   def handle_event("reply_message", %{"id" => message_id}, socket) do
-    {:noreply, assign(socket, :reply_to_message, Chat.get_message!(message_id))}
+    message_id = normalize_message_id(message_id)
+    previous_controls_id = socket.assigns.active_message_controls_id
+    previous_menu_id = socket.assigns.message_action_menu_id
+    previous_delete_id = socket.assigns.delete_confirmation_message_id
+
+    {:noreply,
+     socket
+     |> assign(:reply_to_message, Chat.get_message!(message_id))
+     |> close_message_ui()
+     |> rerender_messages([
+       message_id,
+       previous_controls_id,
+       previous_menu_id,
+       previous_delete_id
+     ])}
   end
 
   @impl true
@@ -437,15 +570,26 @@ defmodule RfchatWeb.GuildLive do
 
   @impl true
   def handle_event("edit_message", %{"id" => message_id}, socket) do
+    message_id = normalize_message_id(message_id)
     message = Chat.get_message!(message_id)
 
     if message.author_id == socket.assigns.current_user.id do
       form = message |> Chat.change_message(%{body: message.body}) |> to_form(as: :message)
+      previous_controls_id = socket.assigns.active_message_controls_id
+      previous_menu_id = socket.assigns.message_action_menu_id
+      previous_delete_id = socket.assigns.delete_confirmation_message_id
 
       {:noreply,
        socket
+       |> close_message_ui()
        |> assign(:editing_message_id, message.id)
        |> assign(:editing_form, form)
+       |> rerender_messages([
+         message.id,
+         previous_controls_id,
+         previous_menu_id,
+         previous_delete_id
+       ])
        |> stream_insert(:messages, message)}
     else
       {:noreply, put_flash(socket, :error, "You can only edit your own messages.")}
@@ -482,14 +626,25 @@ defmodule RfchatWeb.GuildLive do
 
   @impl true
   def handle_event("delete_message", %{"id" => message_id}, socket) do
+    message_id = normalize_message_id(message_id)
     message = Chat.get_message!(message_id)
+    previous_controls_id = socket.assigns.active_message_controls_id
+    previous_menu_id = socket.assigns.message_action_menu_id
+    previous_delete_id = socket.assigns.delete_confirmation_message_id
 
     case Chat.delete_message(message, socket.assigns.current_user) do
       {:ok, deleted_message} ->
         {:noreply,
          socket
+         |> close_message_ui()
          |> assign(:editing_message_id, nil)
          |> assign(:editing_form, nil)
+         |> rerender_messages([
+           message_id,
+           previous_controls_id,
+           previous_menu_id,
+           previous_delete_id
+         ])
          |> stream_insert(:messages, deleted_message)}
 
       {:error, :forbidden} ->
@@ -554,23 +709,40 @@ defmodule RfchatWeb.GuildLive do
 
   @impl true
   def handle_event("toggle_reaction_picker", %{"id" => message_id}, socket) do
+    message_id = normalize_message_id(message_id)
     previous_message_id = socket.assigns.reaction_picker_message_id
+    previous_controls_id = socket.assigns.active_message_controls_id
+    previous_menu_id = socket.assigns.message_action_menu_id
+    previous_delete_id = socket.assigns.delete_confirmation_message_id
 
     next_message_id =
       if previous_message_id == message_id, do: nil, else: message_id
 
     {:noreply,
      socket
+     |> assign(:mobile_sidebar_open?, false)
+     |> assign(:mobile_members_open?, false)
      |> assign(:reaction_picker_message_id, next_message_id)
-     |> rerender_messages([previous_message_id, next_message_id])}
+     |> assign(:active_message_controls_id, nil)
+     |> assign(:message_action_menu_id, nil)
+     |> assign(:delete_confirmation_message_id, nil)
+     |> rerender_messages([
+       previous_message_id,
+       next_message_id,
+       previous_controls_id,
+       previous_menu_id,
+       previous_delete_id
+     ])}
   end
 
   @impl true
   def handle_event("close_reaction_picker", _params, socket) do
+    previous_message_id = socket.assigns.reaction_picker_message_id
+
     {:noreply,
      socket
      |> assign(:reaction_picker_message_id, nil)
-     |> rerender_messages([socket.assigns.reaction_picker_message_id])}
+     |> rerender_messages([previous_message_id])}
   end
 
   @impl true
@@ -648,33 +820,6 @@ defmodule RfchatWeb.GuildLive do
     assign(socket, :message_form, form)
   end
 
-  defp assign_channel_form(socket, channel \\ nil) do
-    channel = channel || %Chat.Channel{}
-
-    attrs =
-      if channel.id do
-        %{
-          name: channel.name,
-          slug: channel.slug,
-          topic: channel.topic,
-          kind: channel.kind,
-          parent_channel_id: channel.parent_channel_id,
-          nsfw: channel.nsfw
-        }
-      else
-        default_channel_attrs(socket.assigns.channel_form_mode)
-      end
-
-    form =
-      channel
-      |> Chat.change_channel(attrs)
-      |> to_form(as: :channel)
-
-    socket
-    |> assign(:channel_form, form)
-    |> assign(:editing_channel_id, channel.id)
-  end
-
   defp load_channel(socket, channel) do
     messages = Chat.list_messages(channel.id)
     last_message = List.last(messages)
@@ -688,10 +833,11 @@ defmodule RfchatWeb.GuildLive do
     |> assign(:channel_sections, Chat.list_channel_tree_for_user(socket.assigns.current_user))
     |> assign(
       :all_channel_sections,
-      channel_sections_for_manager(socket.assigns.can_manage_channels?)
+      SharedHelpers.channel_sections_for_manager(socket.assigns.can_manage_channels?)
     )
     |> assign(:mobile_sidebar_open?, false)
-    |> assign(:reaction_picker_message_id, nil)
+    |> assign(:mobile_members_open?, false)
+    |> close_message_ui()
     |> assign(:active_channel, refreshed_active_channel)
     |> assign(
       :can_send_messages?,
@@ -744,10 +890,10 @@ defmodule RfchatWeb.GuildLive do
     |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
     |> assign(
       :all_channel_sections,
-      channel_sections_for_manager(socket.assigns.can_manage_channels?)
+      SharedHelpers.channel_sections_for_manager(socket.assigns.can_manage_channels?)
     )
     |> assign(:active_channel, active_channel)
-    |> assign(:reaction_picker_message_id, nil)
+    |> close_message_ui()
     |> assign(
       :can_send_messages?,
       if(active_channel, do: Chat.can_send_messages?(active_channel, current_user), else: false)
@@ -812,6 +958,14 @@ defmodule RfchatWeb.GuildLive do
     assign(socket, :member_presence, Accounts.list_members_with_presence())
   end
 
+  defp close_message_ui(socket) do
+    socket
+    |> assign(:reaction_picker_message_id, nil)
+    |> assign(:active_message_controls_id, nil)
+    |> assign(:message_action_menu_id, nil)
+    |> assign(:delete_confirmation_message_id, nil)
+  end
+
   defp rerender_messages(socket, message_ids) do
     Enum.reduce(Enum.reject(message_ids, &is_nil/1), socket, fn message_id, acc ->
       stream_insert(acc, :messages, Chat.get_message!(message_id))
@@ -822,7 +976,7 @@ defmodule RfchatWeb.GuildLive do
     current_user = socket.assigns.current_user
 
     socket
-    |> assign(:custom_emojis, emoji_entries_for_picker(current_user))
+    |> assign(:custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
     |> assign(:custom_emojis_json, emoji_entries_json_for_picker(current_user))
   end
 
@@ -871,114 +1025,24 @@ defmodule RfchatWeb.GuildLive do
     Map.get(unread_mentions, channel.id, 0)
   end
 
-  defp can_manage_channels?(scope) do
-    if is_nil(scope) do
-      false
-    else
-      permissions = scope_permissions(scope)
-
-      Authorization.has_permission?(permissions, :manage_channels) or
-        Authorization.has_permission?(permissions, :administrator)
-    end
-  end
-
-  defp can_manage_emojis?(scope) do
-    if is_nil(scope) do
-      false
-    else
-      permissions = scope_permissions(scope)
-
-      Authorization.has_permission?(permissions, :manage_emojis_and_stickers) or
-        Authorization.has_permission?(permissions, :administrator)
-    end
-  end
-
-  defp scope_permissions(%{
-         base_permissions: base_permissions,
-         membership: membership,
-         roles: roles
-       }) do
-    role_permissions = Enum.reduce(roles || [], 0, &Bitwise.bor(&1.permissions, &2))
-
-    cond do
-      membership && membership.is_owner ->
-        Authorization.all_permissions()
-
-      Authorization.has_permission?(base_permissions || 0, :administrator) ->
-        Authorization.all_permissions()
-
-      Authorization.has_permission?(role_permissions, :administrator) ->
-        Authorization.all_permissions()
-
-      true ->
-        Bitwise.bor(base_permissions || 0, role_permissions)
-    end
-  end
-
-  defp channel_sections_for_manager(true), do: Chat.list_channel_tree()
-  defp channel_sections_for_manager(false), do: []
-
-  defp assign_channel_form_mode(socket, mode) when is_binary(mode) do
-    assign_channel_form_mode(socket, String.to_existing_atom(mode))
-  rescue
-    ArgumentError -> assign_channel_form_mode(socket, :create_text)
-  end
-
-  defp assign_channel_form_mode(socket, :create_category) do
-    socket
-    |> assign(:channel_form_mode, :create_category)
-    |> assign(:channel_form_title, "Create category")
-    |> assign(:editing_channel_id, nil)
-  end
-
-  defp assign_channel_form_mode(socket, :edit_category) do
-    socket
-    |> assign(:channel_form_mode, :edit_category)
-    |> assign(:channel_form_title, "Edit category")
-  end
-
-  defp assign_channel_form_mode(socket, :edit_text) do
-    socket
-    |> assign(:channel_form_mode, :edit_text)
-    |> assign(:channel_form_title, "Edit channel")
-  end
-
-  defp assign_channel_form_mode(socket, _mode) do
-    socket
-    |> assign(:channel_form_mode, :create_text)
-    |> assign(:channel_form_title, "Create text channel")
-    |> assign(:editing_channel_id, nil)
-  end
-
-  defp default_channel_attrs(:create_category) do
-    %{kind: :category, name: "", slug: "", topic: nil, parent_channel_id: nil, nsfw: false}
-  end
-
-  defp default_channel_attrs(_mode) do
-    %{kind: :text, name: "", slug: "", topic: nil, parent_channel_id: nil, nsfw: false}
-  end
-
-  defp edit_mode_for(channel) do
-    if channel.kind == :category, do: :edit_category, else: :edit_text
-  end
-
   defp save_channel(socket, channel_params) do
-    attrs = normalize_channel_params(channel_params, socket)
+    attrs =
+      SharedHelpers.normalize_channel_params(channel_params, socket.assigns.channel_form_mode)
 
     case socket.assigns.editing_channel_id do
       nil ->
-        attrs = Map.put_new(attrs, "position", next_channel_position())
+        attrs = Map.put_new(attrs, "position", SharedHelpers.next_channel_position())
 
         case Chat.create_channel(attrs) do
           {:ok, channel} ->
             {:noreply,
              socket
              |> refresh_channels()
-             |> assign_channel_form_mode(
+             |> SharedHelpers.assign_channel_form_mode(
                if(channel.kind == :category, do: :create_category, else: :create_text)
              )
-             |> assign_channel_form()
-             |> put_flash(:info, creation_flash(channel))}
+             |> SharedHelpers.assign_channel_form()
+             |> put_flash(:info, SharedHelpers.creation_flash(channel))}
 
           {:error, changeset} ->
             {:noreply, assign(socket, :channel_form, to_form(changeset, as: :channel))}
@@ -993,8 +1057,10 @@ defmodule RfchatWeb.GuildLive do
              socket
              |> refresh_channels()
              |> assign(:editing_channel_id, updated_channel.id)
-             |> assign_channel_form_mode(edit_mode_for(updated_channel))
-             |> assign_channel_form(updated_channel)
+             |> SharedHelpers.assign_channel_form_mode(
+               SharedHelpers.edit_mode_for(updated_channel)
+             )
+             |> SharedHelpers.assign_channel_form(updated_channel)
              |> put_flash(:info, "Channel updated.")}
 
           {:error, changeset} ->
@@ -1003,110 +1069,14 @@ defmodule RfchatWeb.GuildLive do
     end
   end
 
-  defp creation_flash(channel) do
-    if channel.kind == :category, do: "Category created.", else: "Channel created."
-  end
-
-  defp normalize_channel_params(channel_params, socket) do
-    mode = socket.assigns.channel_form_mode
-    kind = if mode in [:create_category, :edit_category], do: "category", else: "text"
-
-    channel_params
-    |> Map.put("kind", kind)
-    |> Map.update("parent_channel_id", nil, fn parent_id ->
-      if kind == "category", do: nil, else: blank_to_nil(parent_id)
-    end)
-    |> Map.update("topic", nil, &blank_to_nil/1)
-    |> Map.update("slug", "", fn slug ->
-      slug = String.trim(slug || "")
-      if slug == "", do: slugify(Map.get(channel_params, "name", "")), else: slug
-    end)
-  end
-
-  defp next_channel_position do
-    Chat.list_channels()
-    |> Enum.map(& &1.position)
-    |> Enum.max(fn -> -1 end)
-    |> Kernel.+(1)
-  end
-
-  defp move_channel(channel_id, direction) do
-    sections = Chat.list_channel_tree()
-
-    case swap_in_sections(sections, channel_id, direction) do
-      {:ok, updated_sections} ->
-        case Chat.reorder_channels(updated_sections) do
-          {:ok, _channels} -> :ok
-          _ -> :error
-        end
-
-      :error ->
-        :error
-    end
-  end
-
-  defp swap_in_sections(sections, channel_id, direction) do
-    Enum.reduce_while(Enum.with_index(sections), :error, fn {section, section_index}, _acc ->
-      ids = Enum.map(section.channels, & &1.id)
-
-      case Enum.find_index(ids, &(&1 == channel_id)) do
-        nil ->
-          {:cont, :error}
-
-        index ->
-          target_index = if direction == "up", do: index - 1, else: index + 1
-
-          if target_index < 0 or target_index >= length(ids) do
-            {:halt, :error}
-          else
-            updated_ids = swap_positions(ids, index, target_index)
-
-            updated_sections =
-              List.update_at(sections, section_index, fn current_section ->
-                %{current_section | channels: updated_ids}
-              end)
-
-            {:halt, {:ok, serialize_sections(updated_sections)}}
-          end
-      end
-    end)
-  end
-
-  defp serialize_sections(sections) do
-    Enum.map(sections, fn section ->
-      %{
-        category: section.category && section.category.id,
-        channels:
-          Enum.map(section.channels, fn channel ->
-            if is_binary(channel), do: channel, else: channel.id
-          end)
-      }
-    end)
-  end
-
-  defp swap_positions(list, left, right) do
-    left_value = Enum.at(list, left)
-    right_value = Enum.at(list, right)
-
-    list
-    |> List.replace_at(left, right_value)
-    |> List.replace_at(right, left_value)
-  end
-
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
-
-  defp slugify(value) do
-    value
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/u, "-")
-    |> String.trim("-")
-  end
+  defp move_channel(channel_id, direction), do: SharedHelpers.move_channel(channel_id, direction)
 
   defp section_dom_id(nil), do: "channel-section-uncategorized"
   defp section_dom_id(category), do: "channel-section-#{category.slug}"
 
+  # ARCHITECTURE NOTE: Stage A cleanup can still extract shared presentation helpers
+  # like section_label/member_status_class/member_status_label/scrollbar_classes
+  # into a dedicated Live UI helper module once we want to reduce duplicate view glue further.
   defp section_label(nil), do: "Text channels"
   defp section_label(category), do: category.name
 
@@ -1118,7 +1088,7 @@ defmodule RfchatWeb.GuildLive do
 
   defp member_status_class(:online), do: "bg-emerald-400"
   defp member_status_class(:recent), do: "bg-amber-400"
-  defp member_status_class(:offline), do: "bg-zinc-600"
+  defp member_status_class(:offline), do: "bg-base-content/35"
 
   defp member_status_label(:online), do: "online"
   defp member_status_label(:recent), do: "recent"
@@ -1126,6 +1096,9 @@ defmodule RfchatWeb.GuildLive do
 
   defp mobile_sidebar_class(true), do: "translate-x-0"
   defp mobile_sidebar_class(false), do: "-translate-x-full xl:translate-x-0"
+
+  defp mobile_members_class(true), do: "translate-x-0"
+  defp mobile_members_class(false), do: "translate-x-full xl:translate-x-0"
 
   defp mobile_sidebar_overlay_class(true), do: "opacity-100 pointer-events-auto"
   defp mobile_sidebar_overlay_class(false), do: "pointer-events-none opacity-0"
@@ -1148,7 +1121,7 @@ defmodule RfchatWeb.GuildLive do
   end
 
   defp composer_shell_classes do
-    "flex flex-col gap-2 px-3 py-3"
+    "flex min-w-0 flex-1 flex-col gap-2"
   end
 
   defp composer_toolbar_region_classes do
@@ -1164,17 +1137,17 @@ defmodule RfchatWeb.GuildLive do
   defp composer_toolbar_button_classes do
     [
       "inline-flex min-h-[1.9rem] min-w-[1.9rem] items-center justify-center rounded-lg border",
-      "border-white/8 bg-black/14 px-[0.2rem] text-[11px] font-bold text-zinc-400 transition",
-      "hover:border-violet-400/55 hover:bg-violet-500/14 hover:text-violet-100",
-      "data-[active=true]:border-violet-400/55 data-[active=true]:bg-violet-500/14",
-      "data-[active=true]:text-violet-100"
+      "border-base-300 bg-base-100 px-[0.2rem] text-[11px] font-bold text-base-content/70 transition",
+      "hover:border-primary/40 hover:bg-primary/10 hover:text-primary",
+      "data-[active=true]:border-primary/40 data-[active=true]:bg-primary/10",
+      "data-[active=true]:text-primary"
     ]
     |> Enum.join(" ")
   end
 
   defp message_body_classes do
     [
-      "mt-0.5 break-words text-[15px] leading-6 text-zinc-100",
+      "mt-0.5 break-words text-[15px] leading-6 text-base-content",
       "[&>p]:m-0 [&>ul]:m-0 [&>ul]:pl-5 [&>ol]:m-0 [&>ol]:pl-5",
       "[&_li+li]:mt-0.5 [&>p+p]:mt-[0.55rem] [&>p+ul]:mt-[0.55rem] [&>p+ol]:mt-[0.55rem]",
       "[&>ul+p]:mt-[0.55rem] [&>ol+p]:mt-[0.55rem] [&_.message-code-block]:mt-[0.55rem]",
@@ -1227,67 +1200,14 @@ defmodule RfchatWeb.GuildLive do
     reaction_picker_message_id == message.id
   end
 
-  defp emoji_entries_for_picker(current_user) do
-    Chat.list_available_emojis(current_user)
-    |> Enum.map(fn emoji ->
-      %{
-        id: emoji.id,
-        name: emoji.name,
-        shortcode: emoji.shortcode,
-        url: Chat.asset_url(emoji.asset)
-      }
-    end)
-  end
-
   defp emoji_entries_json_for_picker(current_user) do
     current_user
-    |> emoji_entries_for_picker()
+    |> SharedHelpers.emoji_entries_for_picker()
     |> Jason.encode!()
   end
 
   defp save_emoji(socket, emoji_params) do
-    upload = uploaded_entry(socket, :emoji_image)
-
-    if is_nil(upload) do
-      {:noreply, put_flash(socket, :error, "Choose an image before saving the emoji.")}
-    else
-      case consume_emoji_upload(socket, upload, emoji_params) do
-        {:ok, _emoji, socket} ->
-          {:noreply,
-           socket
-           |> refresh_custom_emojis()
-           |> assign(:emoji_form, to_form(Chat.change_emoji(%Chat.Emoji{}, %{}), as: :emoji))
-           |> put_flash(:info, "Emoji added.")}
-
-        {:error, :invalid_upload_type, socket} ->
-          {:noreply, put_flash(socket, :error, "Emoji uploads must be png, jpg, gif, or webp.")}
-
-        {:error, changeset, socket} ->
-          {:noreply, assign(socket, :emoji_form, to_form(changeset, as: :emoji))}
-      end
-    end
-  end
-
-  defp consume_emoji_upload(socket, _upload, emoji_params) do
-    result =
-      consume_uploaded_entries(socket, :emoji_image, fn %{path: path}, entry ->
-        {:ok,
-         Chat.create_custom_emoji_from_upload(emoji_params, socket.assigns.current_user, %{
-           path: path,
-           client_name: entry.client_name,
-           client_type: entry.client_type
-         })}
-      end)
-
-    case result do
-      [{:ok, emoji}] -> {:ok, emoji, socket}
-      [{:error, reason}] -> {:error, reason, socket}
-      [] -> {:error, :invalid_upload_type, socket}
-    end
-  end
-
-  defp uploaded_entry(socket, name) do
-    socket.assigns.uploads[name].entries |> List.first()
+    SharedHelpers.save_emoji(socket, emoji_params, &refresh_custom_emojis/1)
   end
 
   defp maybe_put_reply(socket, message_params) do
@@ -1300,6 +1220,28 @@ defmodule RfchatWeb.GuildLive do
   defp clear_reply_to_message(socket), do: assign(socket, :reply_to_message, nil)
 
   defp own_message?(message, current_user), do: message.author_id == current_user.id
+
+  defp normalize_message_id(message_id), do: message_id
+
+  defp message_controls_visible?(message_id, active_message_controls_id, message_action_menu_id) do
+    active_message_controls_id == message_id or message_action_menu_id == message_id
+  end
+
+  defp message_action_menu_open?(message_id, message_action_menu_id) do
+    message_action_menu_id == message_id
+  end
+
+  defp delete_confirmation_open?(message_id, delete_confirmation_message_id) do
+    delete_confirmation_message_id == message_id
+  end
+
+  defp can_open_message_controls?(message, current_user, can_send_messages?, can_manage_messages?) do
+    not deleted_message?(message) and
+      (can_send_messages? or own_message?(message, current_user) or can_manage_messages?)
+  end
+
+  defp run_member_moderation(actor, subject, params),
+    do: SharedHelpers.run_member_moderation(actor, subject, params)
 
   defp deleted_message?(message) do
     not is_nil(message.deleted_at) or Map.get(message.metadata || %{}, "deleted", false)

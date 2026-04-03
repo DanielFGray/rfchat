@@ -355,6 +355,7 @@ defmodule RfchatWeb.GuildLiveTest do
       Chat.list_messages(Chat.get_channel_by_slug!("general").id)
       |> List.first()
 
+    view |> element("#open-message-actions-#{original.id}") |> render_click()
     view |> element("#reply-message-#{original.id}") |> render_click()
 
     assert has_element?(view, "#replying-to-banner")
@@ -381,6 +382,7 @@ defmodule RfchatWeb.GuildLiveTest do
       |> Chat.list_messages()
       |> Enum.find(&(&1.body == "editable body"))
 
+    view |> element("#open-message-actions-#{message.id}") |> render_click()
     view |> element("#edit-message-#{message.id}") |> render_click()
     assert has_element?(view, "#edit-message-form-#{message.id}")
 
@@ -406,6 +408,8 @@ defmodule RfchatWeb.GuildLiveTest do
       |> Chat.list_messages()
       |> Enum.find(&(&1.body == "delete me"))
 
+    view |> element("#open-message-actions-#{message.id}") |> render_click()
+    view |> element("#prompt-delete-message-#{message.id}") |> render_click()
     view |> element("#delete-message-#{message.id}") |> render_click()
 
     assert has_element?(view, "#message-list", "[message deleted]")
@@ -533,8 +537,10 @@ defmodule RfchatWeb.GuildLiveTest do
 
     {:ok, view, _html} = live(conn, ~p"/")
 
-    assert has_element?(view, "#delete-message-#{message.id}")
+    view |> element("#open-message-actions-#{message.id}") |> render_click()
+    assert has_element?(view, "#prompt-delete-message-#{message.id}")
 
+    view |> element("#prompt-delete-message-#{message.id}") |> render_click()
     view |> element("#delete-message-#{message.id}") |> render_click()
 
     assert has_element?(view, "#message-list", "[message deleted]")
@@ -569,6 +575,20 @@ defmodule RfchatWeb.GuildLiveTest do
 
     view |> element("#mobile-sidebar-overlay") |> render_click()
     assert has_element?(view, "#mobile-channel-drawer.-translate-x-full")
+  end
+
+  test "supports opening and closing the mobile members drawer", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(view, "#mobile-members-drawer.translate-x-full")
+
+    view |> element("#open-mobile-members") |> render_click()
+    assert has_element?(view, "#mobile-members-drawer.translate-x-0")
+
+    view |> element("#mobile-members-overlay") |> render_click()
+    assert has_element?(view, "#mobile-members-drawer.translate-x-full")
   end
 
   test "settings trigger opens consolidated settings panel", %{conn: conn} do
@@ -681,6 +701,37 @@ defmodule RfchatWeb.GuildLiveTest do
     {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
 
     assert has_element?(view, "#open-channel-manager")
+  end
+
+  test "manage_bots permission surfaces bot registry in server settings", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+
+    manager_role =
+      role_fixture(%{
+        name: "Bot Manager",
+        permissions: PermissionBits.combine([:manage_bots])
+      })
+
+    user =
+      user_fixture(%{
+        email: "bot-manager@example.com",
+        username: "bot_manager",
+        display_name: "Bot Manager"
+      })
+
+    _member_role = member_role_fixture(user, manager_role)
+    token = Rfchat.Accounts.generate_user_session_token(user)
+
+    conn =
+      conn
+      |> Phoenix.ConnTest.init_test_session(%{})
+      |> Plug.Conn.put_session(:user_token, token)
+      |> Plug.Conn.put_session(:live_socket_id, "users_sessions:bot-manager")
+
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
+
+    assert has_element?(view, "#bot-form")
+    assert has_element?(view, "#bot-registry-list")
   end
 
   test "emoji managers can upload and delete custom emoji", %{conn: conn} do

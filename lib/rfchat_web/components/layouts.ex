@@ -36,7 +36,7 @@ defmodule RfchatWeb.Layouts do
 
   def app(assigns) do
     ~H"""
-    <main class="min-h-screen bg-zinc-950 text-zinc-100">
+    <main class="min-h-screen bg-base-300 text-base-content transition-colors duration-200">
       {render_slot(@inner_block)}
     </main>
 

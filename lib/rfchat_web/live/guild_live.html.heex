@@ -1,5 +1,5 @@
 <Layouts.app flash={@flash} current_scope={@current_scope}>
-  <div class="flex h-screen flex-col overflow-x-clip overflow-y-hidden bg-[#1e1f22] text-zinc-100 xl:flex-row">
+  <div class="flex min-h-dvh flex-col overflow-x-clip overflow-y-hidden bg-base-300 text-base-content transition-colors duration-200 xl:flex-row">
     <button
       type="button"
       phx-click="close_mobile_sidebar"
@@ -11,19 +11,30 @@
       aria-label="Close channel list"
     />
 
+    <button
+      type="button"
+      phx-click="close_mobile_members"
+      id="mobile-members-overlay"
+      class={[
+        "fixed inset-0 z-30 bg-black/65 transition xl:hidden",
+        mobile_sidebar_overlay_class(@mobile_members_open?)
+      ]}
+      aria-label="Close members list"
+    />
+
     <aside
       id="mobile-channel-drawer"
       class={[
-        "fixed inset-y-0 left-0 z-40 flex w-[85vw] max-w-72 shrink-0 flex-col border-r border-black/30 bg-[#2b2d31] transition-transform duration-200 ease-out xl:static xl:z-auto xl:w-64 xl:max-w-none xl:border-b-0 xl:border-r-black/20",
+        "fixed inset-y-0 left-0 z-40 flex w-[85vw] max-w-72 shrink-0 flex-col border-r border-base-300 bg-base-200 transition-transform duration-200 ease-out xl:static xl:z-auto xl:w-64 xl:max-w-none xl:border-b-0 xl:border-r-base-300",
         mobile_sidebar_class(@mobile_sidebar_open?)
       ]}
     >
-      <div class="flex items-center justify-between border-b border-black/20 px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.18)]">
+      <div class="flex items-center justify-between border-b border-base-300 px-4 py-3 shadow-sm">
         <div class="min-w-0">
-          <p class="truncate text-[15px] font-semibold tracking-tight text-zinc-50">
+          <p class="truncate text-[15px] font-semibold tracking-tight text-base-content">
             {@guild_name}
           </p>
-          <p class="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-500">
+          <p class="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-base-content/50">
             single guild
           </p>
         </div>
@@ -33,7 +44,7 @@
             type="button"
             phx-click="close_mobile_sidebar"
             id="close-mobile-sidebar"
-            class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white xl:hidden"
+            class="rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-100 hover:text-base-content xl:hidden"
           >
             Close
           </button>
@@ -43,18 +54,18 @@
 
       <div class={["flex-1 overflow-y-auto px-2 py-3", scrollbar_classes()]}>
         <div class="mb-2 flex items-center justify-between px-2">
-          <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+          <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
             Channels
           </p>
           <div class="flex items-center gap-2">
-            <span class="rounded bg-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">
+            <span class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/60">
               {length(@channels)}
             </span>
 
             <.link
               navigate={~p"/settings"}
               id="open-settings-link"
-              class="rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-400 transition hover:bg-white/8 hover:text-white"
+              class="rounded-md px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-base-content/70 transition hover:bg-base-100 hover:text-base-content"
             >
               Settings
             </.link>
@@ -64,10 +75,10 @@
         <nav class="space-y-3" aria-label="Guild channels">
           <section :for={section <- @channel_sections} id={section_dom_id(section.category)}>
             <div class="mb-1 flex items-center gap-2 px-2">
-              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                 {section_label(section.category)}
               </p>
-              <span class="rounded bg-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500">
+              <span class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/60">
                 {length(section.channels)}
               </span>
             </div>
@@ -80,16 +91,16 @@
                 class={[
                   "group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition",
                   channel_active?(@active_channel, channel) &&
-                    "bg-white/10 text-white shadow-[inset_3px_0_0_rgba(255,255,255,0.18)]",
+                    "bg-base-100 text-base-content shadow-[inset_3px_0_0_color-mix(in_oklab,var(--color-primary)_32%,transparent)]",
                   !channel_active?(@active_channel, channel) &&
-                    "text-zinc-400 hover:bg-white/6 hover:text-zinc-200"
+                    "text-base-content/70 hover:bg-base-100 hover:text-base-content"
                 ]}
               >
-                <span class="text-base font-semibold text-zinc-500 transition group-hover:text-zinc-300">
+                <span class="text-base font-semibold text-base-content/50 transition group-hover:text-base-content/80">
                   #
                 </span>
                 <span class="min-w-0 flex-1 truncate">{channel.name}</span>
-                <span class="rounded bg-black/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                <span class="rounded bg-base-300 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-base-content/60">
                   {channel_kind_badge(channel.kind)}
                 </span>
                 <span
@@ -102,7 +113,7 @@
                 <span
                   :if={unread_mentions_for(channel, @unread_mentions) > 0}
                   id={"channel-mention-#{channel.slug}"}
-                  class="flex size-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-[0_0_0_2px_rgba(43,45,49,0.95)]"
+                  class="flex size-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-[0_0_0_2px_var(--color-base-200)]"
                   title="Unread mentions"
                 >
                   @
@@ -113,20 +124,20 @@
         </nav>
       </div>
 
-      <div class="border-t border-black/20 bg-[#232428] px-3 py-2">
+      <div class="border-t border-base-300 bg-base-100 px-3 py-2">
         <div class="flex items-center justify-between gap-3 rounded-md px-1 py-1">
           <div class="flex min-w-0 items-center gap-2">
             <div class="relative">
-              <div class="flex size-9 items-center justify-center rounded-full bg-[#404249] text-xs font-semibold text-zinc-100">
+              <div class="flex size-9 items-center justify-center rounded-full bg-base-300 text-xs font-semibold text-base-content">
                 {@current_user.display_name |> String.first()}
               </div>
-              <span class="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-[#232428] bg-emerald-400" />
+              <span class="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-base-100 bg-emerald-400" />
             </div>
             <div class="min-w-0">
-              <p class="truncate text-[13px] font-semibold leading-4 text-zinc-100">
+              <p class="truncate text-[13px] font-semibold leading-4 text-base-content">
                 {@current_user.display_name}
               </p>
-              <p class="truncate text-[11px] text-zinc-400">@{@current_user.username}</p>
+              <p class="truncate text-[11px] text-base-content/65">@{@current_user.username}</p>
             </div>
           </div>
 
@@ -134,7 +145,7 @@
             href={~p"/logout"}
             method="delete"
             id="logout-link"
-            class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+            class="rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
           >
             Log out
           </.link>
@@ -143,40 +154,49 @@
         <.link
           navigate={~p"/settings"}
           id="open-settings-link-footer"
-          class="mt-2 block rounded-md border border-white/8 bg-black/10 px-2 py-2 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+          class="mt-2 block rounded-md border border-base-300 bg-base-200 px-2 py-2 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-300 hover:text-base-content"
         >
           Open settings panel
         </.link>
       </div>
     </aside>
 
-    <section class="flex min-h-0 min-w-0 flex-1 flex-col bg-[#313338]">
+    <section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-200 transition-colors duration-200">
       <%= if @active_channel do %>
-        <header class="flex items-center justify-between border-b border-black/20 bg-[#313338]/95 px-4 py-3 shadow-[0_1px_0_rgba(0,0,0,0.2)] backdrop-blur">
+        <header class="flex items-center justify-between border-b border-base-300 bg-base-200/95 px-4 py-3 shadow-sm backdrop-blur">
           <div class="flex min-w-0 items-center gap-3">
             <button
               type="button"
               phx-click="toggle_mobile_sidebar"
               id="open-mobile-sidebar"
-              class="inline-flex shrink-0 items-center justify-center rounded-md px-2 py-1 text-sm font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white xl:hidden"
+              class="inline-flex shrink-0 items-center justify-center rounded-md px-2 py-1 text-sm font-semibold text-base-content/70 transition hover:bg-base-100 hover:text-base-content xl:hidden"
             >
               ☰
             </button>
             <div class="flex items-center gap-2">
-              <span class="text-lg font-bold text-zinc-500">#</span>
+              <span class="text-lg font-bold text-base-content/50">#</span>
               <div class="min-w-0">
-                <h1 class="truncate text-[15px] font-semibold text-zinc-50">
+                <h1 class="truncate text-[15px] font-semibold text-base-content">
                   {@active_channel.name}
                 </h1>
-                <p class="mt-0.5 truncate text-xs text-zinc-400">
+                <p class="mt-0.5 truncate text-xs text-base-content/65">
                   {@active_channel.topic || "No topic set for this channel yet."}
                 </p>
               </div>
             </div>
           </div>
 
-          <div class="ml-4 flex items-center gap-3 text-xs text-zinc-400">
-            <span class="hidden rounded-md bg-black/15 px-2 py-1 font-medium sm:inline-flex">
+          <div class="ml-4 flex items-center gap-2 text-xs text-base-content/65">
+            <button
+              type="button"
+              phx-click="toggle_mobile_members"
+              id="open-mobile-members"
+              class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-100 hover:text-base-content xl:hidden"
+            >
+              <span aria-hidden="true">👥</span>
+              <span>{length(@member_presence)}</span>
+            </button>
+            <span class="hidden rounded-md bg-base-100 px-2 py-1 font-medium sm:inline-flex">
               {@message_count} messages
             </span>
             <span class="hidden items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-300 sm:inline-flex">
@@ -192,14 +212,14 @@
         >
           <div
             :if={@messages_empty?}
-            class="mx-4 my-6 rounded-lg border border-dashed border-white/8 bg-black/10 p-6 text-left"
+            class="mx-4 my-6 rounded-lg border border-dashed border-base-300 bg-base-100 p-6 text-left"
           >
-            <p class="text-[11px] font-bold uppercase tracking-[0.22em] text-zinc-500">
+            <p class="text-[11px] font-bold uppercase tracking-[0.22em] text-base-content/50">
               Start of #{@active_channel.slug}
             </p>
-            <p class="mt-2 text-sm leading-6 text-zinc-300">
+            <p class="mt-2 text-sm leading-6 text-base-content/80">
               This is the beginning of the
-              <span class="font-semibold text-zinc-100">#{@active_channel.name}</span>
+              <span class="font-semibold text-base-content">#{@active_channel.name}</span>
               channel. Drop a message to get the conversation moving.
             </p>
           </div>
@@ -208,35 +228,39 @@
             <div
               :for={{dom_id, message} <- @streams.messages}
               id={dom_id}
-              class="group relative px-4 py-0.5 hover:bg-black/10"
+              class="group relative px-4 py-0.5 hover:bg-base-100/80"
             >
               <article class="relative flex gap-3 py-2">
                 <div class="shrink-0 pt-0.5">
-                  <div class="flex size-10 items-center justify-center rounded-full bg-[#404249] text-[13px] font-semibold text-zinc-100">
+                  <div class="flex size-10 items-center justify-center rounded-full bg-base-300 text-[13px] font-semibold text-base-content">
                     {message.author.display_name |> String.first()}
                   </div>
                 </div>
 
-                <div class="min-w-0 flex-1">
+                <div
+                  class="min-w-0 flex-1"
+                  phx-click="toggle_message_controls"
+                  phx-value-id={message.id}
+                >
                   <div class="flex items-baseline gap-2">
-                    <p class="truncate text-[15px] font-medium leading-5 text-zinc-100">
+                    <p class="truncate text-[15px] font-medium leading-5 text-base-content">
                       {message.author.display_name}
                     </p>
-                    <span class="truncate text-[11px] text-zinc-500">
+                    <span class="truncate text-[11px] text-base-content/50">
                       @{message.author.username}
                     </span>
-                    <time class="shrink-0 text-[11px] text-zinc-500">
+                    <time class="shrink-0 text-[11px] text-base-content/50">
                       {Calendar.strftime(message.inserted_at, "%b %-d at %H:%M")}
                     </time>
                   </div>
 
                   <div
                     :if={message.reply_to}
-                    class="mt-1 flex items-center gap-2 border-l-2 border-white/10 pl-3 text-xs text-zinc-400"
+                    class="mt-1 flex items-center gap-2 border-l-2 border-base-300 pl-3 text-xs text-base-content/65"
                   >
                     <span class="truncate">
                       Replying to
-                      <span class="font-semibold text-zinc-300">
+                      <span class="font-semibold text-base-content/80">
                         {message.reply_to.author.display_name}
                       </span>
                       · {message.reply_to.body}
@@ -251,19 +275,19 @@
                       class="mt-2"
                     >
                       <input type="hidden" name="message[id]" value={message.id} />
-                      <div class="rounded-md border border-violet-400/30 bg-[#383a40] p-2">
+                      <div class="rounded-md border border-primary/30 bg-base-100 p-2">
                         <.input
                           field={@editing_form[:body]}
                           type="textarea"
                           id={"edit-message-body-#{message.id}"}
                           rows="3"
-                          class="min-h-24 w-full resize-none rounded-md border border-black/20 bg-[#2b2d31] px-3 py-2 text-sm text-zinc-100 outline-none transition focus:border-violet-500"
+                          class="min-h-24 w-full resize-none rounded-md border border-base-300 bg-base-200 px-3 py-2 text-sm text-base-content outline-none transition focus:border-primary"
                         />
                         <div class="mt-2 flex items-center justify-end gap-2">
                           <button
                             type="button"
                             phx-click="cancel_edit"
-                            class="rounded-md px-2.5 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                            class="rounded-md px-2.5 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
                           >
                             Cancel
                           </button>
@@ -285,7 +309,7 @@
                     </div>
                   <% end %>
 
-                  <div class="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+                  <div class="mt-1 flex items-center gap-2 text-[11px] text-base-content/50">
                     <span :if={edited_message?(message)}>(edited)</span>
                     <span :if={deleted_message?(message)} class="text-amber-300">deleted</span>
                   </div>
@@ -314,9 +338,9 @@
                         reaction.reacted? &&
                           "border-violet-400/60 bg-violet-500/20 text-violet-100",
                         !reaction.reacted? &&
-                          "border-white/8 bg-black/10 text-zinc-400 hover:border-white/15 hover:text-zinc-200",
+                          "border-base-300 bg-base-100 text-base-content/70 hover:border-base-content/20 hover:text-base-content",
                         (!@can_add_reactions? or deleted_message?(message)) &&
-                          "cursor-not-allowed opacity-50 hover:border-white/8 hover:text-zinc-400"
+                          "cursor-not-allowed opacity-50 hover:border-base-300 hover:text-base-content/70"
                       ]}
                     >
                       <span :if={reaction.kind == :unicode}>{reaction.emoji_unicode}</span>
@@ -337,32 +361,46 @@
                         id={"open-reaction-picker-#{message.id}"}
                         disabled={!@can_add_reactions? or deleted_message?(message)}
                         class={[
-                          "inline-flex items-center gap-1 rounded-full border border-dashed px-2 py-0.5 text-[11px] font-semibold transition",
+                          "inline-flex size-7 items-center justify-center rounded-full border border-dashed text-sm transition",
                           reaction_picker_open?(message, @reaction_picker_message_id) &&
                             "border-violet-400/60 bg-violet-500/20 text-violet-100",
                           !reaction_picker_open?(message, @reaction_picker_message_id) &&
-                            "border-white/10 bg-black/10 text-zinc-400 hover:border-white/20 hover:text-zinc-200",
+                            "border-base-300 bg-base-100 text-base-content/70 hover:border-base-content/20 hover:text-base-content",
                           (!@can_add_reactions? or deleted_message?(message)) &&
-                            "cursor-not-allowed opacity-50 hover:border-white/10 hover:text-zinc-400"
+                            "cursor-not-allowed opacity-50 hover:border-base-300 hover:text-base-content/70"
                         ]}
+                        aria-label="Add reaction"
                       >
-                        <span>+</span>
-                        <span>Add reaction</span>
+                        <span>😊</span>
                       </button>
+
+                      <div class="pointer-events-none absolute right-full top-1/2 mr-2 hidden -translate-y-1/2 items-center gap-1 rounded-full border border-base-300 bg-base-100 px-2 py-1 text-base-content/50 md:flex">
+                        <span class="text-xs">↩</span>
+                        <span class="text-xs">#</span>
+                      </div>
+
+                      <button
+                        :if={reaction_picker_open?(message, @reaction_picker_message_id)}
+                        type="button"
+                        phx-click="close_reaction_picker"
+                        id={"reaction-picker-overlay-#{message.id}"}
+                        class="fixed inset-0 z-10 bg-black/50 md:hidden"
+                        aria-label="Close reaction picker"
+                      />
 
                       <div
                         :if={reaction_picker_open?(message, @reaction_picker_message_id)}
                         id={"reaction-picker-#{message.id}"}
                         phx-hook="ReactionPickerHook"
                         data-custom-emojis={@custom_emojis_json}
-                        class="absolute left-0 top-full z-20 mt-2 w-72 rounded-2xl border border-white/10 bg-[#1c1d21] p-3 shadow-[0_18px_48px_rgba(0,0,0,0.45)]"
+                        class="fixed inset-x-0 bottom-0 z-20 rounded-t-[1.4rem] border border-base-300 bg-base-100 p-3 shadow-2xl md:absolute md:inset-auto md:left-0 md:top-full md:mt-2 md:w-72 md:rounded-2xl"
                       >
                         <div class="mb-2 flex items-center justify-between gap-3">
                           <div>
-                            <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                            <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                               Reactions
                             </p>
-                            <p class="mt-1 text-xs text-zinc-400">
+                            <p class="mt-1 text-xs text-base-content/65">
                               Pick a default or custom emoji.
                             </p>
                           </div>
@@ -370,7 +408,7 @@
                             type="button"
                             phx-click="close_reaction_picker"
                             id={"close-reaction-picker-#{message.id}"}
-                            class="rounded-md px-2 py-1 text-[10px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                            class="rounded-md px-2 py-1 text-[10px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
                           >
                             Close
                           </button>
@@ -380,7 +418,7 @@
                           <div>
                             <label
                               for={"reaction-picker-search-#{message.id}"}
-                              class="mb-2 block text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500"
+                              class="mb-2 block text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50"
                             >
                               Search
                             </label>
@@ -389,12 +427,12 @@
                               type="search"
                               placeholder="Search emojis"
                               data-reaction-picker-search
-                              class="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-violet-400/60"
+                              class="w-full rounded-xl border border-base-300 bg-base-200 px-3 py-2 text-sm text-base-content outline-none transition placeholder:text-base-content/45 focus:border-primary/60"
                             />
                           </div>
 
                           <div>
-                            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50">
                               Default
                             </p>
                             <div
@@ -405,7 +443,7 @@
                               data-reaction-picker-defaults
                               data-message-id={message.id}
                               class={[
-                                "grid max-h-72 grid-cols-6 gap-2 overflow-y-auto pr-1",
+                                "grid max-h-[40vh] grid-cols-7 gap-2 overflow-y-auto pr-1 md:max-h-72 md:grid-cols-6",
                                 scrollbar_classes()
                               ]}
                             >
@@ -416,7 +454,7 @@
                                 phx-value-id={message.id}
                                 phx-value-emoji={emoji}
                                 id={"reaction-picker-default-#{message.id}-#{Base.url_encode64(emoji, padding: false)}"}
-                                class="flex h-10 items-center justify-center rounded-xl border border-white/8 bg-black/10 text-lg transition hover:border-white/20 hover:bg-white/6"
+                                class="flex h-11 items-center justify-center rounded-xl border border-base-300 bg-base-200 text-xl transition hover:border-base-content/20 hover:bg-base-300 md:h-9 md:text-lg"
                               >
                                 <span>{emoji}</span>
                               </button>
@@ -424,12 +462,12 @@
                           </div>
 
                           <div>
-                            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                            <p class="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-base-content/50">
                               Custom
                             </p>
                             <div
                               :if={@custom_emojis != []}
-                              class="grid grid-cols-4 gap-2"
+                              class="grid grid-cols-5 gap-2 md:grid-cols-4"
                               data-reaction-picker-custom
                             >
                               <button
@@ -442,7 +480,7 @@
                                 data-custom-emoji-id={emoji.id}
                                 data-custom-emoji-name={emoji.name}
                                 data-custom-emoji-shortcode={emoji.shortcode}
-                                class="flex flex-col items-center gap-1 rounded-xl border border-white/8 bg-black/10 px-2 py-2 text-[10px] font-medium text-zinc-300 transition hover:border-white/20 hover:bg-white/6 hover:text-white"
+                                class="flex flex-col items-center gap-1 rounded-xl border border-base-300 bg-base-200 px-2 py-2 text-[10px] font-medium text-base-content/80 transition hover:border-base-content/20 hover:bg-base-300 hover:text-base-content"
                               >
                                 <img
                                   src={emoji.url}
@@ -454,7 +492,7 @@
                             </div>
                             <p
                               :if={@custom_emojis == []}
-                              class="rounded-xl border border-dashed border-white/8 bg-black/10 px-3 py-3 text-xs text-zinc-500"
+                              class="rounded-xl border border-dashed border-base-300 bg-base-200 px-3 py-3 text-xs text-base-content/50"
                             >
                               No custom emoji uploaded yet.
                             </p>
@@ -464,54 +502,123 @@
                     </div>
                   </div>
 
-                  <p :if={!@can_add_reactions?} class="mt-2 text-[11px] text-zinc-500">
+                  <p :if={!@can_add_reactions?} class="mt-2 text-[11px] text-base-content/50">
                     Reactions are disabled for your permissions in this channel.
                   </p>
                 </div>
 
-                <div class="absolute right-4 top-0 flex items-center gap-1 rounded-md border border-black/20 bg-[#111214] p-1 opacity-0 shadow-lg transition group-hover:opacity-100 group-focus-within:opacity-100">
-                  <button
-                    type="button"
-                    phx-click="reply_message"
-                    phx-value-id={message.id}
-                    id={"reply-message-#{message.id}"}
-                    disabled={!@can_send_messages? or deleted_message?(message)}
-                    class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                  >
-                    Reply
-                  </button>
-
-                  <button
-                    :if={own_message?(message, @current_user) and not deleted_message?(message)}
-                    type="button"
-                    phx-click="edit_message"
-                    phx-value-id={message.id}
-                    id={"edit-message-#{message.id}"}
-                    class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/5 hover:text-white"
-                  >
-                    Edit
-                  </button>
-
+                <div class={[
+                  "absolute right-4 top-0 z-10 flex items-center gap-1 rounded-full border border-base-300 bg-base-100/95 p-1 shadow-lg transition",
+                  message_controls_visible?(
+                    message.id,
+                    @active_message_controls_id,
+                    @message_action_menu_id
+                  ) &&
+                    "opacity-100 translate-y-0 pointer-events-auto",
+                  !message_controls_visible?(
+                    message.id,
+                    @active_message_controls_id,
+                    @message_action_menu_id
+                  ) &&
+                    "pointer-events-none -translate-y-1 opacity-0 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100"
+                ]}>
                   <button
                     :if={
-                      (own_message?(message, @current_user) or @can_manage_messages?) and
-                        not deleted_message?(message)
+                      can_open_message_controls?(
+                        message,
+                        @current_user,
+                        @can_send_messages?,
+                        @can_manage_messages?
+                      )
                     }
                     type="button"
-                    phx-click="delete_message"
+                    phx-click="toggle_message_action_menu"
                     phx-value-id={message.id}
-                    id={"delete-message-#{message.id}"}
-                    class="rounded px-2 py-1 text-[11px] font-semibold text-rose-300 transition hover:bg-rose-500/10 hover:text-rose-100"
+                    id={"open-message-actions-#{message.id}"}
+                    class="rounded-full px-2 py-1 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
                   >
-                    Delete
+                    ⋯
                   </button>
+
+                  <div
+                    :if={message_action_menu_open?(message.id, @message_action_menu_id)}
+                    id={"message-actions-menu-#{message.id}"}
+                    class="absolute right-0 top-full mt-2 min-w-40 rounded-xl border border-base-300 bg-base-100 p-1.5 shadow-xl"
+                  >
+                    <button
+                      type="button"
+                      phx-click="reply_message"
+                      phx-value-id={message.id}
+                      id={"reply-message-#{message.id}"}
+                      disabled={!@can_send_messages? or deleted_message?(message)}
+                      class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span>Reply</span>
+                      <span class="text-base-content/50">↩</span>
+                    </button>
+
+                    <button
+                      :if={own_message?(message, @current_user) and not deleted_message?(message)}
+                      type="button"
+                      phx-click="edit_message"
+                      phx-value-id={message.id}
+                      id={"edit-message-#{message.id}"}
+                      class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
+                    >
+                      <span>Edit</span>
+                      <span class="text-base-content/50">✎</span>
+                    </button>
+
+                    <%= if (own_message?(message, @current_user) or @can_manage_messages?) and not deleted_message?(message) do %>
+                      <%= if delete_confirmation_open?(message.id, @delete_confirmation_message_id) do %>
+                        <div
+                          id={"confirm-delete-message-#{message.id}"}
+                          class="mt-1 rounded-lg border border-rose-500/20 bg-rose-500/8 p-3"
+                        >
+                          <p class="text-[11px] font-semibold text-rose-100">
+                            Delete this message?
+                          </p>
+                          <div class="mt-2 flex items-center gap-2">
+                            <button
+                              type="button"
+                              phx-click="delete_message"
+                              phx-value-id={message.id}
+                              id={"delete-message-#{message.id}"}
+                              class="rounded-md bg-rose-500 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-rose-400"
+                            >
+                              Delete
+                            </button>
+                            <button
+                              type="button"
+                              phx-click="cancel_delete_message"
+                              id={"cancel-delete-message-#{message.id}"}
+                              class="rounded-md px-2.5 py-1 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      <% else %>
+                        <button
+                          type="button"
+                          phx-click="confirm_delete_message"
+                          phx-value-id={message.id}
+                          id={"prompt-delete-message-#{message.id}"}
+                          class="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-semibold text-rose-200 transition hover:bg-rose-500/10 hover:text-rose-100"
+                        >
+                          <span>Delete</span>
+                          <span class="text-rose-300">🗑</span>
+                        </button>
+                      <% end %>
+                    <% end %>
+                  </div>
                 </div>
               </article>
             </div>
           </div>
         </div>
 
-        <div class="border-t border-black/20 bg-[#313338] px-4 py-4">
+        <div class="border-t border-base-300 bg-base-200 px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           <%= if @can_send_messages? do %>
             <.form
               for={@message_form}
@@ -522,157 +629,174 @@
               data-mentions={@composer_mentions_json}
               data-commands={@composer_commands_json}
             >
-              <div class="rounded-lg border border-black/20 bg-[#383a40] shadow-[0_1px_0_rgba(0,0,0,0.18)]">
+              <div class="rounded-lg border border-base-300 bg-base-100 shadow-sm">
                 <div
                   :if={@reply_to_message}
                   id="replying-to-banner"
-                  class="flex items-center justify-between border-b border-black/20 px-3 py-2 text-xs text-violet-100"
+                  class="flex items-center justify-between border-b border-base-300 bg-primary/10 px-3 py-2 text-xs text-primary"
                 >
                   <div class="min-w-0">
                     Replying to
                     <span class="font-semibold">{@reply_to_message.author.display_name}</span>
-                    <p class="truncate text-[11px] text-violet-200/70">
+                    <p class="truncate text-[11px] text-primary/70">
                       {@reply_to_message.body}
                     </p>
                   </div>
                   <button
                     type="button"
                     phx-click="cancel_reply"
-                    class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-violet-100 transition hover:bg-white/5"
+                    class="rounded px-1.5 py-0.5 text-[11px] font-semibold text-primary transition hover:bg-base-200"
                   >
                     Cancel
                   </button>
                 </div>
 
-                <div
-                  id="rich-composer-shell"
-                  phx-update="ignore"
-                  class={composer_shell_classes()}
-                >
-                  <div class={composer_toolbar_region_classes()} data-expanded="false">
-                    <div id="rich-composer-toolbar" class="flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        data-editor-action="bold"
-                        class={composer_toolbar_button_classes()}
-                        data-active="false"
-                        aria-label="Bold"
-                        title="Bold"
-                      >
-                        <span aria-hidden="true" class="text-[13px] font-black leading-none">
-                          B
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        data-editor-action="italic"
-                        class={composer_toolbar_button_classes()}
-                        data-active="false"
-                        aria-label="Italic"
-                        title="Italic"
-                      >
-                        <span
-                          aria-hidden="true"
-                          class="text-[13px] italic font-semibold leading-none"
+                <div class="flex items-end gap-2 px-3 py-3">
+                  <div
+                    id="rich-composer-shell"
+                    phx-update="ignore"
+                    class={composer_shell_classes()}
+                  >
+                    <div class={composer_toolbar_region_classes()} data-expanded="false">
+                      <div id="rich-composer-toolbar" class="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          data-editor-action="bold"
+                          class={composer_toolbar_button_classes()}
+                          data-active="false"
+                          aria-label="Bold"
+                          title="Bold"
                         >
-                          I
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        data-editor-action="inline-code"
-                        class={composer_toolbar_button_classes()}
-                        data-active="false"
-                        aria-label="Inline code"
-                        title="Inline code"
+                          <span aria-hidden="true" class="text-[13px] font-black leading-none">
+                            B
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          data-editor-action="italic"
+                          class={composer_toolbar_button_classes()}
+                          data-active="false"
+                          aria-label="Italic"
+                          title="Italic"
+                        >
+                          <span
+                            aria-hidden="true"
+                            class="text-[13px] italic font-semibold leading-none"
+                          >
+                            I
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          data-editor-action="inline-code"
+                          class={composer_toolbar_button_classes()}
+                          data-active="false"
+                          aria-label="Inline code"
+                          title="Inline code"
+                        >
+                          <span aria-hidden="true" class="text-[11px] font-black leading-none">
+                            &lt;/&gt;
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          data-editor-action="code-block"
+                          class={composer_toolbar_button_classes()}
+                          data-active="false"
+                          aria-label="Code block"
+                          title="Code block"
+                        >
+                          <span aria-hidden="true" class="text-[11px] font-black leading-none">
+                            ```
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          data-editor-action="mention"
+                          class={composer_toolbar_button_classes()}
+                          data-active="false"
+                          aria-label="Insert mention"
+                          title="Insert mention"
+                        >
+                          <span aria-hidden="true" class="text-[13px] font-black leading-none">
+                            @
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          data-editor-action="slash"
+                          class={composer_toolbar_button_classes()}
+                          data-active="false"
+                          aria-label="Insert slash command"
+                          title="Insert slash command"
+                        >
+                          <span aria-hidden="true" class="text-[13px] font-black leading-none">
+                            /
+                          </span>
+                        </button>
+                      </div>
+
+                      <p
+                        :if={!@can_mention_everyone?}
+                        class="m-0 text-[11px] text-amber-200"
                       >
-                        <span aria-hidden="true" class="text-[11px] font-black leading-none">
-                          &lt;/&gt;
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        data-editor-action="code-block"
-                        class={composer_toolbar_button_classes()}
-                        data-active="false"
-                        aria-label="Code block"
-                        title="Code block"
-                      >
-                        <span aria-hidden="true" class="text-[11px] font-black leading-none">
-                          ```
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        data-editor-action="mention"
-                        class={composer_toolbar_button_classes()}
-                        data-active="false"
-                        aria-label="Insert mention"
-                        title="Insert mention"
-                      >
-                        <span aria-hidden="true" class="text-[13px] font-black leading-none">
-                          @
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        data-editor-action="slash"
-                        class={composer_toolbar_button_classes()}
-                        data-active="false"
-                        aria-label="Insert slash command"
-                        title="Insert slash command"
-                      >
-                        <span aria-hidden="true" class="text-[13px] font-black leading-none">
-                          /
-                        </span>
-                      </button>
+                        @everyone and locked roles need extra permission
+                      </p>
                     </div>
 
-                    <p
-                      :if={!@can_mention_everyone?}
-                      class="m-0 text-[11px] text-amber-200"
-                    >
-                      @everyone and locked roles need extra permission
-                    </p>
+                    <div id="rich-composer-editor" class="min-h-0" />
+
+                    <textarea
+                      id="message-body-input"
+                      name={@message_form[:body].name}
+                      class="hidden"
+                    >{@message_form[:body].value || ""}</textarea>
+                    <textarea
+                      id="message-metadata-input"
+                      name={@message_form[:metadata].name}
+                      class="hidden"
+                    ></textarea>
                   </div>
 
-                  <div id="rich-composer-editor" class="min-h-0" />
+                  <div class="flex h-full shrink-0 flex-col items-center justify-end gap-2 pb-0.5">
+                    <button
+                      type="button"
+                      aria-label="Upload attachments"
+                      title="Upload attachments"
+                      disabled
+                      class="inline-flex size-8 cursor-not-allowed items-center justify-center rounded-md border border-base-300 bg-base-200 text-base-content/50 opacity-70 pointer-events-none"
+                    >
+                      <.icon name="hero-paper-clip" class="size-4" />
+                    </button>
 
-                  <textarea
-                    id="message-body-input"
-                    name={@message_form[:body].name}
-                    class="hidden"
-                  >{@message_form[:body].value || ""}</textarea>
-                  <textarea
-                    id="message-metadata-input"
-                    name={@message_form[:metadata].name}
-                    class="hidden"
-                  ></textarea>
-                </div>
-
-                <div class="flex items-center justify-end gap-3 border-t border-black/20 px-4 py-2.5">
-                  <.button class="rounded-md bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-400">
-                    Send message
-                  </.button>
+                    <.button
+                      aria-label="Send message"
+                      title="Send message"
+                      id="send-message-button"
+                      class="inline-flex size-8 items-center justify-center rounded-md bg-violet-500 p-0 text-white transition hover:bg-violet-400"
+                    >
+                      <.icon name="hero-paper-airplane" class="size-4" />
+                    </.button>
+                  </div>
                 </div>
               </div>
             </.form>
           <% else %>
-            <div class="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            <div class="rounded-lg border border-warning/30 bg-warning/15 px-4 py-3 text-sm text-warning-content">
               You can view this channel, but you do not have permission to send messages here.
             </div>
           <% end %>
         </div>
       <% else %>
         <div class="flex min-h-0 flex-1 items-center justify-center px-5 py-10">
-          <div class="max-w-lg rounded-lg border border-dashed border-white/8 bg-black/10 p-8 text-center">
-            <p class="text-xs font-semibold uppercase tracking-[0.28em] text-zinc-500">
+          <div class="max-w-lg rounded-lg border border-dashed border-base-300 bg-base-100 p-8 text-center">
+            <p class="text-xs font-semibold uppercase tracking-[0.28em] text-base-content/50">
               No accessible channels
             </p>
-            <h2 class="mt-3 text-2xl font-semibold text-white">
+            <h2 class="mt-3 text-2xl font-semibold text-base-content">
               This account has nowhere to land yet.
             </h2>
-            <p class="mt-3 text-sm leading-7 text-zinc-400">
+            <p class="mt-3 text-sm leading-7 text-base-content/70">
               Ask a server owner to grant channel access or seed a default role with view permissions.
             </p>
           </div>
@@ -680,12 +804,30 @@
       <% end %>
     </section>
 
-    <aside class="hidden w-60 shrink-0 border-l border-black/20 bg-[#2b2d31] xl:flex xl:h-screen xl:flex-col">
-      <div class="border-b border-black/20 px-4 py-3">
-        <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">Members</p>
-        <div class="mt-2 flex items-center justify-between text-xs text-zinc-400">
+    <aside
+      id="mobile-members-drawer"
+      class={[
+        "fixed inset-y-0 right-0 z-40 flex h-dvh w-[82vw] max-w-72 shrink-0 flex-col border-l border-base-300 bg-base-200 transition-transform duration-200 ease-out xl:static xl:z-auto xl:h-auto xl:w-60 xl:max-w-none",
+        mobile_members_class(@mobile_members_open?)
+      ]}
+    >
+      <div class="border-b border-base-300 px-4 py-3">
+        <div class="flex items-center justify-between gap-3">
+          <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
+            Members
+          </p>
+          <button
+            type="button"
+            phx-click="close_mobile_members"
+            id="close-mobile-members"
+            class="rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-100 hover:text-base-content xl:hidden"
+          >
+            Close
+          </button>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-xs text-base-content/65">
           <span>{length(@member_presence)} visible</span>
-          <span class="rounded bg-black/20 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-300">
+          <span class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/80">
             {Enum.count(@member_presence, &(&1.status == :online))} online
           </span>
         </div>
@@ -698,22 +840,22 @@
         <div
           :for={entry <- @member_presence}
           id={"member-presence-#{entry.user.id}"}
-          class="rounded-md px-2 py-2 transition hover:bg-white/5"
+          class="rounded-md px-2 py-2 transition hover:bg-base-100"
         >
           <div class="flex items-start gap-3">
             <div class="relative mt-0.5 shrink-0">
-              <div class="flex size-8 items-center justify-center rounded-full bg-[#404249] text-xs font-semibold text-zinc-100">
+              <div class="flex size-8 items-center justify-center rounded-full bg-base-300 text-xs font-semibold text-base-content">
                 {entry.user.display_name |> String.first()}
               </div>
               <span class={[
-                "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[#2b2d31]",
+                "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-base-200",
                 member_status_class(entry.status)
               ]} />
             </div>
 
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
-                <p class="truncate text-[13px] font-medium text-zinc-100">
+                <p class="truncate text-[13px] font-medium text-base-content">
                   {entry.user.display_name}
                 </p>
                 <span
@@ -724,8 +866,10 @@
                 </span>
               </div>
 
-              <p class="mt-0.5 truncate text-[11px] text-zinc-500">@{entry.user.username}</p>
-              <p class="mt-1 text-[11px] text-zinc-400">
+              <p class="mt-0.5 truncate text-[11px] text-base-content/50">
+                @{entry.user.username}
+              </p>
+              <p class="mt-1 text-[11px] text-base-content/65">
                 {member_status_label(entry.status)} · {Calendar.strftime(
                   entry.last_active_at,
                   "%b %-d · %H:%M"

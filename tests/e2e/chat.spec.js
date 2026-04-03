@@ -1,5 +1,14 @@
 const { test, expect } = require('@playwright/test')
 
+async function loginAsSeedUser(page) {
+  await page.goto('/login')
+  await page.getByLabel('Email').pressSequentially('e2e@example.com')
+  await page.getByLabel('Password').pressSequentially('supersecurepass')
+  await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page).toHaveURL(/\/($|\?)/)
+  await expect(page.locator('#logout-link')).toBeVisible()
+}
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const notifications = []
@@ -26,24 +35,16 @@ test.beforeEach(async ({ page }) => {
   })
 })
 
-test('user can log in, switch channels, and send a chat message', async ({ page }) => {
-  const email = 'e2e@example.com'
+test('desktop user can switch channels and send a chat message', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chromium', 'desktop-only interaction flow')
+
   const displayName = 'E2E User'
-  const password = 'supersecurepass'
   const unique = `${Date.now()}`.slice(-6)
   const message = `Hello **bold** @e2e_user`
   const code = `console.log("${unique}")`
   const link = `https://example.com/${unique}`
 
-  await page.goto('/login')
-
-  await page.getByLabel('Email').pressSequentially(email)
-  await page.getByLabel('Password').pressSequentially(password)
-
-  await page.getByRole('button', { name: 'Log in' }).click()
-
-  await expect(page).toHaveURL(/\/$/)
-  await expect(page.locator('#logout-link')).toBeVisible()
+  await loginAsSeedUser(page)
   await expect(page.locator('#channel-link-general')).toBeVisible()
 
   await page.locator('#channel-link-engineering').click()
@@ -72,13 +73,39 @@ test('user can log in, switch channels, and send a chat message', async ({ page 
   await expect(page.locator('#message-list')).toContainText(displayName)
 })
 
+test('mobile user can open drawers and reaction bottom sheet', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-safari', 'mobile-only interaction flow')
+
+  await loginAsSeedUser(page)
+
+  await page.locator('#open-mobile-sidebar').click()
+  await expect(page.locator('#mobile-channel-drawer')).toHaveClass(/translate-x-0/)
+  await page.locator('#channel-link-engineering').click()
+  await expect(page).toHaveURL(/\?channel=engineering$/)
+
+  await page.locator('#open-mobile-members').click()
+  await expect(page.locator('#mobile-members-drawer')).toHaveClass(/translate-x-0/)
+  await expect(page.locator('#mobile-members-drawer')).toContainText('Members')
+  await page.locator('#close-mobile-members').click()
+
+  const reactionButton = page.locator('[id^="open-reaction-picker-"]').first()
+  await reactionButton.click()
+
+  const reactionSheet = page.locator('[id^="reaction-picker-"]').first()
+  await expect(reactionSheet).toBeVisible()
+  await expect(reactionSheet).toHaveClass(/fixed/)
+
+  await page.locator('[id^="reaction-picker-default-"]').first().click()
+  await expect(page.locator('[id^="reaction-"]').first()).toBeVisible()
+})
+
 test('settings trigger is visible and navigates to authenticated settings route', async ({ page }) => {
   await page.goto('/login')
   await page.getByLabel('Email').fill('e2e@example.com')
   await page.getByLabel('Password').fill('supersecurepass')
   await page.getByRole('button', { name: 'Log in' }).click()
 
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(/\/($|\?)/)
   await expect(page.locator('#open-settings-link')).toBeVisible()
 
   await page.locator('#open-settings-link').click()

@@ -14,7 +14,7 @@ module.exports = defineConfig({
   workers: 1,
   reporter: process.env.CI ? [['html'], ['list']] : 'list',
   use: {
-    baseURL: 'http://localhost:4001',
+    baseURL: 'http://127.0.0.1:4001',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -22,7 +22,7 @@ module.exports = defineConfig({
   webServer: {
     command:
       `${e2eMixEnv} mix ecto.reset && ${e2eMixEnv} mix run priv/repo/e2e_seeds.exs && ${e2eMixEnv} mix assets.build && ${e2eMixEnv} mix phx.server`,
-    url: 'http://localhost:4001/login',
+    url: 'http://127.0.0.1:4001/login',
     reuseExistingServer: false,
     stdout: 'pipe',
     stderr: 'pipe',
@@ -30,8 +30,12 @@ module.exports = defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
+      name: 'desktop-chromium',
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'mobile-safari',
+      use: { ...devices['iPhone 12'] },
     },
   ],
 })

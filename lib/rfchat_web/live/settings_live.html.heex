@@ -1,10 +1,12 @@
 <Layouts.app flash={@flash} current_scope={@current_scope}>
-  <div class="min-h-screen bg-[#1e1f22] text-zinc-100">
+  <div class="min-h-screen bg-base-300 text-base-content transition-colors duration-200">
     <div class="mx-auto flex w-full max-w-7xl gap-6 px-4 py-6 lg:px-6">
-      <aside class="w-64 shrink-0 rounded-2xl border border-white/10 bg-[#232428] p-3">
-        <div class="mb-3 border-b border-white/10 px-2 pb-3">
-          <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">Settings</p>
-          <h1 id="settings-panel-title" class="mt-1 text-lg font-semibold text-white">
+      <aside class="w-64 shrink-0 rounded-2xl border border-base-300 bg-base-100 p-3 shadow-lg">
+        <div class="mb-3 border-b border-base-300 px-2 pb-3">
+          <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-base-content/50">
+            Settings
+          </p>
+          <h1 id="settings-panel-title" class="mt-1 text-lg font-semibold text-base-content">
             Consolidated panel
           </h1>
         </div>
@@ -17,9 +19,9 @@
             phx-value-tab="profile"
             class={[
               "w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition",
-              tab_active?(@active_tab, "profile") && "bg-violet-500/20 text-violet-100",
+              tab_active?(@active_tab, "profile") && "bg-primary/15 text-primary",
               !tab_active?(@active_tab, "profile") &&
-                "text-zinc-300 hover:bg-white/8 hover:text-white"
+                "text-base-content/75 hover:bg-base-200 hover:text-base-content"
             ]}
           >
             Profile
@@ -31,9 +33,9 @@
             phx-value-tab="notifications"
             class={[
               "w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition",
-              tab_active?(@active_tab, "notifications") && "bg-violet-500/20 text-violet-100",
+              tab_active?(@active_tab, "notifications") && "bg-primary/15 text-primary",
               !tab_active?(@active_tab, "notifications") &&
-                "text-zinc-300 hover:bg-white/8 hover:text-white"
+                "text-base-content/75 hover:bg-base-200 hover:text-base-content"
             ]}
           >
             Notifications
@@ -46,9 +48,9 @@
             class={[
               "w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition",
               tab_active?(@active_tab, "channel_notifications") &&
-                "bg-violet-500/20 text-violet-100",
+                "bg-primary/15 text-primary",
               !tab_active?(@active_tab, "channel_notifications") &&
-                "text-zinc-300 hover:bg-white/8 hover:text-white"
+                "text-base-content/75 hover:bg-base-200 hover:text-base-content"
             ]}
           >
             Channel notifications
@@ -60,9 +62,9 @@
             phx-value-tab="theme"
             class={[
               "w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition",
-              tab_active?(@active_tab, "theme") && "bg-violet-500/20 text-violet-100",
+              tab_active?(@active_tab, "theme") && "bg-primary/15 text-primary",
               !tab_active?(@active_tab, "theme") &&
-                "text-zinc-300 hover:bg-white/8 hover:text-white"
+                "text-base-content/75 hover:bg-base-200 hover:text-base-content"
             ]}
           >
             Theme
@@ -74,9 +76,9 @@
             phx-value-tab="server"
             class={[
               "w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition",
-              tab_active?(@active_tab, "server") && "bg-violet-500/20 text-violet-100",
+              tab_active?(@active_tab, "server") && "bg-primary/15 text-primary",
               !tab_active?(@active_tab, "server") &&
-                "text-zinc-300 hover:bg-white/8 hover:text-white"
+                "text-base-content/75 hover:bg-base-200 hover:text-base-content"
             ]}
           >
             Server management
@@ -86,19 +88,19 @@
         <.link
           navigate={~p"/"}
           id="back-to-chat-link"
-          class="mt-4 block rounded-lg border border-white/10 px-3 py-2 text-sm font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+          class="mt-4 block rounded-lg border border-base-300 px-3 py-2 text-sm font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
         >
           Back to chat
         </.link>
       </aside>
 
-      <section class="min-w-0 flex-1 rounded-2xl border border-white/10 bg-[#2b2d31] p-5">
+      <section class="min-w-0 flex-1 rounded-2xl border border-base-300 bg-base-100 p-5 shadow-lg">
         <%= if @active_tab == "profile" do %>
           <div id="settings-view-profile">
-            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
               Profile basics
             </p>
-            <h2 class="mt-1 text-xl font-semibold text-white">Account profile</h2>
+            <h2 class="mt-1 text-xl font-semibold text-base-content">Account profile</h2>
 
             <.form
               for={@profile_form}
@@ -110,11 +112,11 @@
               <.input field={@profile_form[:username]} type="text" label="Username" />
               <.input field={@profile_form[:email]} type="email" label="Email" />
 
-              <div class="rounded-xl border border-dashed border-white/10 bg-black/10 p-4">
-                <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
+              <div class="rounded-xl border border-dashed border-base-300 bg-base-200 p-4">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">
                   Avatar
                 </p>
-                <p class="mt-2 text-sm text-zinc-400">
+                <p class="mt-2 text-sm text-base-content/70">
                   Avatar upload will be added in next iteration. This route now owns profile settings.
                 </p>
               </div>
@@ -128,18 +130,18 @@
 
         <%= if @active_tab == "notifications" do %>
           <div id="settings-view-notifications">
-            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
               Notifications
             </p>
-            <h2 class="mt-1 text-xl font-semibold text-white">Global preferences</h2>
+            <h2 class="mt-1 text-xl font-semibold text-base-content">Global preferences</h2>
 
-            <div class="mt-5 rounded-xl border border-white/8 bg-black/10 p-4">
+            <div class="mt-5 rounded-xl border border-base-300 bg-base-200 p-4">
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                  <p class="text-[11px] font-semibold uppercase tracking-[0.18em] text-base-content/50">
                     Mention alerts
                   </p>
-                  <p class="mt-1 text-[11px] text-zinc-400">
+                  <p class="mt-1 text-[11px] text-base-content/70">
                     Notify when someone mentions you in another channel.
                   </p>
                 </div>
@@ -159,7 +161,7 @@
                   type="button"
                   phx-click="disable_desktop_mentions"
                   id="disable-desktop-mentions"
-                  class="rounded-md px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+                  class="rounded-md px-2.5 py-1 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-300 hover:text-base-content"
                 >
                   On
                 </button>
@@ -223,18 +225,18 @@
 
         <%= if @active_tab == "channel_notifications" do %>
           <div id="settings-view-channel-notifications">
-            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
               Channel notifications
             </p>
-            <h2 class="mt-1 text-xl font-semibold text-white">Per-channel overrides</h2>
+            <h2 class="mt-1 text-xl font-semibold text-base-content">Per-channel overrides</h2>
 
             <div class={["mt-5 space-y-3 overflow-y-auto max-h-[70vh] pr-1", scrollbar_classes()]}>
               <div
                 :for={section <- @channel_sections}
                 id={"channel-notification-section-#{section.category && section.category.slug || "uncategorized"}"}
-                class="rounded-xl border border-white/8 bg-black/10 p-3"
+                class="rounded-xl border border-base-300 bg-base-200 p-3"
               >
-                <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                   {section_label(section.category)}
                 </p>
 
@@ -242,11 +244,11 @@
                   <div
                     :for={channel <- section.channels}
                     id={"channel-notification-#{channel.slug}"}
-                    class="rounded-lg border border-white/8 bg-[#2b2d31] p-3"
+                    class="rounded-lg border border-base-300 bg-base-100 p-3"
                   >
                     <div class="mb-2 flex items-center justify-between gap-2">
-                      <p class="text-sm font-semibold text-zinc-100">#{channel.name}</p>
-                      <span class="rounded bg-black/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                      <p class="text-sm font-semibold text-base-content">#{channel.name}</p>
+                      <span class="rounded bg-base-300 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-base-content/50">
                         {channel_kind_badge(channel.kind)}
                       </span>
                     </div>
@@ -303,11 +305,13 @@
 
         <%= if @active_tab == "theme" do %>
           <div id="settings-view-theme">
-            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">Theme</p>
-            <h2 class="mt-1 text-xl font-semibold text-white">Appearance preferences</h2>
+            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
+              Theme
+            </p>
+            <h2 class="mt-1 text-xl font-semibold text-base-content">Appearance preferences</h2>
 
-            <div class="mt-5 rounded-xl border border-white/8 bg-black/10 p-4">
-              <p class="text-sm text-zinc-300">Choose your app theme:</p>
+            <div class="mt-5 rounded-xl border border-base-300 bg-base-200 p-4">
+              <p class="text-sm text-base-content/80">Choose your app theme:</p>
               <div class="mt-3">
                 <Layouts.theme_toggle />
               </div>
@@ -317,10 +321,12 @@
 
         <%= if @active_tab == "server" do %>
           <div id="settings-view-server">
-            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
               Server management
             </p>
-            <h2 class="mt-1 text-xl font-semibold text-white">Channels, emoji, moderation</h2>
+            <h2 class="mt-1 text-xl font-semibold text-base-content">
+              Channels, emoji, moderation
+            </h2>
 
             <div class="mt-5 flex flex-wrap gap-2">
               <button
@@ -344,8 +350,165 @@
               </button>
             </div>
 
-            <div class="mt-5 rounded-xl border border-white/8 bg-black/10 p-4">
-              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            <div
+              :if={@can_manage_bots?}
+              class="mt-5 rounded-xl border border-base-300 bg-base-200 p-4"
+            >
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
+                    Bots
+                  </p>
+                  <h3 class="mt-1 text-base font-semibold text-base-content">Bot registry</h3>
+                </div>
+                <span class="rounded bg-base-300 px-2 py-1 text-[10px] font-semibold text-base-content/60">
+                  {length(@bot_users)} bots
+                </span>
+              </div>
+
+              <.form
+                for={@bot_form}
+                id="bot-form"
+                phx-submit="create_bot"
+                class="mt-4 grid gap-4 lg:grid-cols-2"
+              >
+                <.input field={@bot_form[:display_name]} type="text" label="Display name" />
+                <.input field={@bot_form[:username]} type="text" label="Username" />
+                <.input field={@bot_form[:email]} type="email" label="Email" />
+                <.input field={@bot_form[:bio]} type="text" label="Bio" />
+                <.input
+                  field={@bot_form[:role_ids]}
+                  type="select"
+                  label="Roles"
+                  multiple
+                  options={Enum.map(@manageable_roles, &{&1.name, &1.id})}
+                />
+
+                <div class="lg:col-span-2">
+                  <.button class="rounded-md bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-400">
+                    Create bot
+                  </.button>
+                </div>
+              </.form>
+
+              <div id="bot-registry-list" class="mt-5 space-y-3">
+                <div
+                  :for={bot_user <- @bot_users}
+                  id={"bot-card-#{bot_user.id}"}
+                  class="rounded-xl border border-base-300 bg-base-100 p-4"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <p class="text-sm font-semibold text-base-content">
+                        {bot_user.display_name}
+                      </p>
+                      <p class="text-[11px] text-base-content/50">@{bot_user.username}</p>
+                      <p :if={bot_user.bio} class="mt-2 text-[11px] text-base-content/70">
+                        {bot_user.bio}
+                      </p>
+                    </div>
+
+                    <div class="flex flex-wrap gap-1">
+                      <span
+                        :for={member_role <- bot_user.member_roles}
+                        class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/70"
+                      >
+                        {member_role.role.name}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div class="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                    <.form
+                      for={
+                        Map.get(
+                          @bot_token_forms,
+                          bot_user.id,
+                          to_form(%{"label" => "", "expires_in_days" => ""}, as: :token)
+                        )
+                      }
+                      id={"bot-token-form-#{bot_user.id}"}
+                      phx-submit="create_bot_token"
+                      phx-value-id={bot_user.id}
+                      class="grid gap-3 md:grid-cols-2"
+                    >
+                      <% token_form =
+                        Map.get(
+                          @bot_token_forms,
+                          bot_user.id,
+                          to_form(%{"label" => "", "expires_in_days" => ""}, as: :token)
+                        ) %>
+
+                      <.input
+                        field={token_form[:label]}
+                        type="text"
+                        label="Token label"
+                      />
+                      <.input
+                        field={token_form[:expires_in_days]}
+                        type="number"
+                        label="Expires in days"
+                        min="1"
+                      />
+
+                      <div class="md:col-span-2 flex items-center gap-3">
+                        <.button class="rounded-md bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-400">
+                          Create token
+                        </.button>
+
+                        <div
+                          :if={Map.get(@revealed_bot_tokens, bot_user.id)}
+                          id={"revealed-bot-token-#{bot_user.id}"}
+                          class="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[11px] text-emerald-100"
+                        >
+                          {Map.get(@revealed_bot_tokens, bot_user.id)}
+                        </div>
+                      </div>
+                    </.form>
+
+                    <div class="space-y-2">
+                      <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
+                        Tokens
+                      </p>
+
+                      <div
+                        :for={token <- bot_user.bot_tokens}
+                        id={"bot-token-row-#{token.id}"}
+                        class="rounded-lg border border-base-300 bg-base-200 px-3 py-2"
+                      >
+                        <div class="flex items-center justify-between gap-3">
+                          <div>
+                            <p class="text-[11px] font-semibold text-base-content">
+                              {token.label || "Unnamed token"}
+                            </p>
+                            <p class="text-[10px] text-base-content/50">
+                              {if token.revoked_at, do: "revoked", else: "active"}
+                              <%= if token.expires_at do %>
+                                · expires {Calendar.strftime(token.expires_at, "%b %-d")}
+                              <% end %>
+                            </p>
+                          </div>
+
+                          <button
+                            :if={is_nil(token.revoked_at)}
+                            type="button"
+                            phx-click="revoke_bot_token"
+                            phx-value-id={token.id}
+                            id={"revoke-bot-token-#{token.id}"}
+                            class="rounded-md px-2.5 py-1 text-[11px] font-semibold text-rose-300 transition hover:bg-rose-500/10 hover:text-rose-100"
+                          >
+                            Revoke
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-5 rounded-xl border border-base-300 bg-base-200 p-4">
+              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                 Members
               </p>
 
@@ -353,7 +516,7 @@
                 <div
                   :for={entry <- @member_presence}
                   id={"member-presence-#{entry.user.id}"}
-                  class="rounded-lg border border-white/8 bg-[#2b2d31] p-3"
+                  class="rounded-lg border border-base-300 bg-base-100 p-3"
                 >
                   <div class="flex items-start gap-3">
                     <span class={[
@@ -362,11 +525,13 @@
                     ]} />
 
                     <div class="min-w-0 flex-1">
-                      <p class="truncate text-sm font-medium text-zinc-100">
+                      <p class="truncate text-sm font-medium text-base-content">
                         {entry.user.display_name}
                       </p>
-                      <p class="truncate text-[11px] text-zinc-500">@{entry.user.username}</p>
-                      <p class="mt-1 text-[11px] text-zinc-400">
+                      <p class="truncate text-[11px] text-base-content/50">
+                        @{entry.user.username}
+                      </p>
+                      <p class="mt-1 text-[11px] text-base-content/70">
                         {member_status_label(entry.status)} · {Calendar.strftime(
                           entry.last_active_at,
                           "%b %-d · %H:%M"
@@ -389,7 +554,7 @@
                         phx-click="toggle_member_actions"
                         phx-value-id={entry.user.id}
                         id={"open-member-actions-#{entry.user.id}"}
-                        class="mt-3 rounded-md border border-white/8 px-2.5 py-1 text-[11px] font-semibold text-zinc-300 transition hover:border-white/15 hover:bg-white/5 hover:text-white"
+                        class="mt-3 rounded-md border border-base-300 px-2.5 py-1 text-[11px] font-semibold text-base-content/80 transition hover:border-base-content/20 hover:bg-base-200 hover:text-base-content"
                       >
                         Moderate
                       </button>
@@ -397,7 +562,7 @@
                       <div
                         :if={selected_member(entry, @member_action_user_id)}
                         id={"member-actions-#{entry.user.id}"}
-                        class="mt-3 rounded-xl border border-white/8 bg-black/15 p-3"
+                        class="mt-3 rounded-xl border border-base-300 bg-base-200 p-3"
                       >
                         <.form
                           for={@member_action_form}
@@ -458,38 +623,41 @@
                           </div>
                         </.form>
 
-                        <div class="mt-4 border-t border-white/8 pt-3">
-                          <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                        <div class="mt-4 border-t border-base-300 pt-3">
+                          <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                             Recent cases
                           </p>
 
                           <div :if={@moderation_cases != []} class="mt-2 space-y-2">
                             <div
                               :for={moderation_case <- Enum.take(@moderation_cases, 5)}
-                              class="rounded-lg border border-white/8 bg-black/10 px-3 py-2"
+                              class="rounded-lg border border-base-300 bg-base-100 px-3 py-2"
                             >
                               <div class="flex items-center justify-between gap-2">
-                                <p class="text-[11px] font-semibold text-zinc-100">
+                                <p class="text-[11px] font-semibold text-base-content">
                                   {moderation_case_label(moderation_case.action_type)}
                                 </p>
-                                <p class="text-[10px] text-zinc-500">
+                                <p class="text-[10px] text-base-content/50">
                                   Case #{moderation_case.case_number}
                                 </p>
                               </div>
-                              <p class="mt-1 text-[11px] text-zinc-400">
+                              <p class="mt-1 text-[11px] text-base-content/70">
                                 by {moderation_case.actor_user &&
                                   moderation_case.actor_user.display_name}
                               </p>
                               <p
                                 :if={moderation_case.reason}
-                                class="mt-1 text-[11px] text-zinc-300"
+                                class="mt-1 text-[11px] text-base-content/80"
                               >
                                 {moderation_case.reason}
                               </p>
                             </div>
                           </div>
 
-                          <p :if={@moderation_cases == []} class="mt-2 text-xs text-zinc-500">
+                          <p
+                            :if={@moderation_cases == []}
+                            class="mt-2 text-xs text-base-content/50"
+                          >
                             No moderation cases yet.
                           </p>
                         </div>
@@ -520,7 +688,7 @@
       id="channel-manager-panel"
       aria-hidden={if(@manage_channels_open?, do: "false", else: "true")}
       class={[
-        "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-black/30 bg-[#202225] shadow-[-16px_0_48px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
+        "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-transform duration-200 ease-out lg:shadow-2xl",
         !@manage_channels_open? && "shadow-none lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
         @manage_channels_open? && "pointer-events-auto",
         !@manage_channels_open? && "pointer-events-none",
@@ -528,19 +696,19 @@
         !@manage_channels_open? && "translate-x-full"
       ]}
     >
-      <div class="flex items-center justify-between border-b border-black/20 px-5 py-4">
+      <div class="flex items-center justify-between border-b border-base-300 px-5 py-4">
         <div>
-          <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+          <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-base-content/50">
             Server structure
           </p>
-          <h2 class="mt-1 text-lg font-semibold text-white">Channels and categories</h2>
+          <h2 class="mt-1 text-lg font-semibold text-base-content">Channels and categories</h2>
         </div>
 
         <button
           type="button"
           phx-click="close_manage_channels"
           id="close-channel-manager"
-          class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+          class="rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
         >
           Close
         </button>
@@ -548,7 +716,7 @@
 
       <div class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[1.15fr_0.95fr]">
         <div class={[
-          "min-h-0 overflow-y-auto border-b border-black/20 px-4 py-4 lg:border-b-0 lg:border-r",
+          "min-h-0 overflow-y-auto border-b border-base-300 px-4 py-4 lg:border-b-0 lg:border-r",
           scrollbar_classes()
         ]}>
           <div class="flex flex-wrap items-center gap-2">
@@ -566,7 +734,7 @@
               phx-click="new_channel_form"
               phx-value-mode="create_category"
               id="new-category"
-              class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+              class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
             >
               New category
             </button>
@@ -576,14 +744,14 @@
             <div
               :for={section <- @all_channel_sections}
               id={"manager-#{section_dom_id(section.category)}"}
-              class="rounded-xl border border-white/8 bg-black/10 p-3"
+              class="rounded-xl border border-base-300 bg-base-200 p-3"
             >
               <div class="flex items-center justify-between gap-3">
                 <div>
-                  <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                  <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                     {section_label(section.category)}
                   </p>
-                  <p class="mt-1 text-xs text-zinc-400">
+                  <p class="mt-1 text-xs text-base-content/70">
                     {if section.category,
                       do: section.category.topic || "Category container",
                       else: "Channels without a category"}
@@ -596,7 +764,7 @@
                   phx-click="edit_channel"
                   phx-value-id={section.category.id}
                   id={"edit-category-#{section.category.slug}"}
-                  class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+                  class="rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-300 hover:text-base-content"
                 >
                   Edit
                 </button>
@@ -606,18 +774,20 @@
                 <div
                   :for={channel <- section.channels}
                   id={"manage-channel-#{channel.slug}"}
-                  class="rounded-lg border border-white/8 bg-[#2b2d31] px-3 py-2"
+                  class="rounded-lg border border-base-300 bg-base-100 px-3 py-2"
                 >
                   <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
                       <div class="flex items-center gap-2">
-                        <span class="text-zinc-500">#</span>
-                        <p class="truncate text-sm font-semibold text-zinc-100">{channel.name}</p>
-                        <span class="rounded bg-black/20 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-zinc-500">
+                        <span class="text-base-content/50">#</span>
+                        <p class="truncate text-sm font-semibold text-base-content">
+                          {channel.name}
+                        </p>
+                        <span class="rounded bg-base-300 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-base-content/50">
                           {channel_kind_badge(channel.kind)}
                         </span>
                       </div>
-                      <p class="mt-1 truncate text-xs text-zinc-400">
+                      <p class="mt-1 truncate text-xs text-base-content/70">
                         {channel.topic || "No topic set."}
                       </p>
                     </div>
@@ -629,7 +799,7 @@
                         phx-value-id={channel.id}
                         phx-value-direction="up"
                         id={"move-channel-up-#{channel.slug}"}
-                        class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                        class="rounded px-2 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
                       >
                         ↑
                       </button>
@@ -639,7 +809,7 @@
                         phx-value-id={channel.id}
                         phx-value-direction="down"
                         id={"move-channel-down-#{channel.slug}"}
-                        class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                        class="rounded px-2 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
                       >
                         ↓
                       </button>
@@ -648,7 +818,7 @@
                         phx-click="edit_channel"
                         phx-value-id={channel.id}
                         id={"edit-channel-#{channel.slug}"}
-                        class="rounded px-2 py-1 text-[11px] font-semibold text-zinc-300 transition hover:bg-white/8 hover:text-white"
+                        class="rounded px-2 py-1 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-200 hover:text-base-content"
                       >
                         Edit
                       </button>
@@ -661,13 +831,15 @@
         </div>
 
         <div class={["min-h-0 overflow-y-auto px-4 py-4", scrollbar_classes()]}>
-          <div class="rounded-xl border border-white/8 bg-black/10 p-4">
+          <div class="rounded-xl border border-base-300 bg-base-200 p-4">
             <div class="flex items-start justify-between gap-3">
               <div>
-                <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+                <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                   Editor
                 </p>
-                <h3 class="mt-1 text-base font-semibold text-white">{@channel_form_title}</h3>
+                <h3 class="mt-1 text-base font-semibold text-base-content">
+                  {@channel_form_title}
+                </h3>
               </div>
 
               <button
@@ -675,7 +847,7 @@
                 type="button"
                 phx-click="cancel_channel_edit"
                 id="cancel-channel-edit"
-                class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                class="rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-300 hover:text-base-content"
               >
                 New
               </button>
@@ -731,7 +903,7 @@
                   <button
                     type="button"
                     phx-click="close_manage_channels"
-                    class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                    class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-300 hover:text-base-content"
                   >
                     Close
                   </button>
@@ -762,7 +934,7 @@
       id="emoji-manager-panel"
       aria-hidden={if(@manage_emojis_open?, do: "false", else: "true")}
       class={[
-        "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-black/30 bg-[#202225] shadow-[-16px_0_48px_rgba(0,0,0,0.45)] transition-transform duration-200 ease-out lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
+        "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-transform duration-200 ease-out lg:shadow-2xl",
         !@manage_emojis_open? && "shadow-none lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
         @manage_emojis_open? && "pointer-events-auto",
         !@manage_emojis_open? && "pointer-events-none",
@@ -770,19 +942,19 @@
         !@manage_emojis_open? && "translate-x-full"
       ]}
     >
-      <div class="flex items-center justify-between border-b border-black/20 px-5 py-4">
+      <div class="flex items-center justify-between border-b border-base-300 px-5 py-4">
         <div>
-          <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-zinc-500">
+          <p class="text-[11px] font-bold uppercase tracking-[0.2em] text-base-content/50">
             Server assets
           </p>
-          <h2 class="mt-1 text-lg font-semibold text-white">Custom emoji</h2>
+          <h2 class="mt-1 text-lg font-semibold text-base-content">Custom emoji</h2>
         </div>
 
         <button
           type="button"
           phx-click="close_manage_emojis"
           id="close-emoji-manager"
-          class="rounded-md px-2 py-1 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+          class="rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-200 hover:text-base-content"
         >
           Close
         </button>
@@ -790,17 +962,19 @@
 
       <div class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[1.05fr_0.95fr]">
         <div class={[
-          "min-h-0 overflow-y-auto border-b border-black/20 px-4 py-4 lg:border-b-0 lg:border-r",
+          "min-h-0 overflow-y-auto border-b border-base-300 px-4 py-4 lg:border-b-0 lg:border-r",
           scrollbar_classes()
         ]}>
           <div class="flex items-center justify-between gap-3">
             <div>
-              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                 Library
               </p>
-              <p class="mt-1 text-xs text-zinc-400">Upload small reaction-ready emoji assets.</p>
+              <p class="mt-1 text-xs text-base-content/70">
+                Upload small reaction-ready emoji assets.
+              </p>
             </div>
-            <span class="rounded bg-black/20 px-2 py-1 text-[10px] font-semibold text-zinc-400">
+            <span class="rounded bg-base-300 px-2 py-1 text-[10px] font-semibold text-base-content/70">
               {length(@custom_emojis)} total
             </span>
           </div>
@@ -809,18 +983,18 @@
             <div
               :for={emoji <- @custom_emojis}
               id={"manage-emoji-#{emoji.id}"}
-              class="rounded-xl border border-white/8 bg-black/10 p-3"
+              class="rounded-xl border border-base-300 bg-base-200 p-3"
             >
               <div class="flex items-start justify-between gap-3">
                 <div class="flex min-w-0 items-center gap-3">
                   <img
                     src={emoji.url}
                     alt={emoji.name}
-                    class="size-10 rounded-lg bg-black/20 object-cover"
+                    class="size-10 rounded-lg bg-base-300 object-cover"
                   />
                   <div class="min-w-0">
-                    <p class="truncate text-sm font-semibold text-zinc-100">{emoji.name}</p>
-                    <p class="truncate text-[11px] text-zinc-400">{emoji.shortcode}</p>
+                    <p class="truncate text-sm font-semibold text-base-content">{emoji.name}</p>
+                    <p class="truncate text-[11px] text-base-content/70">{emoji.shortcode}</p>
                   </div>
                 </div>
 
@@ -839,12 +1013,12 @@
         </div>
 
         <div class={["min-h-0 overflow-y-auto px-4 py-4", scrollbar_classes()]}>
-          <div class="rounded-xl border border-white/8 bg-black/10 p-4">
+          <div class="rounded-xl border border-base-300 bg-base-200 p-4">
             <div>
-              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+              <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                 Upload
               </p>
-              <h3 class="mt-1 text-base font-semibold text-white">Add custom emoji</h3>
+              <h3 class="mt-1 text-base font-semibold text-base-content">Add custom emoji</h3>
             </div>
 
             <.form
@@ -857,13 +1031,13 @@
               <.input field={@emoji_form[:shortcode]} type="text" label="Shortcode" />
 
               <div>
-                <label class="mb-2 block text-sm font-medium text-zinc-200">Image</label>
-                <div class="rounded-xl border border-dashed border-white/10 bg-black/10 p-4">
+                <label class="mb-2 block text-sm font-medium text-base-content/85">Image</label>
+                <div class="rounded-xl border border-dashed border-base-300 bg-base-100 p-4">
                   <.live_file_input
                     upload={@uploads.emoji_image}
-                    class="block w-full text-sm text-zinc-200"
+                    class="block w-full text-sm text-base-content/85"
                   />
-                  <p class="mt-2 text-[11px] text-zinc-500">
+                  <p class="mt-2 text-[11px] text-base-content/50">
                     png, jpg, gif, or webp. keep it tiny.
                   </p>
                 </div>
@@ -879,7 +1053,7 @@
                 <button
                   type="button"
                   phx-click="close_manage_emojis"
-                  class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-zinc-400 transition hover:bg-white/8 hover:text-white"
+                  class="rounded-md px-3 py-1.5 text-[11px] font-semibold text-base-content/70 transition hover:bg-base-300 hover:text-base-content"
                 >
                   Close
                 </button>
