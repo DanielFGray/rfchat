@@ -113,6 +113,7 @@ defmodule RfchatWeb.API.BotControllerTest do
 
     channel = channel_fixture(%{name: "Rich Payload Channel", slug: unique_slug()})
     replied_user = user_fixture(%{email: "replied@example.com", username: "replied_user"})
+    _replied_user_role = member_role_fixture(replied_user, role)
     reply_target = message_fixture(channel, replied_user, %{body: "seed reply target"})
     bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
     {:ok, %{token: bot_token}} = Bots.create_bot_token(bot_user, %{"label" => "api"}, actor)
@@ -266,7 +267,9 @@ defmodule RfchatWeb.API.BotControllerTest do
 
     channel = channel_fixture(%{name: "SSE Channel", slug: unique_slug()})
     reply_author = user_fixture(%{email: "sse-reply@example.com", username: "sse_reply"})
+    _reply_author_role = member_role_fixture(reply_author, role)
     reply_target = message_fixture(channel, reply_author, %{body: "reply seed"})
+    _actor_role = member_role_fixture(actor, role)
     starter = message_fixture(channel, actor, %{body: "start a thread"})
     bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
 

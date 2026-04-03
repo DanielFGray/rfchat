@@ -43,7 +43,9 @@ defmodule Rfchat.ChatFixtures do
 
   def message_fixture(channel, author, attrs \\ %{}) do
     attrs = Enum.into(attrs, %{body: "hello world"})
-
+    # Force-reload associations so roles assigned after user_fixture are visible
+    # to the permission check inside Chat.create_message.
+    author = Rfchat.Repo.preload(author, [:membership, member_roles: :role], force: true)
     {:ok, message} = Chat.create_message(channel, author, attrs)
     message
   end
