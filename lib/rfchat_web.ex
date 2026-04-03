@@ -91,6 +91,7 @@ defmodule RfchatWeb do
       alias Phoenix.LiveView.JS
       alias RfchatWeb.GuildComponents
       alias RfchatWeb.Layouts
+      alias RfchatWeb.SettingsComponents
 
       # Routes generation with the ~p sigil
       unquote(verified_routes())
