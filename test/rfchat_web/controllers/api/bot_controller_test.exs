@@ -6,6 +6,8 @@ defmodule RfchatWeb.API.BotControllerTest do
   alias Rfchat.Bots
   alias Rfchat.Chat
   alias Rfchat.Chat.PermissionBits
+  alias RfchatWeb.API.BotController
+  alias RfchatWeb.TestStreamAdapter
 
   test "authenticated admins can create bots", %{conn: conn} do
     _owner = user_fixture(%{email: "api-bot-owner@example.com", username: "api_bot_owner"})
@@ -218,6 +220,105 @@ defmodule RfchatWeb.API.BotControllerTest do
       |> get(~p"/api/v1/messages/#{starter.id}/thread")
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+  end
+
+  test "events starts with enriched ready payload", _context do
+    actor = user_fixture(%{email: "bot-api-sse-ready@example.com", username: "bot_api_sse_ready"})
+    bot_user = bot_fixture(actor)
+
+    {conn, ref} =
+      Phoenix.ConnTest.build_conn()
+      |> TestStreamAdapter.wrap()
+
+    conn =
+      assign(conn, :current_bot_scope, %Bots.BotScope{
+        bot_user: bot_user,
+        roles: [],
+        base_permissions: 0
+      })
+
+    task =
+      Task.async(fn ->
+        catch_exit(BotController.events(conn, %{}))
+      end)
+
+    assert_receive {:plug_conn, :sent}
+    assert_receive {^ref, :chunk, ready_chunk}
+    Task.shutdown(task, :brutal_kill)
+
+    assert ready_chunk =~ "event: ready\n"
+    assert ready_chunk =~ ~s("id":"#{bot_user.id}")
+    assert ready_chunk =~ ~s("username":"#{bot_user.username}")
+    assert ready_chunk =~ ~s("display_name":"#{bot_user.display_name}")
+    assert ready_chunk =~ ~s("bot":true)
+  end
+
+  test "events stream rich message and thread payloads", _context do
+    actor =
+      user_fixture(%{email: "bot-api-sse-events@example.com", username: "bot_api_sse_events"})
+
+    role =
+      role_fixture(%{
+        name: "Bot SSE Role",
+        permissions:
+          PermissionBits.combine([:view_channel, :send_messages, :create_public_threads])
+      })
+
+    channel = channel_fixture(%{name: "SSE Channel", slug: unique_slug()})
+    reply_author = user_fixture(%{email: "sse-reply@example.com", username: "sse_reply"})
+    reply_target = message_fixture(channel, reply_author, %{body: "reply seed"})
+    starter = message_fixture(channel, actor, %{body: "start a thread"})
+    bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
+
+    {conn, ref} =
+      Phoenix.ConnTest.build_conn()
+      |> TestStreamAdapter.wrap()
+
+    conn =
+      assign(conn, :current_bot_scope, %Bots.BotScope{
+        bot_user: bot_user,
+        roles: [],
+        base_permissions: role.permissions
+      })
+
+    task =
+      Task.async(fn ->
+        catch_exit(BotController.events(conn, %{}))
+      end)
+
+    assert_receive {:plug_conn, :sent}
+    assert_receive {^ref, :chunk, _ready_chunk}
+
+    {:ok, %{message: created_message}} =
+      Bots.command_send_message(
+        %Bots.BotScope{bot_user: bot_user, roles: [], base_permissions: role.permissions},
+        %{
+          "channel_id" => channel.id,
+          "body" => "stream me",
+          "reply_to_id" => reply_target.id,
+          "metadata" => %{"source" => "sse-test"}
+        }
+      )
+
+    {:ok, thread} =
+      Chat.create_public_thread(channel, starter, bot_user, %{"name" => "SSE thread"})
+
+    assert_receive {^ref, :chunk, message_chunk}
+    assert_receive {^ref, :chunk, thread_chunk}
+
+    Task.shutdown(task, :brutal_kill)
+
+    assert message_chunk =~ "event: message.created\n"
+    assert message_chunk =~ ~s("id":"#{created_message.id}")
+    assert message_chunk =~ ~s("reply_to_id":"#{reply_target.id}")
+    assert message_chunk =~ ~s("author":{"id":"#{bot_user.id}")
+    assert message_chunk =~ ~s("channel":{"id":"#{channel.id}")
+    assert message_chunk =~ ~s("reply_to":{"id":"#{reply_target.id}")
+
+    assert thread_chunk =~ "event: thread.created\n"
+    assert thread_chunk =~ ~s("id":"#{thread.id}")
+    assert thread_chunk =~ ~s("starter_message_id":"#{starter.id}")
+    assert thread_chunk =~ ~s("parent_channel":{"id":"#{channel.id}")
   end
 
   test "bot management endpoints do not treat human users as bots", %{conn: conn} do
