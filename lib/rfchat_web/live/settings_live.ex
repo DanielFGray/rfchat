@@ -7,6 +7,7 @@ defmodule RfchatWeb.SettingsLive do
   alias Rfchat.Bots
   alias Rfchat.Chat
   alias Rfchat.Chat.ChannelMembership
+  alias Rfchat.Chat.ServerSettings
   alias Rfchat.Chat.UserNotificationSetting
   alias Rfchat.Repo
   alias RfchatWeb.Live.SharedHelpers
@@ -24,12 +25,20 @@ defmodule RfchatWeb.SettingsLive do
 
     socket =
       socket
+      |> allow_upload(:server_icon,
+        accept: ~w(.png .jpg .jpeg .gif .webp),
+        max_entries: 1,
+        max_file_size: 1_000_000
+      )
       |> allow_upload(:emoji_image,
         accept: ~w(.png .jpg .jpeg .gif .webp),
         max_entries: 1,
         max_file_size: 512_000
       )
       |> assign(:current_user, current_user)
+      |> assign(:server_settings, Chat.get_server_settings())
+      |> assign(:current_server, Chat.get_server_settings())
+      |> assign(:page_title, Chat.get_server_settings().name)
       |> assign(:active_tab, "profile")
       |> assign(:can_manage_channels?, can_manage_channels?)
       |> assign(:can_manage_emojis?, can_manage_emojis?)
@@ -59,6 +68,7 @@ defmodule RfchatWeb.SettingsLive do
       |> assign(:channel_form_title, "Create text channel")
       |> assign(:editing_channel_id, nil)
       |> assign(:profile_form, to_form(Accounts.change_profile_user(current_user), as: :user))
+      |> assign(:server_settings_form, server_settings_form(Chat.get_server_settings()))
       |> assign_notification_form()
       |> SharedHelpers.assign_channel_form()
       |> assign(:emoji_form, to_form(Chat.change_emoji(%Chat.Emoji{}, %{}), as: :emoji))
@@ -171,6 +181,51 @@ defmodule RfchatWeb.SettingsLive do
 
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "Could not update that channel preference.")}
+    end
+  end
+
+  @impl true
+  def handle_event("remove_server_icon", _params, socket) do
+    settings = socket.assigns.server_settings || Chat.get_server_settings()
+
+    case Chat.update_server_settings(
+           %{"name" => settings.name, "icon_asset_id" => ""},
+           socket.assigns.current_user
+         ) do
+      {:ok, settings} ->
+        {:noreply,
+         socket
+         |> assign(:server_settings, settings)
+         |> assign(:current_server, settings)
+         |> assign(:page_title, settings.name)
+         |> assign(:server_settings_form, server_settings_form(settings))
+         |> put_flash(:info, "Server icon removed.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not remove the server icon.")}
+    end
+  end
+
+  @impl true
+  def handle_event("save_server_settings", %{"server_settings" => attrs}, socket) do
+    attrs = maybe_attach_server_icon_upload(socket, attrs)
+
+    case Chat.update_server_settings(attrs, socket.assigns.current_user) do
+      {:ok, settings} ->
+        {:noreply,
+         socket
+         |> assign(:server_settings, settings)
+         |> assign(:current_server, settings)
+         |> assign(:page_title, settings.name)
+         |> assign(:server_settings_form, server_settings_form(settings))
+         |> put_flash(:info, "Server settings updated.")}
+
+      {:error, :invalid_upload_type} ->
+        {:noreply, put_flash(socket, :error, "Server icon must be png, jpg, gif, or webp.")}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply,
+         assign(socket, :server_settings_form, to_form(changeset, as: :server_settings))}
     end
   end
 
@@ -419,6 +474,52 @@ defmodule RfchatWeb.SettingsLive do
   end
 
   @impl true
+  def handle_event("promote_to_owner", %{"id" => user_id}, socket) do
+    actor = socket.assigns.current_user
+    subject = Accounts.get_user_with_membership!(user_id)
+
+    case Accounts.promote_to_owner(actor, subject) do
+      {:ok, _membership} ->
+        {:noreply,
+         socket
+         |> refresh_member_presence()
+         |> put_flash(:info, "#{subject.display_name} is now an owner.")}
+
+      {:error, :forbidden} ->
+        {:noreply, put_flash(socket, :error, "Only owners can promote other users.")}
+
+      {:error, :self} ->
+        {:noreply, put_flash(socket, :error, "You cannot promote yourself.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not promote that user.")}
+    end
+  end
+
+  @impl true
+  def handle_event("demote_from_owner", %{"id" => user_id}, socket) do
+    actor = socket.assigns.current_user
+    subject = Accounts.get_user_with_membership!(user_id)
+
+    case Accounts.demote_from_owner(actor, subject) do
+      {:ok, _membership} ->
+        {:noreply,
+         socket
+         |> refresh_member_presence()
+         |> put_flash(:info, "#{subject.display_name} is no longer an owner.")}
+
+      {:error, :forbidden} ->
+        {:noreply, put_flash(socket, :error, "Only owners can demote other owners.")}
+
+      {:error, :self} ->
+        {:noreply, put_flash(socket, :error, "You cannot demote yourself.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Could not demote that user.")}
+    end
+  end
+
+  @impl true
   def handle_event("moderate_member", %{"user_id" => user_id, "moderation" => params}, socket) do
     if socket.assigns.can_moderate_members? do
       actor = socket.assigns.current_user
@@ -462,6 +563,36 @@ defmodule RfchatWeb.SettingsLive do
       |> to_form(as: :notification)
 
     assign(socket, :notification_form, form)
+  end
+
+  defp server_settings_form(%ServerSettings{} = server_settings) do
+    server_settings
+    |> Chat.change_server_settings(%{name: server_settings.name || Chat.default_server_name()})
+    |> to_form(as: :server_settings)
+  end
+
+  defp maybe_attach_server_icon_upload(socket, attrs) do
+    case SharedHelpers.uploaded_entry(socket, :server_icon) do
+      nil ->
+        attrs
+
+      _entry ->
+        result =
+          Phoenix.LiveView.consume_uploaded_entries(socket, :server_icon, fn %{path: path},
+                                                                             entry ->
+            {:ok,
+             %{
+               path: path,
+               client_name: entry.client_name,
+               client_type: entry.client_type
+             }}
+          end)
+
+        case result do
+          [upload] -> Map.put(attrs, "icon_upload", upload)
+          _ -> attrs
+        end
+    end
   end
 
   defp channel_memberships_map(current_user, channels) do

@@ -6,6 +6,7 @@ defmodule RfchatWeb.UserAuth do
 
   alias Phoenix.LiveView
   alias Rfchat.Accounts
+  alias Rfchat.Chat
 
   @remember_me_cookie "_rfchat_user_remember_me"
   @remember_me_options [
@@ -53,6 +54,7 @@ defmodule RfchatWeb.UserAuth do
     conn
     |> Plug.Conn.assign(:current_user, user)
     |> Plug.Conn.assign(:current_scope, user && Accounts.user_scope(user))
+    |> Plug.Conn.assign(:current_server, Chat.get_server_settings())
   end
 
   def require_authenticated_user(conn, _opts) do
@@ -126,6 +128,7 @@ defmodule RfchatWeb.UserAuth do
     socket
     |> Phoenix.Component.assign(:current_user, user)
     |> Phoenix.Component.assign(:current_scope, user && Accounts.user_scope(user))
+    |> Phoenix.Component.assign(:current_server, Chat.get_server_settings())
   end
 
   defp maybe_require_login(%Plug.Conn{halted: true} = conn), do: conn

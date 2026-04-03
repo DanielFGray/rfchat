@@ -2,15 +2,20 @@ defmodule RfchatWeb.UserLoginLive do
   use RfchatWeb, :live_view
 
   alias Rfchat.Accounts
+  alias Rfchat.Chat
 
   @impl true
   def mount(_params, _session, socket) do
     form = Accounts.dummy_login_changeset() |> to_form(as: :user)
 
+    server_settings = Chat.get_server_settings()
+
     {:ok,
      socket
      |> assign(:page_title, "Log in")
      |> assign(:form, form)
+     |> assign(:server_settings, server_settings)
+     |> assign(:current_server, server_settings)
      |> assign(:trigger_submit, false)}
   end
 
@@ -29,7 +34,7 @@ defmodule RfchatWeb.UserLoginLive do
       <div class="min-h-screen bg-base-300 px-4 py-10 text-base-content sm:px-6 lg:px-8 transition-colors duration-200">
         <div class="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[1.15fr,0.85fr] lg:items-center">
           <section class="rounded-[2rem] border border-base-content/10 bg-base-100/90 p-8 shadow-xl lg:p-12">
-            <p class="text-xs font-semibold uppercase tracking-[0.35em] text-primary">RFChat</p>
+            <Layouts.server_identity server={@server_settings} class="mb-6" />
             <h1 class="mt-5 text-4xl font-semibold tracking-tight text-base-content lg:text-5xl">
               Log in to your guild.
             </h1>

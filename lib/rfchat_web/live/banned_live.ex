@@ -2,6 +2,7 @@ defmodule RfchatWeb.BannedLive do
   use RfchatWeb, :live_view
 
   alias Rfchat.Accounts
+  alias Rfchat.Chat
 
   @impl true
   def mount(_params, _session, socket) do
@@ -9,9 +10,13 @@ defmodule RfchatWeb.BannedLive do
     membership = user.membership
     flags = membership.flags || %{}
 
+    server_settings = Chat.get_server_settings()
+
     {:ok,
      socket
      |> assign(:page_title, "Banned")
+     |> assign(:server_settings, server_settings)
+     |> assign(:current_server, server_settings)
      |> assign(:ban_reason, Map.get(flags, "ban_reason"))
      |> assign(:ban_at, membership.deactivated_at)
      |> assign(:timed_out?, Accounts.timed_out?(user))}
@@ -23,9 +28,7 @@ defmodule RfchatWeb.BannedLive do
     <Layouts.app flash={@flash} current_scope={@current_scope}>
       <div class="min-h-screen bg-base-300 px-4 py-10 text-base-content sm:px-6 lg:px-8 transition-colors duration-200">
         <div class="mx-auto max-w-3xl rounded-[2rem] border border-error/20 bg-base-100 p-8 shadow-xl lg:p-10">
-          <p class="text-xs font-semibold uppercase tracking-[0.35em] text-rose-300">
-            RFChat moderation
-          </p>
+          <Layouts.server_identity server={@server_settings} class="mb-6" />
           <h1 class="mt-5 text-4xl font-semibold tracking-tight text-base-content lg:text-5xl">
             This account is banned from this server.
           </h1>

@@ -3,15 +3,20 @@ defmodule RfchatWeb.UserRegistrationLive do
 
   alias Ecto.Changeset
   alias Rfchat.Accounts
+  alias Rfchat.Chat
   alias Rfchat.Chat.User
 
   @impl true
   def mount(_params, _session, socket) do
     form = %User{} |> Accounts.change_registration_user() |> to_form()
 
+    server_settings = Chat.get_server_settings()
+
     {:ok,
      socket
      |> assign(:page_title, "Register")
+     |> assign(:server_settings, server_settings)
+     |> assign(:current_server, server_settings)
      |> assign(:form, form)}
   end
 
@@ -30,7 +35,7 @@ defmodule RfchatWeb.UserRegistrationLive do
       {:ok, user} ->
         message =
           if user.membership && user.membership.is_owner do
-            "Account created. You are this server's owner. Log in to continue."
+            "Account created. You are a server owner. Log in to continue."
           else
             "Account created. Log in to continue."
           end
@@ -52,9 +57,9 @@ defmodule RfchatWeb.UserRegistrationLive do
       <div class="min-h-screen bg-base-300 px-4 py-10 text-base-content sm:px-6 lg:px-8 transition-colors duration-200">
         <div class="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[1.05fr,0.95fr] lg:items-center">
           <section class="rounded-[2rem] border border-base-content/10 bg-base-100/90 p-8 shadow-xl lg:p-12">
-            <p class="text-xs font-semibold uppercase tracking-[0.35em] text-success">Account</p>
+            <Layouts.server_identity server={@server_settings} class="mb-6" />
             <h1 class="mt-5 text-4xl font-semibold tracking-tight text-base-content lg:text-5xl">
-              Create your RFChat identity.
+              Create your {@server_settings.name} identity.
             </h1>
             <p class="mt-5 max-w-xl text-base leading-7 text-base-content/70">
               Register once for this self-hosted guild instance, then chat under your own profile.
