@@ -8,6 +8,7 @@
 import Config
 
 config :rfchat,
+  env: config_env(),
   ecto_repos: [Rfchat.Repo],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 

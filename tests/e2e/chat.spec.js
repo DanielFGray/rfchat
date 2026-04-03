@@ -1,12 +1,37 @@
 const { test, expect } = require('@playwright/test')
 
-async function loginAsSeedUser(page) {
-  await page.goto('/login')
-  await page.getByLabel('Email').pressSequentially('e2e@example.com')
-  await page.getByLabel('Password').pressSequentially('supersecurepass')
-  await page.getByRole('button', { name: 'Log in' }).click()
-  await expect(page).toHaveURL(/\/($|\?)/)
+const baseURL = 'http://127.0.0.1:4001'
+
+/**
+ * Run a test-support server command and return its JSON data.
+ * For non-login commands that return JSON responses.
+ */
+async function runServerCommand(page, command, payload = {}) {
+  const url = new URL('/api/testing/command', baseURL)
+  url.searchParams.set('command', command)
+  url.searchParams.set('payload', JSON.stringify(payload))
+
+  const response = await page.request.get(url.toString())
+  expect(response.ok()).toBeTruthy()
+  const body = await response.json()
+  return body.data
+}
+
+/**
+ * Log in by navigating the browser to the test-support login endpoint.
+ * The server creates a session and redirects to `next` (default "/").
+ * The browser follows the redirect and ends up authenticated.
+ */
+async function loginViaTestSupport(page, { email = 'e2e@example.com', username = 'e2e_user', password = 'supersecurepass', display_name, next = '/' } = {}) {
+  const url = new URL('/api/testing/command', baseURL)
+  url.searchParams.set('command', 'login')
+  url.searchParams.set('payload', JSON.stringify({ email, username, password, display_name, next }))
+  await page.goto(url.toString())
   await expect(page.locator('#logout-link')).toBeVisible()
+}
+
+async function loginAsSeedUser(page) {
+  await loginViaTestSupport(page)
 }
 
 test.beforeEach(async ({ page }) => {
@@ -100,12 +125,8 @@ test('mobile user can open drawers and reaction bottom sheet', async ({ page }, 
 })
 
 test('settings trigger is visible and navigates to authenticated settings route', async ({ page }) => {
-  await page.goto('/login')
-  await page.getByLabel('Email').fill('e2e@example.com')
-  await page.getByLabel('Password').fill('supersecurepass')
-  await page.getByRole('button', { name: 'Log in' }).click()
+  await loginViaTestSupport(page)
 
-  await expect(page).toHaveURL(/\/($|\?)/)
   await expect(page.locator('#open-settings-link')).toBeVisible()
 
   await page.locator('#open-settings-link').click()
@@ -118,10 +139,29 @@ test('settings trigger is visible and navigates to authenticated settings route'
   await guest.close()
 })
 
+test('server branding updates settings and shell surfaces', async ({ page }) => {
+  await runServerCommand(page, 'set_server_name', { name: 'RFChat' })
+  await loginAsSeedUser(page)
+
+  await page.locator('#open-settings-link').click()
+  await expect(page).toHaveURL(/\/settings$/)
+
+  await page.getByRole('button', { name: 'Server management' }).click()
+  await page.getByLabel('Server name').fill('Orbit HQ')
+  await page.getByRole('button', { name: 'Save server settings' }).click()
+
+  await expect(page.locator('#flash-group')).toContainText('Server settings updated.')
+  await expect(page.getByLabel('Server name')).toHaveValue('Orbit HQ')
+
+  await page.locator('#back-to-chat-link').click()
+  await expect(page).toHaveURL(/\/($|\?)/)
+  await expect(page.locator('#mobile-channel-drawer')).toContainText('Orbit HQ')
+})
+
 test('inactive channel mention triggers browser notification', async ({ browser }) => {
   const unique = `${Date.now()}`.slice(-6)
-  const authorEmail = `notify-${unique}@example.com`
-  const authorUsername = `notify_${unique}`
+  const authorEmail = `test_notify_${unique}@example.com`
+  const authorUsername = `test_notify_${unique}`
   const authorDisplayName = `Notify ${unique}`
   const password = 'supersecurepass'
   const author = await browser.newPage()
@@ -151,24 +191,8 @@ test('inactive channel mention triggers browser notification', async ({ browser 
     window.__rfchatNotifications = notifications
   })
 
-  await author.goto('/register')
-  await author.getByLabel('Email').fill(authorEmail)
-  await author.getByLabel('Username').fill(authorUsername)
-  await author.getByLabel('Display name').fill(authorDisplayName)
-  await author.getByLabel('Password').fill(password)
-  await author.getByRole('button', { name: 'Create account' }).click()
-
-  await expect(author).toHaveURL(/\/login$/)
-  await author.getByLabel('Email').fill(authorEmail)
-  await author.getByLabel('Password').fill(password)
-  await author.getByRole('button', { name: 'Log in' }).click()
-  await expect(author.locator('#logout-link')).toBeVisible()
-
-  await receiver.goto('/login')
-  await receiver.getByLabel('Email').fill('e2e@example.com')
-  await receiver.getByLabel('Password').fill(password)
-  await receiver.getByRole('button', { name: 'Log in' }).click()
-  await expect(receiver.locator('#logout-link')).toBeVisible()
+  await loginViaTestSupport(author, { email: authorEmail, username: authorUsername, password, display_name: authorDisplayName })
+  await loginViaTestSupport(receiver)
 
   await author.locator('#channel-link-engineering').click()
   await expect(author).toHaveURL(/\?channel=engineering$/)

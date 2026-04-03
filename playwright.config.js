@@ -1,6 +1,6 @@
 const { defineConfig, devices } = require('@playwright/test')
 
-const e2eMixEnv = 'env MIX_ENV=test PHX_SERVER=true PORT=4001 MIX_TEST_PARTITION=e2e MIX_BUILD_PATH=_build/e2e'
+const e2eMixEnv = 'env MIX_ENV=test PHX_SERVER=true PORT=4001 MIX_TEST_PARTITION=e2e MIX_BUILD_PATH=_build/e2e ENABLE_TEST_SUPPORT_COMMANDS=1'
 
 module.exports = defineConfig({
   testDir: './tests/e2e',

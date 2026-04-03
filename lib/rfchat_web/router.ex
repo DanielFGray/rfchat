@@ -32,6 +32,19 @@ defmodule RfchatWeb.Router do
     plug(RfchatWeb.Plugs.RequireBotAuth)
   end
 
+  pipeline :test_support do
+    plug(:accepts, ["json", "html"])
+    plug(:fetch_session)
+  end
+
+  if Application.compile_env(:rfchat, :env) in [:dev, :test] do
+    scope "/api/testing", RfchatWeb do
+      pipe_through(:test_support)
+
+      get("/command", TestSupportController, :command)
+    end
+  end
+
   scope "/", RfchatWeb do
     pipe_through(:browser)
 
