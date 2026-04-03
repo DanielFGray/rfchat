@@ -89,6 +89,7 @@ defmodule RfchatWeb do
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS
+      alias RfchatWeb.GuildComponents
       alias RfchatWeb.Layouts
 
       # Routes generation with the ~p sigil
