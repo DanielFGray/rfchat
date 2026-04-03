@@ -99,6 +99,8 @@ defmodule RfchatWeb.Router do
 
     get("/channels/:channel_id/messages", MessageController, :index)
     post("/channels/:channel_id/messages", MessageController, :create)
+    get("/messages/:message_id/thread", MessageController, :thread)
+    post("/messages/:message_id/threads", MessageController, :create_thread)
     post("/commands/execute", CommandController, :execute)
     get("/events", BotController, :events)
   end

@@ -165,7 +165,10 @@ defmodule RfchatWeb.API.BotController do
       |> send_chunked(200)
 
     :ok = Phoenix.PubSub.subscribe(Rfchat.PubSub, "chat:channels")
-    initial = "event: ready\ndata: #{Jason.encode!(%{bot_id: bot_user.id})}\n\n"
+
+    initial =
+      "event: ready\ndata: #{Jason.encode!(%{bot: Bots.serialize_bot_user(bot_user)})}\n\n"
+
     {:ok, conn} = chunk(conn, initial)
     stream_events(conn, bot_user)
   end
@@ -184,6 +187,10 @@ defmodule RfchatWeb.API.BotController do
         conn = maybe_chunk_event(conn, bot_user, "message.deleted", message)
         stream_events(conn, bot_user)
 
+      {:channel_created, channel} ->
+        conn = maybe_chunk_channel_event(conn, bot_user, "thread.created", channel)
+        stream_events(conn, bot_user)
+
       _other ->
         stream_events(conn, bot_user)
     after
@@ -198,6 +205,19 @@ defmodule RfchatWeb.API.BotController do
 
     if Chat.can_view_channel?(channel, bot_user) do
       payload = Jason.encode!(Bots.serialize_message(message))
+
+      case chunk(conn, "event: #{event_name}\ndata: #{payload}\n\n") do
+        {:ok, conn} -> conn
+        {:error, _reason} -> conn
+      end
+    else
+      conn
+    end
+  end
+
+  defp maybe_chunk_channel_event(conn, bot_user, event_name, channel) do
+    if channel.kind == :thread_public and Chat.can_view_channel?(channel, bot_user) do
+      payload = Jason.encode!(Bots.serialize_thread(channel))
 
       case chunk(conn, "event: #{event_name}\ndata: #{payload}\n\n") do
         {:ok, conn} -> conn

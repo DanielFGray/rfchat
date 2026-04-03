@@ -4,6 +4,7 @@ defmodule RfchatWeb.API.BotControllerTest do
   import Rfchat.ChatFixtures
 
   alias Rfchat.Bots
+  alias Rfchat.Chat
   alias Rfchat.Chat.PermissionBits
 
   test "authenticated admins can create bots", %{conn: conn} do
@@ -96,6 +97,127 @@ defmodule RfchatWeb.API.BotControllerTest do
 
     assert %{"error" => %{"code" => "invalid_message", "details" => %{"metadata" => [_ | _]}}} =
              json_response(conn, 422)
+  end
+
+  test "bot API returns rich message payloads", _context do
+    actor =
+      user_fixture(%{email: "bot-api-rich-actor@example.com", username: "bot_api_rich_actor"})
+
+    role =
+      role_fixture(%{
+        name: "Bot Rich Speaker",
+        permissions: PermissionBits.combine([:view_channel, :send_messages])
+      })
+
+    channel = channel_fixture(%{name: "Rich Payload Channel", slug: unique_slug()})
+    replied_user = user_fixture(%{email: "replied@example.com", username: "replied_user"})
+    reply_target = message_fixture(channel, replied_user, %{body: "seed reply target"})
+    bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
+    {:ok, %{token: bot_token}} = Bots.create_bot_token(bot_user, %{"label" => "api"}, actor)
+
+    post_conn =
+      Phoenix.ConnTest.build_conn()
+      |> put_req_header("authorization", "Bearer #{bot_token}")
+      |> post(~p"/api/v1/channels/#{channel.id}/messages", %{
+        message: %{
+          body: "rich payload hello",
+          reply_to_id: reply_target.id,
+          metadata: %{"entities" => [%{"type" => "mention", "id" => replied_user.id}]}
+        }
+      })
+
+    assert %{
+             "data" => %{
+               "body" => "rich payload hello",
+               "author" => %{"id" => bot_id, "username" => bot_username, "bot" => true},
+               "channel" => %{"id" => channel_id, "kind" => "text"},
+               "reply_to" => %{"id" => reply_to_id, "author" => %{"id" => replied_author_id}},
+               "reply_to_id" => echoed_reply_to_id
+             }
+           } = json_response(post_conn, 201)
+
+    assert bot_id == bot_user.id
+    assert bot_username == bot_user.username
+    assert channel_id == channel.id
+    assert reply_to_id == reply_target.id
+    assert echoed_reply_to_id == reply_target.id
+    assert replied_author_id == replied_user.id
+  end
+
+  test "bot token can create and fetch public threads through API", _context do
+    actor =
+      user_fixture(%{email: "bot-api-thread-actor@example.com", username: "bot_api_thread_actor"})
+
+    role =
+      role_fixture(%{
+        name: "Bot Thread Speaker",
+        permissions:
+          PermissionBits.combine([:view_channel, :send_messages, :create_public_threads])
+      })
+
+    channel = channel_fixture(%{name: "Thread Host", slug: unique_slug()})
+    starter = message_fixture(channel, actor, %{body: "starter message"})
+    bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
+    {:ok, %{token: bot_token}} = Bots.create_bot_token(bot_user, %{"label" => "api"}, actor)
+
+    create_conn =
+      Phoenix.ConnTest.build_conn()
+      |> put_req_header("authorization", "Bearer #{bot_token}")
+      |> post(~p"/api/v1/messages/#{starter.id}/threads", %{
+        thread: %{name: "Bot support thread"}
+      })
+
+    assert %{
+             "data" => %{
+               "id" => thread_id,
+               "name" => "Bot support thread",
+               "kind" => "thread_public",
+               "parent_channel_id" => parent_channel_id,
+               "starter_message_id" => starter_message_id,
+               "starter_message" => %{"id" => starter_payload_id},
+               "parent_channel" => %{"id" => parent_payload_id, "kind" => "text"}
+             }
+           } = json_response(create_conn, 201)
+
+    assert parent_channel_id == channel.id
+    assert starter_message_id == starter.id
+    assert starter_payload_id == starter.id
+    assert parent_payload_id == channel.id
+    assert %{} = Chat.get_thread_for_starter_message(starter.id)
+
+    get_conn =
+      Phoenix.ConnTest.build_conn()
+      |> put_req_header("authorization", "Bearer #{bot_token}")
+      |> get(~p"/api/v1/messages/#{starter.id}/thread")
+
+    assert %{"data" => %{"id" => fetched_thread_id, "starter_message_id" => fetched_starter_id}} =
+             json_response(get_conn, 200)
+
+    assert fetched_thread_id == thread_id
+    assert fetched_starter_id == starter.id
+  end
+
+  test "thread endpoint returns not found for missing starter thread", _context do
+    actor =
+      user_fixture(%{email: "bot-api-thread-miss@example.com", username: "bot_api_thread_miss"})
+
+    role =
+      role_fixture(%{
+        name: "Bot Thread Reader",
+        permissions: PermissionBits.combine([:view_channel, :send_messages])
+      })
+
+    channel = channel_fixture(%{name: "Thread Query Host", slug: unique_slug()})
+    starter = message_fixture(channel, actor, %{body: "no thread yet"})
+    bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
+    {:ok, %{token: bot_token}} = Bots.create_bot_token(bot_user, %{"label" => "api"}, actor)
+
+    conn =
+      Phoenix.ConnTest.build_conn()
+      |> put_req_header("authorization", "Bearer #{bot_token}")
+      |> get(~p"/api/v1/messages/#{starter.id}/thread")
+
+    assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
   end
 
   test "bot management endpoints do not treat human users as bots", %{conn: conn} do

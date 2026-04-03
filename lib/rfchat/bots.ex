@@ -250,6 +250,36 @@ defmodule Rfchat.Bots do
 
   def command_list_messages(_, _), do: {:error, :invalid_params}
 
+  def get_thread_for_starter_message(%BotScope{bot_user: bot_user}, starter_message_id) do
+    case Chat.get_thread_for_starter_message(starter_message_id) do
+      nil ->
+        {:error, :not_found}
+
+      thread ->
+        if Chat.can_view_channel?(thread, bot_user) do
+          {:ok, %{thread: Serializer.serialize_thread(thread)}}
+        else
+          {:error, :forbidden}
+        end
+    end
+  end
+
+  def get_thread_for_starter_message(_, _), do: {:error, :invalid_params}
+
+  def create_public_thread(scope, starter_message_id, attrs \\ %{})
+
+  def create_public_thread(%BotScope{bot_user: bot_user}, starter_message_id, attrs) do
+    with {:ok, starter_message} <- fetch_message(starter_message_id),
+         {:ok, parent_channel} <- fetch_channel(starter_message.channel_id) do
+      case Chat.create_public_thread(parent_channel, starter_message, bot_user, attrs) do
+        {:ok, thread} -> {:ok, %{thread: Serializer.serialize_thread(thread)}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  def create_public_thread(_, _, _), do: {:error, :invalid_params}
+
   def command_timeout_member(%BotScope{} = scope, params),
     do: Commands.timeout_member(scope, params)
 
@@ -266,6 +296,27 @@ defmodule Rfchat.Bots do
   def serialize_bot_user(%User{} = bot_user), do: Serializer.serialize_bot_user(bot_user)
 
   def serialize_message(message), do: Serializer.serialize_message(message)
+
+  def serialize_thread(thread), do: Serializer.serialize_thread(thread)
+
+  defp fetch_channel(channel_id) do
+    case Chat.get_channel(channel_id) do
+      nil -> {:error, :not_found}
+      channel -> {:ok, channel}
+    end
+  end
+
+  defp fetch_message(message_id) do
+    case Ecto.UUID.cast(message_id) do
+      {:ok, _id} ->
+        {:ok, Chat.get_message!(message_id)}
+
+      :error ->
+        {:error, :invalid_params}
+    end
+  rescue
+    Ecto.NoResultsError -> {:error, :not_found}
+  end
 
   defp assign_roles!(%User{} = bot_user, role_ids, %User{} = actor) do
     role_ids

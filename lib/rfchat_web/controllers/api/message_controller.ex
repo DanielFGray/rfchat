@@ -64,4 +64,63 @@ defmodule RfchatWeb.API.MessageController do
         )
     end
   end
+
+  def thread(conn, %{"message_id" => message_id}) do
+    case Bots.get_thread_for_starter_message(conn.assigns.current_bot_scope, message_id) do
+      {:ok, %{thread: thread}} ->
+        json(conn, %{data: thread})
+
+      {:error, :forbidden} ->
+        ErrorHelpers.render_error(conn, :forbidden, "forbidden", "Bot cannot read that thread.")
+
+      {:error, :not_found} ->
+        ErrorHelpers.render_error(conn, :not_found, "not_found", "Thread not found.")
+
+      {:error, _} ->
+        ErrorHelpers.render_error(
+          conn,
+          :unprocessable_entity,
+          "invalid_params",
+          "Invalid thread query."
+        )
+    end
+  end
+
+  def create_thread(conn, %{"message_id" => message_id} = params) do
+    thread_params = Map.get(params, "thread", %{})
+
+    case Bots.create_public_thread(conn.assigns.current_bot_scope, message_id, thread_params) do
+      {:ok, %{thread: thread}} ->
+        conn
+        |> put_status(:created)
+        |> json(%{data: thread})
+
+      {:error, :forbidden} ->
+        ErrorHelpers.render_error(
+          conn,
+          :forbidden,
+          "forbidden",
+          "Bot cannot create a thread from that message."
+        )
+
+      {:error, :not_found} ->
+        ErrorHelpers.render_error(conn, :not_found, "not_found", "Starter message not found.")
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        ErrorHelpers.render_changeset_error(
+          conn,
+          :unprocessable_entity,
+          "invalid_thread",
+          changeset
+        )
+
+      {:error, _} ->
+        ErrorHelpers.render_error(
+          conn,
+          :unprocessable_entity,
+          "invalid_thread",
+          "Invalid thread request."
+        )
+    end
+  end
 end
