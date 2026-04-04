@@ -7,7 +7,7 @@ defmodule Rfchat.Chat.Emojis do
   alias Rfchat.Chat.Emoji
   alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.MediaAssets
-  alias Rfchat.Chat.Role
+  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.User
   alias Rfchat.Repo
 
@@ -124,7 +124,7 @@ defmodule Rfchat.Chat.Emojis do
   end
 
   defp default_role do
-    Repo.get_by(Role, is_default: true)
+    Permissions.default_role()
   end
 
   defp normalize_emoji_attrs(attrs) do

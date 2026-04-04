@@ -12,7 +12,11 @@ defmodule RfchatWeb.GuildComponents.Messages do
   def active_channel_view(assigns) do
     ~H"""
     <.channel_header guild={@guild} />
-    <.message_stream guild={@guild} />
+    <%= if @guild.channel_ready? do %>
+      <.message_stream guild={@guild} />
+    <% else %>
+      <.channel_loading_state guild={@guild} />
+    <% end %>
     <RfchatWeb.GuildComponents.Composer.channel_composer guild={@guild} />
     """
   end
@@ -73,13 +77,39 @@ defmodule RfchatWeb.GuildComponents.Messages do
           <span>{length(@guild.member_presence)}</span>
         </button>
         <span class="hidden rounded-md bg-base-100 px-2 py-1 font-medium sm:inline-flex">
-          {@guild.message_count} messages
+          <%= if @guild.channel_ready? do %>
+            {@guild.message_count} messages
+          <% else %>
+            Loading...
+          <% end %>
         </span>
         <span class="hidden items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-emerald-300 sm:inline-flex">
           <span class="size-2 rounded-full bg-emerald-400" /> online
         </span>
       </div>
     </header>
+    """
+  end
+
+  attr :guild, :map, required: true
+
+  def channel_loading_state(assigns) do
+    ~H"""
+    <div class="flex-1 overflow-y-auto px-4 py-5">
+      <div class="mx-auto max-w-3xl space-y-4">
+        <div class="h-4 w-32 rounded bg-base-100/80 animate-pulse" />
+        <div :for={_ <- 1..5} class="rounded-xl border border-base-300 bg-base-100 px-4 py-4">
+          <div class="flex gap-3">
+            <div class="size-10 rounded-full bg-base-300 animate-pulse" />
+            <div class="flex-1 space-y-2">
+              <div class="h-3 w-28 rounded bg-base-300 animate-pulse" />
+              <div class="h-3 w-3/4 rounded bg-base-300 animate-pulse" />
+              <div class="h-3 w-1/2 rounded bg-base-300 animate-pulse" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
     """
   end
 

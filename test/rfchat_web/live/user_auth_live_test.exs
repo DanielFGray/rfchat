@@ -12,38 +12,44 @@ defmodule RfchatWeb.UserAuthLiveTest do
     :ok
   end
 
-  test "registration flow creates account and redirects to login", %{conn: conn} do
+  test "registration flow creates account and signs the user in", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/register")
 
-    view
-    |> form("#registration-form", %{
-      user: %{
-        email: "signup@example.com",
-        username: "signup_user",
-        display_name: "Signup User",
-        password: "supersecurepass"
-      }
-    })
-    |> render_submit()
+    registration_form =
+      form(view, "#registration-form", %{
+        user: %{
+          email: "signup@example.com",
+          username: "signup_user",
+          display_name: "Signup User",
+          password: "supersecurepass"
+        }
+      })
 
-    assert_redirect(view, ~p"/login")
+    render_submit(registration_form)
+
+    conn = follow_trigger_action(registration_form, conn)
+
+    assert redirected_to(conn) == ~p"/"
   end
 
-  test "first registration announces server owner status", %{conn: conn} do
+  test "first registration signs in the server owner", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/register")
 
-    view
-    |> form("#registration-form", %{
-      user: %{
-        email: "owner-signup@example.com",
-        username: "owner_signup",
-        display_name: "Owner Signup",
-        password: "supersecurepass"
-      }
-    })
-    |> render_submit()
+    registration_form =
+      form(view, "#registration-form", %{
+        user: %{
+          email: "owner-signup@example.com",
+          username: "owner_signup",
+          display_name: "Owner Signup",
+          password: "supersecurepass"
+        }
+      })
 
-    assert_redirect(view, ~p"/login")
+    render_submit(registration_form)
+
+    conn = follow_trigger_action(registration_form, conn)
+
+    assert redirected_to(conn) == ~p"/"
 
     owner =
       Rfchat.Accounts.get_user_by_email("owner-signup@example.com")

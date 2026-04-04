@@ -3,6 +3,8 @@ defmodule Rfchat.Chat.ServerConfig do
 
   import Ecto.Query, warn: false
 
+  @cache_key {__MODULE__, :server_settings}
+
   alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.MediaAssets
   alias Rfchat.Chat.ServerSettings
@@ -10,12 +12,14 @@ defmodule Rfchat.Chat.ServerConfig do
   alias Rfchat.Repo
 
   def get_server_settings do
-    ServerSettings
-    |> preload([:icon_asset])
-    |> Repo.one()
-    |> case do
-      nil -> %ServerSettings{name: default_server_name(), singleton: true}
-      settings -> settings
+    case :persistent_term.get(@cache_key, :missing) do
+      :missing ->
+        settings = load_server_settings()
+        :persistent_term.put(@cache_key, settings)
+        settings
+
+      settings ->
+        settings
     end
   end
 
@@ -58,9 +62,15 @@ defmodule Rfchat.Chat.ServerConfig do
       end
     end)
     |> case do
-      {:ok, settings} -> {:ok, settings}
-      {:error, {:upload, reason}} -> {:error, reason}
-      {:error, changeset} -> {:error, changeset}
+      {:ok, settings} ->
+        :persistent_term.put(@cache_key, settings)
+        {:ok, settings}
+
+      {:error, {:upload, reason}} ->
+        {:error, reason}
+
+      {:error, changeset} ->
+        {:error, changeset}
     end
   end
 
@@ -108,4 +118,14 @@ defmodule Rfchat.Chat.ServerConfig do
   defp blank_to_nil(nil), do: nil
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
+
+  defp load_server_settings do
+    ServerSettings
+    |> preload([:icon_asset])
+    |> Repo.one()
+    |> case do
+      nil -> %ServerSettings{name: default_server_name(), singleton: true}
+      settings -> settings
+    end
+  end
 end

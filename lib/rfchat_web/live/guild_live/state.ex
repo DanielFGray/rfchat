@@ -6,11 +6,78 @@ defmodule RfchatWeb.GuildLive.State do
   import Phoenix.Component, only: [assign: 3, to_form: 2]
 
   import Phoenix.LiveView,
-    only: [push_event: 3, push_patch: 2, stream: 4, stream_insert: 3]
+    only: [connected?: 1, push_event: 3, push_patch: 2, stream: 4, stream_insert: 3]
 
   alias Rfchat.Accounts
   alias Rfchat.Chat
   alias Rfchat.Chat.Message
+
+  @defer_hydration Application.compile_env(:rfchat, :defer_guild_live_hydration, true)
+
+  def queue_initial_hydration(socket) do
+    if connected?(socket) do
+      if @defer_hydration do
+        send(self(), :hydrate_navigation)
+        send(self(), :hydrate_members)
+
+        if socket.assigns.active_channel do
+          queue_channel_hydration(socket)
+        else
+          socket
+        end
+      else
+        socket
+        |> hydrate_navigation()
+        |> hydrate_members()
+        |> maybe_load_active_channel_sync()
+      end
+    else
+      socket
+    end
+  end
+
+  def queue_channel_hydration(socket) do
+    case socket.assigns.active_channel do
+      %{} = channel ->
+        channel_request_token = System.unique_integer([:positive])
+        socket = assign(socket, :channel_request_token, channel_request_token)
+
+        if @defer_hydration do
+          send(self(), {:hydrate_channel, channel.id, channel_request_token})
+          socket
+        else
+          load_channel(socket, channel)
+        end
+
+      nil ->
+        socket
+    end
+  end
+
+  def hydrate_navigation(socket) do
+    current_user = socket.assigns.current_user
+    visible_channels = Chat.list_visible_channels_for_user(current_user)
+    channels = Enum.filter(visible_channels, &visible_text_channel?/1)
+    :ok = Chat.ensure_channel_memberships_for_user(current_user, channels)
+
+    socket
+    |> assign(:channels, channels)
+    |> assign(:channel_sections, Chat.build_channel_tree(visible_channels))
+    |> assign(:navigation_ready?, true)
+    |> sync_active_channel(channels)
+  end
+
+  def hydrate_unread_state(socket) do
+    socket
+    |> refresh_unread_counts()
+    |> refresh_unread_mentions()
+  end
+
+  def hydrate_members(socket) do
+    socket
+    |> assign(:member_presence, Accounts.list_members_with_presence())
+    |> assign(:members_ready?, true)
+  end
 
   def assign_message_form(socket) do
     form =
@@ -30,14 +97,30 @@ defmodule RfchatWeb.GuildLive.State do
     assign(socket, :thread_message_form, form)
   end
 
-  def load_channel(socket, channel) do
+  def load_channel(socket, channel, opts \\ []) do
     messages = Chat.list_messages(channel.id)
     last_message = List.last(messages)
     Chat.mark_channel_read(socket.assigns.current_user, channel, last_message)
     thread_summaries = Chat.thread_summaries_for_channel(channel.id)
 
-    refreshed_channels = Chat.list_channels_for_user(socket.assigns.current_user)
+    visible_channels = Keyword.get(opts, :visible_channels)
+    refreshed_channels = Keyword.get(opts, :channels)
+
+    visible_channels =
+      visible_channels || Chat.list_visible_channels_for_user(socket.assigns.current_user)
+
+    refreshed_channels =
+      refreshed_channels || Enum.filter(visible_channels, &visible_text_channel?/1)
+
     refreshed_active_channel = Enum.find(refreshed_channels, &(&1.id == channel.id)) || channel
+
+    unread_counts =
+      Keyword.get(opts, :unread_counts) ||
+        Chat.unread_counts_for_user(socket.assigns.current_user, refreshed_channels)
+
+    unread_mentions =
+      Keyword.get(opts, :unread_mentions) ||
+        Chat.unread_mentions_for_user(socket.assigns.current_user, refreshed_channels)
 
     active_thread =
       case socket.assigns.active_thread do
@@ -51,12 +134,14 @@ defmodule RfchatWeb.GuildLive.State do
 
     socket
     |> assign(:channels, refreshed_channels)
-    |> assign(:channel_sections, Chat.list_channel_tree_for_user(socket.assigns.current_user))
+    |> assign(:channel_sections, Chat.build_channel_tree(visible_channels))
+    |> assign(:navigation_ready?, true)
     |> assign(:mobile_sidebar_open?, false)
     |> assign(:mobile_members_open?, false)
     |> close_message_ui()
     |> assign(:active_channel, refreshed_active_channel)
     |> assign(:thread_summaries, thread_summaries)
+    |> assign(:channel_ready?, true)
     |> assign(
       :can_send_messages?,
       Chat.can_send_messages?(refreshed_active_channel, socket.assigns.current_user)
@@ -79,14 +164,8 @@ defmodule RfchatWeb.GuildLive.State do
     )
     |> assign(:message_count, Chat.message_count(refreshed_active_channel.id))
     |> assign(:messages_empty?, messages == [])
-    |> assign(
-      :unread_counts,
-      Chat.unread_counts_for_user(socket.assigns.current_user, refreshed_channels)
-    )
-    |> assign(
-      :unread_mentions,
-      Chat.unread_mentions_for_user(socket.assigns.current_user, refreshed_channels)
-    )
+    |> assign(:unread_counts, unread_counts)
+    |> assign(:unread_mentions, unread_mentions)
     |> stream(:messages, messages, reset: true)
     |> maybe_restore_thread(active_thread)
   end
@@ -100,7 +179,8 @@ defmodule RfchatWeb.GuildLive.State do
 
   def refresh_channels(socket) do
     current_user = socket.assigns.current_user
-    channels = Chat.list_channels_for_user(current_user)
+    visible_channels = Chat.list_visible_channels_for_user(current_user)
+    channels = Enum.filter(visible_channels, &visible_text_channel?/1)
 
     active_channel =
       case socket.assigns.active_channel do
@@ -110,7 +190,8 @@ defmodule RfchatWeb.GuildLive.State do
 
     socket
     |> assign(:channels, channels)
-    |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
+    |> assign(:channel_sections, Chat.build_channel_tree(visible_channels))
+    |> assign(:navigation_ready?, true)
     |> assign(:active_channel, active_channel)
     |> close_message_ui()
     |> assign(
@@ -154,9 +235,10 @@ defmodule RfchatWeb.GuildLive.State do
       not Chat.can_view_channel?(active_channel, socket.assigns.current_user) ->
         socket
 
-      true ->
-        Chat.mark_channel_read(socket.assigns.current_user, active_channel, message)
+      not socket.assigns.channel_ready? ->
+        socket
 
+      true ->
         socket
         |> assign(:messages_empty?, false)
         |> assign(:message_count, socket.assigns.message_count + 1)
@@ -174,8 +256,10 @@ defmodule RfchatWeb.GuildLive.State do
       active_thread.id != message.channel_id ->
         socket
 
+      not socket.assigns.channel_ready? ->
+        socket
+
       true ->
-        Chat.mark_channel_read(socket.assigns.current_user, active_thread, message)
         starter_message_id = active_thread.starter_message_id
 
         socket
@@ -240,7 +324,9 @@ defmodule RfchatWeb.GuildLive.State do
   end
 
   def refresh_member_presence(socket) do
-    assign(socket, :member_presence, Accounts.list_members_with_presence())
+    socket
+    |> assign(:member_presence, Accounts.list_members_with_presence())
+    |> assign(:members_ready?, true)
   end
 
   def close_message_ui(socket) do
@@ -279,7 +365,7 @@ defmodule RfchatWeb.GuildLive.State do
       is_nil(channel) ->
         socket
 
-      not Chat.message_mentions_user?(message.id, current_user) ->
+      not message_mentions_current_user?(message, current_user) ->
         socket
 
       not Chat.mention_notifications_enabled?(current_user, channel) ->
@@ -374,5 +460,68 @@ defmodule RfchatWeb.GuildLive.State do
 
   def clear_reply_to_message(socket), do: assign(socket, :reply_to_message, nil)
 
+  def hydrate_channel_stale?(socket, channel_id, channel_request_token) do
+    socket.assigns.channel_request_token != channel_request_token or
+      is_nil(socket.assigns.active_channel) or socket.assigns.active_channel.id != channel_id
+  end
+
+  def set_channel_loading(socket, channel) do
+    socket
+    |> close_message_ui()
+    |> assign(:active_channel, channel)
+    |> assign(:channel_ready?, false)
+    |> assign(:can_send_messages?, false)
+    |> assign(:can_add_reactions?, false)
+    |> assign(:can_manage_messages?, false)
+    |> assign(:can_mention_everyone?, false)
+    |> assign(:can_create_public_threads?, false)
+    |> assign(:reply_to_message, nil)
+    |> assign(:editing_message_id, nil)
+    |> assign(:editing_form, nil)
+    |> assign(:message_count, 0)
+    |> assign(:messages_empty?, true)
+    |> assign(:thread_summaries, %{})
+    |> close_thread()
+    |> stream(:messages, [], reset: true)
+  end
+
+  defp sync_active_channel(socket, channels) do
+    case socket.assigns.active_channel do
+      nil ->
+        socket
+
+      active_channel ->
+        assign(
+          socket,
+          :active_channel,
+          Enum.find(channels, &(&1.id == active_channel.id)) || active_channel
+        )
+    end
+  end
+
+  defp maybe_load_active_channel_sync(socket) do
+    case socket.assigns.active_channel do
+      %{} = channel -> load_channel(socket, channel)
+      nil -> socket
+    end
+  end
+
   defp channel_path(channel), do: ~p"/?channel=#{channel.slug}"
+
+  defp visible_text_channel?(channel) do
+    channel.kind not in [:category, :thread_public, :thread_private, :thread_announcement]
+  end
+
+  defp message_mentions_current_user?(message, current_user) do
+    metadata = message.metadata || %{}
+    entities = Map.get(metadata, "entities", [])
+    mentions_everyone? = String.contains?(message.body || "", ["@everyone", "@here"])
+    member_role_ids = MapSet.new(Enum.map(current_user.member_roles || [], & &1.role_id))
+
+    Enum.any?(entities, fn entity ->
+      Map.get(entity, "type") == "mention" and
+        (Map.get(entity, "id") == current_user.id or
+           MapSet.member?(member_role_ids, Map.get(entity, "id")))
+    end) or mentions_everyone?
+  end
 end

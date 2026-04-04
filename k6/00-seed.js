@@ -24,8 +24,10 @@ export const options = {
   },
 };
 
-const USER_COUNT = Number(__ENV.SEED_USERS || 50);
+const USER_COUNT = Number(__ENV.SEED_USERS || 300);
 const MESSAGES_PER_CHANNEL = Number(__ENV.SEED_MESSAGES || 30);
+// Create users in batches to avoid HTTP request timeouts
+const BATCH_SIZE = Number(__ENV.SEED_BATCH || 50);
 
 export default function () {
   console.log("=== k6 seed: starting ===");
@@ -41,21 +43,32 @@ export default function () {
 
   sleep(0.5);
 
-  // 2. Create test users in bulk
-  console.log(`Creating ${USER_COUNT} test users...`);
-  const usersResult = testCommand("bulk_create_users", {
-    count: USER_COUNT,
-    prefix: "test_k6",
-    password: TEST_PASSWORD,
-  });
+  // 2. Create test users in bulk (batched to avoid request timeouts)
+  console.log(`Creating ${USER_COUNT} test users in batches of ${BATCH_SIZE}...`);
+  const users = [];
+  let batchStart = 1;
 
-  if (!usersResult) {
-    console.error("Failed to create test users — aborting seed");
-    return;
+  while (batchStart <= USER_COUNT) {
+    const batchCount = Math.min(BATCH_SIZE, USER_COUNT - batchStart + 1);
+    const usersResult = testCommand("bulk_create_users", {
+      count: batchCount,
+      offset: batchStart - 1,
+      prefix: "test_k6",
+      password: TEST_PASSWORD,
+    });
+
+    if (!usersResult) {
+      console.error(`Failed to create users batch starting at ${batchStart} — aborting seed`);
+      return;
+    }
+
+    users.push(...usersResult.users);
+    console.log(`  Batch ${batchStart}–${batchStart + batchCount - 1}: ${usersResult.count} users`);
+    batchStart += BATCH_SIZE;
+    sleep(0.2);
   }
 
-  console.log(`  Created ${usersResult.count} users`);
-  const users = usersResult.users;
+  console.log(`  Total: ${users.length} users created`);
 
   sleep(0.5);
 

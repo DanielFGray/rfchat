@@ -5,7 +5,7 @@ Rfchat is a self-hostable chat app, with each deployment representing exactly on
 This repo currently contains the Phoenix bootstrap plus local infrastructure for:
 
 - PostgreSQL for durable app state
-- Redis for future ephemeral state (presence, typing, rate limits, fanout helpers)
+- Valkey for ephemeral state (presence, typing, rate limits, fanout helpers)
 - Phoenix/Bandit as the core realtime web app
 - a first single-guild chat domain with channels, users, and messages
 - a minimal LiveView guild shell wired to real database records
@@ -53,7 +53,7 @@ Phoenix reads these env vars in dev/test with sensible defaults:
 - `REDIS_URL`
 - `RFCHAT_GUILD_NAME`
 
-If your machine already has Postgres or Redis running, change `DB_PORT` and/or `REDIS_PORT` in `.env`, and keep `REDIS_URL` aligned with the Redis host port you choose.
+If your machine already has Postgres or Valkey/Redis running, change `DB_PORT` and/or `REDIS_PORT` in `.env`, and keep `REDIS_URL` aligned with the Valkey/Redis host port you choose.
 
 The sample `.env` is shell-safe, so commands like `set -a; source .env; set +a` work as expected.
 
@@ -70,7 +70,7 @@ Current bootstrap assumption:
 - one deployed app instance = one guild
 - Phoenix handles HTTP + WebSocket realtime traffic
 - Postgres is source of truth
-- Redis is reserved for ephemeral coordination, presence, and rate limiting
+- Valkey is used for ephemeral coordination, presence, and rate limiting
 - keep it as a modular monolith first; split gateway/workers later only if load proves it necessary
 
 ## Useful commands

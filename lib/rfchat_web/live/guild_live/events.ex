@@ -1,6 +1,7 @@
 defmodule RfchatWeb.GuildLive.Events do
   @moduledoc false
 
+  alias RfchatWeb.GuildLive.Events.Hydration
   alias RfchatWeb.GuildLive.Events.Messages
   alias RfchatWeb.GuildLive.Events.Mobile
   alias RfchatWeb.GuildLive.Events.Navigation
@@ -13,6 +14,13 @@ defmodule RfchatWeb.GuildLive.Events do
   def handle_info({type, _payload} = message, socket)
       when type in [:message_created, :message_updated, :message_deleted] do
     Messages.handle_info(message, socket)
+  end
+
+  def handle_info(message, socket)
+      when message in [:hydrate_navigation, :hydrate_members, :hydrate_unread_state] or
+             (is_tuple(message) and tuple_size(message) == 3 and
+                elem(message, 0) == :hydrate_channel) do
+    Hydration.handle_info(message, socket)
   end
 
   def handle_info(message, socket)

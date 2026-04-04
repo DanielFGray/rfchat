@@ -42,33 +42,15 @@ defmodule Rfchat.Chat.Notifications do
 
   def unread_counts_for_user(%User{} = user, channels) when is_list(channels) do
     channel_ids = Enum.map(channels, & &1.id)
-
-    memberships =
-      ChannelMembership
-      |> where(
-        [membership],
-        membership.user_id == ^user.id and membership.channel_id in ^channel_ids
-      )
-      |> Repo.all()
-      |> Map.new(&{&1.channel_id, &1})
+    counts = unread_counts_by_channel(user.id, channel_ids)
 
     Enum.into(channels, %{}, fn channel ->
-      membership = Map.get(memberships, channel.id)
-      {channel.id, unread_count_for_channel(channel.id, user.id, membership)}
+      {channel.id, Map.get(counts, channel.id, 0)}
     end)
   end
 
   def unread_mentions_for_user(%User{} = user, channels) when is_list(channels) do
     channel_ids = Enum.map(channels, & &1.id)
-
-    memberships =
-      ChannelMembership
-      |> where(
-        [membership],
-        membership.user_id == ^user.id and membership.channel_id in ^channel_ids
-      )
-      |> Repo.all()
-      |> Map.new(&{&1.channel_id, &1})
 
     role_ids =
       Role
@@ -77,9 +59,10 @@ defmodule Rfchat.Chat.Notifications do
       |> select([role, _member_role], role.id)
       |> Repo.all()
 
+    mentions = unread_mentions_by_channel(user.id, role_ids, channel_ids)
+
     Enum.into(channels, %{}, fn channel ->
-      membership = Map.get(memberships, channel.id)
-      {channel.id, unread_mentions_for_channel(channel.id, user.id, role_ids, membership)}
+      {channel.id, Map.get(mentions, channel.id, 0)}
     end)
   end
 
@@ -132,17 +115,26 @@ defmodule Rfchat.Chat.Notifications do
     now = DateTime.utc_now()
     last_read_at = message && DateTime.add(message.inserted_at, 1, :microsecond)
 
-    membership =
-      Repo.get_by(ChannelMembership, user_id: user.id, channel_id: channel.id) ||
-        %ChannelMembership{user_id: user.id, channel_id: channel.id}
-
-    membership
+    %ChannelMembership{}
     |> ChannelMembership.changeset(%{
-      joined_at: membership.joined_at || now,
+      channel_id: channel.id,
+      user_id: user.id,
+      joined_at: now,
       last_read_message_id: message && message.id,
       last_read_at: last_read_at
     })
-    |> Repo.insert_or_update!()
+    |> Repo.insert!(
+      on_conflict: [
+        set: [
+          last_read_message_id: message && message.id,
+          last_read_at: last_read_at,
+          updated_at: now
+        ]
+      ],
+      conflict_target: [:channel_id, :user_id]
+    )
+
+    :ok
   end
 
   defp latest_message_for_channel(channel_id) do
@@ -153,76 +145,85 @@ defmodule Rfchat.Chat.Notifications do
     |> Repo.one()
   end
 
-  defp unread_count_for_channel(channel_id, user_id, membership) do
-    Message
-    |> where([message], message.channel_id == ^channel_id)
-    |> where([message], is_nil(message.deleted_at))
-    |> where([message], message.author_id != ^user_id)
-    |> apply_unread_boundary(membership)
-    |> Repo.aggregate(:count)
+  defp unread_counts_by_channel(_user_id, []), do: %{}
+
+  defp unread_counts_by_channel(user_id, channel_ids) do
+    channel_ids
+    |> unread_messages_query(user_id)
+    |> group_by([message], message.channel_id)
+    |> select([message], {message.channel_id, count(message.id)})
+    |> Repo.all()
+    |> Map.new()
   end
 
-  defp unread_mentions_for_channel(channel_id, user_id, role_ids, membership) do
-    direct_query =
-      from(message in Message,
-        join: mention in MessageUserMention,
-        on: mention.message_id == message.id,
-        where: mention.mentioned_user_id == ^user_id,
-        where: message.channel_id == ^channel_id,
-        where: is_nil(message.deleted_at),
-        where: message.author_id != ^user_id,
-        select: message.id
-      )
-      |> apply_unread_boundary(membership)
+  defp unread_mentions_by_channel(_user_id, _role_ids, []), do: %{}
 
-    role_query =
+  defp unread_mentions_by_channel(user_id, role_ids, channel_ids) do
+    direct_mentions_query =
+      channel_ids
+      |> unread_messages_query(user_id)
+      |> join(:inner, [message, _membership, _last_read_message], mention in MessageUserMention,
+        on: mention.message_id == message.id and mention.mentioned_user_id == ^user_id
+      )
+      |> select([message, _membership, _last_read_message, _mention], {
+        message.channel_id,
+        message.id
+      })
+
+    role_mentions_query =
       if role_ids == [] do
         nil
       else
-        from(message in Message,
-          join: mention in MessageRoleMention,
-          on: mention.message_id == message.id,
-          where: mention.mentioned_role_id in ^role_ids,
-          where: message.channel_id == ^channel_id,
-          where: is_nil(message.deleted_at),
-          where: message.author_id != ^user_id,
-          select: message.id
+        channel_ids
+        |> unread_messages_query(user_id)
+        |> join(:inner, [message, _membership, _last_read_message], mention in MessageRoleMention,
+          on: mention.message_id == message.id and mention.mentioned_role_id in ^role_ids
         )
-        |> apply_unread_boundary(membership)
+        |> select([message, _membership, _last_read_message, _mention], {
+          message.channel_id,
+          message.id
+        })
       end
 
-    [direct_query, role_query]
+    [direct_mentions_query, role_mentions_query]
     |> Enum.reject(&is_nil/1)
-    |> Enum.reduce(MapSet.new(), fn query, acc ->
-      query
-      |> Repo.all()
-      |> MapSet.new()
-      |> MapSet.union(acc)
+    |> Enum.flat_map(&Repo.all/1)
+    |> Enum.group_by(fn {channel_id, _message_id} -> channel_id end, fn {_channel_id, message_id} ->
+      message_id
     end)
-    |> MapSet.size()
+    |> Map.new(fn {channel_id, message_ids} ->
+      {channel_id, message_ids |> MapSet.new() |> MapSet.size()}
+    end)
   end
 
-  defp apply_unread_boundary(query, %{last_read_message_id: last_read_message_id})
-       when not is_nil(last_read_message_id) do
-    case Repo.get(Message, last_read_message_id) do
-      %Message{id: message_id, inserted_at: inserted_at} ->
-        where(
-          query,
-          [message],
-          message.inserted_at > ^inserted_at or
-            (message.inserted_at == ^inserted_at and message.id > ^message_id)
-        )
+  defp unread_messages_query(channel_ids, user_id) do
+    boundary = unread_boundary_dynamic()
 
-      nil ->
-        query
-    end
+    from(message in Message,
+      left_join: membership in ChannelMembership,
+      on: membership.user_id == ^user_id and membership.channel_id == message.channel_id,
+      left_join: last_read_message in Message,
+      on: last_read_message.id == membership.last_read_message_id,
+      where: message.channel_id in ^channel_ids,
+      where: is_nil(message.deleted_at),
+      where: message.author_id != ^user_id,
+      where: ^boundary
+    )
   end
 
-  defp apply_unread_boundary(query, %{last_read_at: %DateTime{} = last_read_at}) do
-    where(query, [message], message.inserted_at > ^last_read_at)
+  defp unread_boundary_dynamic do
+    dynamic(
+      [message, membership, last_read_message],
+      is_nil(membership.id) or
+        (not is_nil(membership.last_read_message_id) and not is_nil(last_read_message.id) and
+           (message.inserted_at > last_read_message.inserted_at or
+              (message.inserted_at == last_read_message.inserted_at and
+                 message.id > last_read_message.id))) or
+        (is_nil(membership.last_read_message_id) and not is_nil(membership.last_read_at) and
+           message.inserted_at > membership.last_read_at) or
+        (is_nil(membership.last_read_message_id) and is_nil(membership.last_read_at))
+    )
   end
-
-  defp apply_unread_boundary(query, _membership), do: query
 
   defp effective_channel_notification_level(%User{} = user, %Channel{} = channel) do
     override =

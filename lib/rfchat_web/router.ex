@@ -42,6 +42,7 @@ defmodule RfchatWeb.Router do
       pipe_through(:test_support)
 
       get("/command", TestSupportController, :command)
+      post("/command", TestSupportController, :command)
     end
   end
 
@@ -54,6 +55,7 @@ defmodule RfchatWeb.Router do
   scope "/", RfchatWeb do
     pipe_through([:browser, :redirect_if_user_is_authenticated])
 
+    post("/register", UserRegistrationController, :create)
     post("/login", UserSessionController, :create)
 
     live_session :redirect_if_user_is_authenticated,
@@ -92,6 +94,8 @@ defmodule RfchatWeb.Router do
     get("/bots/:id/tokens", BotController, :list_tokens)
     post("/bots/:id/tokens", BotController, :create_token)
     delete("/bot_tokens/:id", BotController, :revoke_token)
+
+    post("/user/channels/:channel_id/messages", UserMessageController, :create)
   end
 
   scope "/api/v1", RfchatWeb.API, as: :bot_api do

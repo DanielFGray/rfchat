@@ -14,12 +14,9 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
       |> State.maybe_insert_message(message)
       |> State.maybe_insert_thread_message(message)
       |> State.maybe_push_mention_notification(message)
+      |> update_unread_state(message)
 
-    {:noreply,
-     socket
-     |> State.refresh_unread_counts()
-     |> State.refresh_unread_mentions()
-     |> State.refresh_member_presence()}
+    {:noreply, socket}
   end
 
   def handle_info({:message_updated, message}, socket) do
@@ -152,7 +149,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
          |> put_flash(:error, "Choose a channel before sending a message.")
          |> State.assign_message_form()}
 
-      not Chat.can_send_messages?(socket.assigns.active_channel, socket.assigns.current_user) ->
+      not socket.assigns.can_send_messages? ->
         {:noreply,
          socket
          |> put_flash(:error, "You do not have permission to send messages in that channel.")
@@ -165,22 +162,13 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
                State.maybe_put_reply(socket, message_params)
              ) do
           {:ok, message} ->
-            Chat.mark_channel_read(
-              socket.assigns.current_user,
-              socket.assigns.active_channel,
-              message
-            )
-
             socket = push_event(socket, "composer:clear", %{target: "channel"})
 
             {:noreply,
              socket
              |> State.assign_message_form()
              |> State.clear_reply_to_message()
-             |> State.maybe_insert_message(message)
-             |> State.refresh_unread_counts()
-             |> State.refresh_unread_mentions()
-             |> State.refresh_member_presence()}
+             |> State.maybe_insert_message(message)}
 
           {:error, :forbidden} ->
             {:noreply,
@@ -301,5 +289,65 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "Could not delete that message.")}
     end
+  end
+
+  defp update_unread_state(socket, message) do
+    socket
+    |> maybe_increment_unread_count(message)
+    |> maybe_increment_unread_mentions(message)
+  end
+
+  defp maybe_increment_unread_count(socket, message) do
+    if increment_unread_count?(socket, message) do
+      assign(
+        socket,
+        :unread_counts,
+        Map.update(socket.assigns.unread_counts || %{}, message.channel_id, 1, &(&1 + 1))
+      )
+    else
+      socket
+    end
+  end
+
+  defp maybe_increment_unread_mentions(socket, message) do
+    if increment_unread_mentions?(socket, message) do
+      assign(
+        socket,
+        :unread_mentions,
+        Map.update(socket.assigns.unread_mentions || %{}, message.channel_id, 1, &(&1 + 1))
+      )
+    else
+      socket
+    end
+  end
+
+  defp increment_unread_count?(socket, message) do
+    current_user = socket.assigns.current_user
+    active_channel = socket.assigns.active_channel
+
+    message.author_id != current_user.id and
+      (is_nil(active_channel) or active_channel.id != message.channel_id)
+  end
+
+  defp increment_unread_mentions?(socket, message) do
+    current_user = socket.assigns.current_user
+    active_channel = socket.assigns.active_channel
+
+    message.author_id != current_user.id and
+      (is_nil(active_channel) or active_channel.id != message.channel_id) and
+      mentioned_current_user?(message, current_user)
+  end
+
+  defp mentioned_current_user?(message, current_user) do
+    metadata = message.metadata || %{}
+    entities = Map.get(metadata, "entities", [])
+    mentions_everyone? = String.contains?(message.body || "", ["@everyone", "@here"])
+    member_role_ids = MapSet.new(Enum.map(current_user.member_roles || [], & &1.role_id))
+
+    Enum.any?(entities, fn entity ->
+      Map.get(entity, "type") == "mention" and
+        (Map.get(entity, "id") == current_user.id or
+           MapSet.member?(member_role_ids, Map.get(entity, "id")))
+    end) or mentions_everyone?
   end
 end

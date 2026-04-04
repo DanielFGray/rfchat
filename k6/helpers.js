@@ -4,6 +4,18 @@ import { check } from "k6";
 export const BASE_URL = __ENV.BASE_URL || "http://localhost:4000";
 export const TEST_PASSWORD = __ENV.TEST_PASSWORD || "LoadTest12345!";
 
+function flatCookies(jar) {
+  const cookies = jar.cookiesForURL(BASE_URL);
+  const flat = {};
+
+  for (const [name, values] of Object.entries(cookies)) {
+    if (!values || values.length === 0) continue;
+    flat[name] = values[0];
+  }
+
+  return flat;
+}
+
 // ---------------------------------------------------------------------------
 // Test support API (dev/test only, requires ENABLE_TEST_SUPPORT_COMMANDS=1)
 // ---------------------------------------------------------------------------
@@ -92,10 +104,13 @@ function extractCsrfToken(html) {
 
 // Log in via the standard Phoenix form POST and return the session cookie jar.
 // This is the same flow a browser would take: GET /login -> POST /login.
-export function loginUser(email, password) {
+export function loginUser(email, password, options = {}) {
+  const reqOptions = { redirects: 0 };
+  if (options.jar) reqOptions.jar = options.jar;
+
   // 1. GET the login page to establish session + CSRF token
   const loginPage = http.get(`${BASE_URL}/login`, {
-    redirects: 0,
+    ...reqOptions,
     tags: { name: "GET /login" },
   });
 
@@ -119,7 +134,7 @@ export function loginUser(email, password) {
       _csrf_token: csrfToken,
     },
     {
-      redirects: 0,
+      ...reqOptions,
       tags: { name: "POST /login" },
     },
   );
@@ -133,16 +148,47 @@ export function loginUser(email, password) {
     return null;
   }
 
+  if (options.returnCookies && reqOptions.jar) {
+    return flatCookies(reqOptions.jar);
+  }
+
   return true;
 }
 
-// Get the CSRF token for an authenticated page (useful after login)
-export function getCsrfToken(path = "/") {
-  const res = http.get(`${BASE_URL}${path}`, {
-    tags: { name: `GET ${path}` },
-  });
+// Get the CSRF token for an authenticated page (useful after login).
+// Pass { jar } to use a specific cookie jar (required for session auth).
+export function getCsrfToken(path = "/", options = {}) {
+  const reqOptions = { tags: { name: `GET ${path}` }, redirects: 0 };
+  if (options.jar) reqOptions.jar = options.jar;
+
+  const res = http.get(`${BASE_URL}${path}`, reqOptions);
 
   return extractCsrfToken(res.body);
+}
+
+// ---------------------------------------------------------------------------
+// Session-auth user message API
+// ---------------------------------------------------------------------------
+
+// POST /api/v1/user/channels/:id/messages with cookie-jar session auth.
+// Requires the VU's jar to already hold a valid session cookie.
+export function userSendMessage(jar, csrfToken, channelId, body) {
+  const res = http.post(
+    `${BASE_URL}/api/v1/user/channels/${channelId}/messages`,
+    JSON.stringify({ message: { body } }),
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "x-csrf-token": csrfToken,
+      },
+      redirects: 0,
+      jar,
+      tags: { name: "POST /api/v1/user/channels/:id/messages" },
+    },
+  );
+
+  check(res, { "user send message ok": (r) => r.status === 201 });
+  return res;
 }
 
 // ---------------------------------------------------------------------------

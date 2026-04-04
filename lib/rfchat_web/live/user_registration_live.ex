@@ -17,7 +17,8 @@ defmodule RfchatWeb.UserRegistrationLive do
      |> assign(:page_title, "Register")
      |> assign(:server_settings, server_settings)
      |> assign(:current_server, server_settings)
-     |> assign(:form, form)}
+     |> assign(:form, form)
+     |> assign(:trigger_submit, false)}
   end
 
   @impl true
@@ -33,17 +34,20 @@ defmodule RfchatWeb.UserRegistrationLive do
   def handle_event("save", %{"user" => user_params}, socket) do
     case Accounts.register_user(user_params) do
       {:ok, user} ->
-        message =
-          if user.membership && user.membership.is_owner do
-            "Account created. You are a server owner. Log in to continue."
-          else
-            "Account created. Log in to continue."
-          end
-
         {:noreply,
          socket
-         |> put_flash(:info, message)
-         |> push_navigate(to: ~p"/login")}
+         |> assign(:trigger_submit, true)
+         |> assign(
+           :form,
+           to_form(
+             %{
+               "email" => user.email,
+               "password" => Map.get(user_params, "password", ""),
+               "remember_me" => "true"
+             },
+             as: :user
+           )
+         )}
 
       {:error, %Changeset{} = changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}
@@ -67,7 +71,15 @@ defmodule RfchatWeb.UserRegistrationLive do
           </section>
 
           <section class="rounded-[2rem] border border-base-content/10 bg-base-100 p-6 shadow-xl lg:p-8">
-            <.form for={@form} id="registration-form" phx-change="validate" phx-submit="save">
+            <.form
+              for={@form}
+              id="registration-form"
+              action={~p"/register"}
+              method="post"
+              phx-change="validate"
+              phx-submit="save"
+              phx-trigger-action={@trigger_submit}
+            >
               <div class="space-y-5">
                 <div>
                   <p class="text-2xl font-semibold text-base-content">Create account</p>

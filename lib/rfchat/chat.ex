@@ -100,7 +100,9 @@ defmodule Rfchat.Chat do
   defdelegate delete_custom_emoji(emoji), to: Emojis
 
   defdelegate list_channels_for_user(user), to: Channels
+  defdelegate list_visible_channels_for_user(user), to: Channels
   defdelegate list_channel_tree_for_user(user), to: Channels
+  defdelegate build_channel_tree(channels), to: Channels
   defdelegate ensure_channel_memberships_for_user(user, channels), to: Channels
   defdelegate get_channel!(id), to: Channels
   defdelegate get_channel(id), to: Channels
@@ -155,8 +157,9 @@ defmodule Rfchat.Chat do
     |> Ecto.Changeset.cast(attrs, [:reason, :duration_minutes, :action])
   end
 
-  def create_message(channel, author, attrs) do
-    channel = Repo.preload(channel, [:permission_overwrites])
+  def create_message(channel, author, attrs, opts \\ []) do
+    channel = maybe_preload_message_channel(channel)
+    author = maybe_preload_message_author(author)
 
     with {:ok, attrs} <- normalize_message_attrs(attrs),
          :ok <- authorize_message_create(channel, author, attrs) do
@@ -165,9 +168,20 @@ defmodule Rfchat.Chat do
                %Message{channel_id: channel.id, author_id: author.id}
                |> Message.changeset(attrs)
                |> Repo.insert() do
-          :ok = sync_message_mentions(message, attrs)
+          if message_mentions?(attrs) do
+            :ok = sync_message_mentions(message, attrs)
+          end
 
-          Repo.preload(message, [:author, :channel, reactions: [emoji: :asset], reply_to: :author])
+          if Keyword.get(opts, :preload, true) do
+            Repo.preload(message, [
+              :author,
+              :channel,
+              reactions: [emoji: :asset],
+              reply_to: :author
+            ])
+          else
+            message
+          end
         else
           {:error, changeset} -> Repo.rollback(changeset)
         end
@@ -756,7 +770,38 @@ defmodule Rfchat.Chat do
   defp normalize_optional_binary_id(""), do: nil
   defp normalize_optional_binary_id(value), do: value
 
+  defp message_mentions?(attrs) do
+    metadata_mentions? =
+      attrs
+      |> Map.get("metadata", %{})
+      |> Map.get("entities", [])
+      |> Enum.any?(&(normalize_entity_value(&1, "type") == "mention"))
+
+    body_mentions? =
+      attrs
+      |> Map.get("body", "")
+      |> String.contains?(["<@", "@everyone", "@here"])
+
+    metadata_mentions? or body_mentions?
+  end
+
   defp broadcast(message) do
     Phoenix.PubSub.broadcast_from(Rfchat.PubSub, self(), @channel_events_topic, message)
+  end
+
+  defp maybe_preload_message_channel(%Channel{} = channel) do
+    if Ecto.assoc_loaded?(channel.permission_overwrites) do
+      channel
+    else
+      Repo.preload(channel, [:permission_overwrites])
+    end
+  end
+
+  defp maybe_preload_message_author(%User{} = author) do
+    if Ecto.assoc_loaded?(author.membership) and Ecto.assoc_loaded?(author.member_roles) do
+      author
+    else
+      Repo.preload(author, [:membership, member_roles: :role])
+    end
   end
 end

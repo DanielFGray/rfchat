@@ -80,13 +80,20 @@ defmodule RfchatWeb.GuildComponents.Shell do
           </div>
         </div>
 
-        <nav class="space-y-3" aria-label="Guild channels">
-          <RfchatWeb.GuildComponents.Navigation.channel_nav_section
-            :for={section <- @guild.channel_sections}
-            section={section}
-            guild={@guild}
-          />
-        </nav>
+        <%= if @guild.navigation_ready? do %>
+          <nav class="space-y-3" aria-label="Guild channels">
+            <RfchatWeb.GuildComponents.Navigation.channel_nav_section
+              :for={section <- @guild.channel_sections}
+              section={section}
+              guild={@guild}
+            />
+          </nav>
+        <% else %>
+          <div class="space-y-2 px-2 py-1 text-xs text-base-content/55">
+            <p class="font-semibold uppercase tracking-[0.16em]">Loading channels...</p>
+            <div :for={_ <- 1..4} class="h-8 rounded-md bg-base-100/70 animate-pulse" />
+          </div>
+        <% end %>
       </div>
 
       <div class="border-t border-base-300 bg-base-100 px-3 py-2">
@@ -154,10 +161,17 @@ defmodule RfchatWeb.GuildComponents.Shell do
           </button>
         </div>
         <div class="mt-2 flex items-center justify-between text-xs text-base-content/65">
-          <span>{length(@guild.member_presence)} visible</span>
-          <span class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/80">
-            {Enum.count(@guild.member_presence, &(&1.status == :online))} online
-          </span>
+          <%= if @guild.members_ready? do %>
+            <span>{length(@guild.member_presence)} visible</span>
+            <span class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/80">
+              {Enum.count(@guild.member_presence, &(&1.status == :online))} online
+            </span>
+          <% else %>
+            <span>Loading members...</span>
+            <span class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/80">
+              ...
+            </span>
+          <% end %>
         </div>
       </div>
 
@@ -165,10 +179,16 @@ defmodule RfchatWeb.GuildComponents.Shell do
         id="member-sidebar"
         class={["flex-1 space-y-0.5 overflow-y-auto px-2 py-3", scrollbar_classes()]}
       >
-        <RfchatWeb.GuildComponents.Navigation.member_presence_item
-          :for={entry <- @guild.member_presence}
-          entry={entry}
-        />
+        <%= if @guild.members_ready? do %>
+          <RfchatWeb.GuildComponents.Navigation.member_presence_item
+            :for={entry <- @guild.member_presence}
+            entry={entry}
+          />
+        <% else %>
+          <div class="space-y-2 px-1">
+            <div :for={_ <- 1..5} class="h-12 rounded-md bg-base-100/70 animate-pulse" />
+          </div>
+        <% end %>
       </div>
     </aside>
     """

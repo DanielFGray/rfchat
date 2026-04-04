@@ -7,7 +7,7 @@ defmodule RfchatWeb.TestSupportController do
     ensure_enabled!()
 
     command = params["command"] || raise "command is required"
-    payload = decode_payload(params["payload"])
+    payload = extract_payload(conn, params)
 
     case TestSupport.run_command(command, payload, conn) do
       {:json, data} ->
@@ -49,5 +49,20 @@ defmodule RfchatWeb.TestSupportController do
 
   defp decode_payload(payload) when is_binary(payload) do
     Jason.decode!(payload)
+  end
+
+  # For POST requests, the body is parsed as JSON params directly.
+  # For GET requests, payload is a query string parameter.
+  defp extract_payload(conn, params) do
+    if conn.method == "POST" do
+      params
+      |> Map.drop(["command"])
+      |> case do
+        empty when map_size(empty) == 0 -> decode_payload(params["payload"])
+        body_params -> body_params
+      end
+    else
+      decode_payload(params["payload"])
+    end
   end
 end

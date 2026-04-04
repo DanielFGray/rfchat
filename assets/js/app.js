@@ -22,7 +22,6 @@ import "phoenix_html"
 // Establish Phoenix Socket and LiveView configuration.
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
-import {hooks as colocatedHooks} from "phoenix-colocated/rfchat"
 import topbar from "../vendor/topbar"
 import {MessageListHook, ReactionPickerHook, RichComposerHook} from "./chat_hooks"
 
@@ -34,7 +33,6 @@ const liveSocket = new LiveSocket("/live", Socket, {
     RichComposerHook,
     MessageListHook,
     ReactionPickerHook,
-    ...colocatedHooks,
   },
 })
 

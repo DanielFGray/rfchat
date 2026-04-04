@@ -76,12 +76,6 @@ defmodule RfchatWeb.GuildLive.Events.Threads do
                State.maybe_put_thread_reply(socket, message_params)
              ) do
           {:ok, message} ->
-            Chat.mark_channel_read(
-              socket.assigns.current_user,
-              socket.assigns.active_thread,
-              message
-            )
-
             socket = push_event(socket, "composer:clear", %{target: "thread"})
 
             {:noreply,

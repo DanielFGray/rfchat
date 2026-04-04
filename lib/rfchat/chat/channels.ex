@@ -7,7 +7,6 @@ defmodule Rfchat.Chat.Channels do
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.ChannelMembership
   alias Rfchat.Chat.Message
-  alias Rfchat.Chat.Role
   alias Rfchat.Chat.User
   alias Rfchat.Repo
 
@@ -50,12 +49,21 @@ defmodule Rfchat.Chat.Channels do
   end
 
   def list_channels_for_user(%User{} = user) do
-    visible_channels_for_user(user)
+    list_visible_channels_for_user(user)
     |> Enum.filter(&visible_text_channel?/1)
   end
 
+  def list_visible_channels_for_user(%User{} = user) do
+    visible_channels_for_user(user)
+  end
+
   def list_channel_tree_for_user(%User{} = user) do
-    channels = visible_channels_for_user(user)
+    user
+    |> list_visible_channels_for_user()
+    |> build_channel_tree()
+  end
+
+  def build_channel_tree(channels) when is_list(channels) do
     categories = Enum.filter(channels, &(&1.kind == :category))
     category_ids = MapSet.new(Enum.map(categories, & &1.id))
 
@@ -98,11 +106,16 @@ defmodule Rfchat.Chat.Channels do
       |> Repo.all()
       |> MapSet.new()
 
-    latest_messages = latest_messages_by_channel(channel_ids)
+    missing_channels = Enum.reject(channels, &MapSet.member?(existing_channel_ids, &1.id))
+
+    latest_messages =
+      missing_channels
+      |> Enum.map(& &1.id)
+      |> latest_messages_by_channel()
+
     now = DateTime.utc_now()
 
-    channels
-    |> Enum.reject(&MapSet.member?(existing_channel_ids, &1.id))
+    missing_channels
     |> Enum.each(fn channel ->
       latest_message =
         case Map.get(latest_messages, channel.id) do
@@ -286,9 +299,7 @@ defmodule Rfchat.Chat.Channels do
   defp normalize_optional_binary_id(""), do: nil
   defp normalize_optional_binary_id(value), do: value
 
-  defp default_role do
-    Repo.get_by(Role, is_default: true)
-  end
+  defp default_role, do: Rfchat.Chat.Permissions.default_role()
 
   defp broadcast(message) do
     Phoenix.PubSub.broadcast_from(Rfchat.PubSub, self(), @channel_events_topic, message)
