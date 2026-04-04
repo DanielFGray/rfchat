@@ -10,9 +10,10 @@ defmodule Rfchat.Accounts do
   alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.BotToken
   alias Rfchat.Chat.Membership
+  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.User
   alias Rfchat.Chat.UserSession
-  alias Rfchat.Chat.Role
+  alias Rfchat.Ephemeral
   alias Rfchat.Repo
 
   @session_valid_days 30
@@ -40,18 +41,14 @@ defmodule Rfchat.Accounts do
 
   def list_members_with_presence do
     now = DateTime.utc_now()
+    members = list_members()
 
     active_sessions =
-      from(session in UserSession,
-        where: session.context == "session",
-        where: is_nil(session.revoked_at) and session.expires_at > ^now,
-        group_by: session.user_id,
-        select: {session.user_id, max(session.last_seen_at)}
-      )
-      |> Repo.all()
-      |> Map.new()
+      members
+      |> Enum.map(& &1.id)
+      |> Ephemeral.get_presence_timestamps()
 
-    Enum.map(list_members(), fn user ->
+    Enum.map(members, fn user ->
       last_active_at =
         active_sessions[user.id] || user.membership.last_seen_at || user.inserted_at
 
@@ -76,6 +73,7 @@ defmodule Rfchat.Accounts do
 
     if user do
       touch_session(token)
+      heartbeat_presence(user)
     end
 
     user
@@ -202,7 +200,7 @@ defmodule Rfchat.Accounts do
   end
 
   def user_scope(%User{} = user) do
-    default_role = Repo.get_by(Role, is_default: true)
+    default_role = Permissions.default_role()
 
     %Scope{
       user: user,
@@ -295,6 +293,11 @@ defmodule Rfchat.Accounts do
       where: is_nil(session.last_seen_at) or session.last_seen_at < ^threshold
     )
     |> Repo.update_all(set: [last_seen_at: DateTime.utc_now()])
+  end
+
+  defp heartbeat_presence(%User{id: user_id}) do
+    _ = Ephemeral.heartbeat_presence(user_id)
+    :ok
   end
 
   defp presence_status(last_active_at, now) do

@@ -10,6 +10,7 @@ defmodule Rfchat.Application do
     children = [
       RfchatWeb.Telemetry,
       Rfchat.Repo,
+      Rfchat.Redis,
       Rfchat.Accounts.LoginRateLimiter,
       {DNSCluster, query: Application.get_env(:rfchat, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Rfchat.PubSub},

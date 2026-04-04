@@ -3,6 +3,8 @@ defmodule Rfchat.Accounts.LoginRateLimiter do
 
   use GenServer
 
+  alias Rfchat.Ephemeral
+
   @table :rfchat_login_rate_limiter
   @ip_window_seconds 300
   @ip_limit 20
@@ -18,7 +20,7 @@ defmodule Rfchat.Accounts.LoginRateLimiter do
 
     login_keys(ip_address, email)
     |> Enum.find_value(:ok, fn {key, limit, _window_seconds} ->
-      case current_bucket(key, now) do
+      case bucket_for(key, now) do
         {count, reset_at} when count >= limit -> {:error, max(reset_at - now, 1)}
         _ -> nil
       end
@@ -37,6 +39,7 @@ defmodule Rfchat.Accounts.LoginRateLimiter do
 
   def clear_attempts(ip_address, email) do
     Enum.each(login_keys(ip_address, email), fn {key, _limit, _window_seconds} ->
+      clear_remote_bucket(key)
       :ets.delete(@table, key)
     end)
 
@@ -45,6 +48,9 @@ defmodule Rfchat.Accounts.LoginRateLimiter do
 
   def reset! do
     :ets.delete_all_objects(@table)
+
+    _ = Ephemeral.clear_rate_limit_namespace(login_rate_limit_prefix())
+
     :ok
   end
 
@@ -72,7 +78,17 @@ defmodule Rfchat.Accounts.LoginRateLimiter do
     ]
   end
 
-  defp current_bucket(key, now) do
+  defp bucket_for(key, now) do
+    case remote_bucket(key, now) do
+      {:ok, bucket} ->
+        bucket
+
+      :unavailable ->
+        current_local_bucket(key, now)
+    end
+  end
+
+  defp current_local_bucket(key, now) do
     case :ets.lookup(@table, key) do
       [{^key, count, reset_at}] when reset_at > now ->
         {count, reset_at}
@@ -87,14 +103,43 @@ defmodule Rfchat.Accounts.LoginRateLimiter do
   end
 
   defp bump_bucket(key, window_seconds, now) do
-    case current_bucket(key, now) do
-      {0, _reset_at} ->
-        :ets.insert(@table, {key, 1, now + window_seconds})
+    case remote_bump_bucket(key, window_seconds, now) do
+      :ok ->
+        :ok
 
-      {count, reset_at} ->
-        :ets.insert(@table, {key, count + 1, reset_at})
+      :unavailable ->
+        case current_local_bucket(key, now) do
+          {0, _reset_at} ->
+            :ets.insert(@table, {key, 1, now + window_seconds})
+
+          {count, reset_at} ->
+            :ets.insert(@table, {key, count + 1, reset_at})
+        end
     end
   end
+
+  defp remote_bucket(key, now) do
+    case Ephemeral.get_rate_limit(remote_key(key), now) do
+      {:ok, count, reset_at} -> {:ok, {count, reset_at}}
+      {:error, :unavailable} -> :unavailable
+    end
+  end
+
+  defp remote_bump_bucket(key, window_seconds, now) do
+    case Ephemeral.increment_rate_limit(remote_key(key), window_seconds, now) do
+      {:ok, _count, _reset_at} -> :ok
+      {:error, :unavailable} -> :unavailable
+    end
+  end
+
+  defp clear_remote_bucket(key) do
+    _ = Ephemeral.clear_rate_limit(remote_key(key))
+    :ok
+  end
+
+  defp remote_key(key), do: login_rate_limit_prefix() <> Integer.to_string(:erlang.phash2(key))
+
+  defp login_rate_limit_prefix, do: "rate_limit:login:"
 
   defp normalize_ip(nil), do: "unknown"
   defp normalize_ip(ip_address) when is_binary(ip_address), do: ip_address
