@@ -88,6 +88,10 @@ defmodule RfchatWeb.GuildComponents.Threads do
 
       <div class="border-t border-base-300 bg-base-100 px-4 py-4">
         <%= if @guild.can_send_thread_messages? do %>
+          <RfchatWeb.GuildComponents.Messages.typing_indicator
+            users={@guild.thread_typing_users}
+            id={"thread-typing-indicator-#{@message.id}"}
+          />
           <RfchatWeb.GuildComponents.Composer.thread_composer guild={@guild} />
         <% else %>
           <div class="rounded-xl border border-warning/30 bg-warning/15 px-4 py-3 text-sm text-warning-content">

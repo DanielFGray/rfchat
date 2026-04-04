@@ -89,6 +89,8 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:message_count, 0)
       |> assign(:messages_empty?, true)
       |> assign(:thread_summaries, %{})
+      |> assign(:typing_users, [])
+      |> assign(:thread_typing_users, [])
       |> assign(:active_thread, nil)
       |> assign(:thread_focus?, false)
       |> assign(:thread_message_count, 0)

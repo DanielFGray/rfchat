@@ -11,8 +11,11 @@ defmodule RfchatWeb.GuildLive.Events do
 
   def handle_params(params, uri, socket), do: Navigation.handle_params(params, uri, socket)
 
-  def handle_info({type, _payload} = message, socket)
-      when type in [:message_created, :message_updated, :message_deleted] do
+  def handle_info(message, socket)
+      when (is_tuple(message) and tuple_size(message) == 2 and
+              elem(message, 0) in [:message_created, :message_updated, :message_deleted]) or
+             (is_tuple(message) and tuple_size(message) == 3 and
+                elem(message, 0) in [:typing_started, :typing_stopped]) do
     Messages.handle_info(message, socket)
   end
 
@@ -55,6 +58,8 @@ defmodule RfchatWeb.GuildLive.Events do
              "confirm_delete_message",
              "cancel_delete_message",
              "send_message",
+             "typing_ping",
+             "typing_stop",
              "reply_message",
              "cancel_reply",
              "edit_message",
@@ -73,9 +78,15 @@ defmodule RfchatWeb.GuildLive.Events do
              "close_thread",
              "reply_in_thread",
              "cancel_thread_reply",
-             "send_thread_message"
+             "send_thread_message",
+             "typing_ping_thread",
+             "typing_stop_thread"
            ] do
-    Threads.handle_event(event, params, socket)
+    if event in ["typing_ping_thread", "typing_stop_thread"] do
+      Messages.handle_event(event, params, socket)
+    else
+      Threads.handle_event(event, params, socket)
+    end
   end
 
   def handle_event(event, params, socket)

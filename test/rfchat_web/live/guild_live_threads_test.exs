@@ -87,4 +87,28 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
     assert has_element?(view, "#thread-panel-#{starter.id}", "nested thread reply")
     assert render(view) =~ "Replying to"
   end
+
+  test "renders the thread typing indicator shell for the active thread", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn, "author")
+
+    general = Chat.get_channel_by_slug!("general")
+    author = current_user_from_conn(conn)
+    starter = message_fixture(general, author, %{body: "thread typing starter"})
+    thread = thread_fixture(general, starter, author)
+
+    typer = author
+
+    {:ok, view, _html} = live(conn, ~p"/?channel=general&thread=#{thread.id}")
+
+    :ok = Chat.announce_typing(thread, typer)
+    _ = :sys.get_state(view.pid)
+
+    assert has_element?(view, "#thread-typing-indicator-#{starter.id}")
+
+    :ok = Chat.clear_typing(thread, typer)
+    _ = :sys.get_state(view.pid)
+
+    assert has_element?(view, "#thread-typing-indicator-#{starter.id}")
+  end
 end

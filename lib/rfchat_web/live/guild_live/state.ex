@@ -141,6 +141,10 @@ defmodule RfchatWeb.GuildLive.State do
     |> close_message_ui()
     |> assign(:active_channel, refreshed_active_channel)
     |> assign(:thread_summaries, thread_summaries)
+    |> assign(
+      :typing_users,
+      Chat.list_typing_users(refreshed_active_channel, socket.assigns.current_user)
+    )
     |> assign(:channel_ready?, true)
     |> assign(
       :can_send_messages?,
@@ -410,6 +414,7 @@ defmodule RfchatWeb.GuildLive.State do
     socket
     |> assign(:active_thread, thread)
     |> assign(:thread_focus?, focus?)
+    |> assign(:thread_typing_users, Chat.list_typing_users(thread, socket.assigns.current_user))
     |> assign(:thread_reply_to_message, nil)
     |> assign(
       :can_send_thread_messages?,
@@ -425,9 +430,18 @@ defmodule RfchatWeb.GuildLive.State do
   def close_thread(socket) do
     previous_starter_message_id = current_thread_starter_id(socket)
 
+    case socket.assigns.active_thread do
+      %{} = thread ->
+        Chat.clear_typing(thread, socket.assigns.current_user)
+
+      nil ->
+        :ok
+    end
+
     socket
     |> assign(:active_thread, nil)
     |> assign(:thread_focus?, false)
+    |> assign(:thread_typing_users, [])
     |> assign(:thread_reply_to_message, nil)
     |> assign(:can_send_thread_messages?, false)
     |> assign(:thread_message_count, 0)
@@ -481,8 +495,37 @@ defmodule RfchatWeb.GuildLive.State do
     |> assign(:message_count, 0)
     |> assign(:messages_empty?, true)
     |> assign(:thread_summaries, %{})
+    |> assign(:typing_users, [])
     |> close_thread()
     |> stream(:messages, [], reset: true)
+  end
+
+  def refresh_typing_users(socket) do
+    case socket.assigns.active_channel do
+      %{} = channel ->
+        assign(
+          socket,
+          :typing_users,
+          Chat.list_typing_users(channel, socket.assigns.current_user)
+        )
+
+      nil ->
+        assign(socket, :typing_users, [])
+    end
+  end
+
+  def refresh_thread_typing_users(socket) do
+    case socket.assigns.active_thread do
+      %{} = thread ->
+        assign(
+          socket,
+          :thread_typing_users,
+          Chat.list_typing_users(thread, socket.assigns.current_user)
+        )
+
+      nil ->
+        assign(socket, :thread_typing_users, [])
+    end
   end
 
   defp sync_active_channel(socket, channels) do

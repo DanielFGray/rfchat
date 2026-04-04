@@ -109,4 +109,31 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
     assert has_element?(view, "#member-sidebar", "Guildlive User default")
     assert has_element?(view, "#member-sidebar", "owner")
   end
+
+  test "renders typing indicator for the active channel only", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+    typing_conn = log_in_member_user(recycle(conn), "typing")
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    typer = current_user_from_conn(typing_conn)
+
+    general = Chat.get_channel_by_slug!("general")
+    engineering = Chat.get_channel_by_slug!("engineering")
+
+    :ok = Chat.announce_typing(general, typer)
+    _ = :sys.get_state(view.pid)
+
+    assert has_element?(view, "#channel-typing-indicator", "#{typer.display_name} is typing...")
+
+    :ok = Chat.announce_typing(engineering, typer)
+    _ = :sys.get_state(view.pid)
+
+    assert has_element?(view, "#channel-typing-indicator", "#{typer.display_name} is typing...")
+
+    :ok = Chat.clear_typing(general, typer)
+    _ = :sys.get_state(view.pid)
+
+    refute has_element?(view, "#channel-typing-indicator", "#{typer.display_name} is typing...")
+  end
 end

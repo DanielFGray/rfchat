@@ -17,6 +17,7 @@ defmodule RfchatWeb.GuildComponents.Messages do
     <% else %>
       <.channel_loading_state guild={@guild} />
     <% end %>
+    <.typing_indicator users={@guild.typing_users} id="channel-typing-indicator" />
     <RfchatWeb.GuildComponents.Composer.channel_composer guild={@guild} />
     """
   end
@@ -629,4 +630,31 @@ defmodule RfchatWeb.GuildComponents.Messages do
     </div>
     """
   end
+
+  attr :users, :list, required: true
+  attr :id, :string, required: true
+
+  def typing_indicator(assigns) do
+    ~H"""
+    <div
+      id={@id}
+      class={[
+        "px-4 pt-2 text-xs text-base-content/60 transition min-h-5",
+        @users == [] && "invisible"
+      ]}
+    >
+      <%= if @users != [] do %>
+        {typing_label(@users)}
+      <% end %>
+    </div>
+    """
+  end
+
+  defp typing_label([user]), do: "#{user.display_name} is typing..."
+
+  defp typing_label([first, second]),
+    do: "#{first.display_name} and #{second.display_name} are typing..."
+
+  defp typing_label([first, second | _rest]),
+    do: "#{first.display_name}, #{second.display_name}, and others are typing..."
 end

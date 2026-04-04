@@ -2,14 +2,17 @@ defmodule Rfchat.Ephemeral do
   @moduledoc false
 
   @presence_prefix "presence:user:"
+  @typing_prefix "typing:channel:"
 
   alias Rfchat.Redis
 
   @presence_online_ttl 300
   @presence_recent_ttl 3600
+  @typing_ttl 8
 
   def presence_online_ttl, do: @presence_online_ttl
   def presence_recent_ttl, do: @presence_recent_ttl
+  def typing_ttl, do: @typing_ttl
 
   def heartbeat_presence(user_id, now \\ DateTime.utc_now()) when is_binary(user_id) do
     timestamp = DateTime.to_unix(now, :second)
@@ -26,6 +29,41 @@ defmodule Rfchat.Ephemeral do
     case keys do
       [] -> %{}
       _ -> parse_presence_timestamps(user_ids, Redis.command(["MGET" | keys]))
+    end
+  end
+
+  def put_typing(channel_id, user_id, now \\ DateTime.utc_now())
+      when is_binary(channel_id) and is_binary(user_id) do
+    timestamp = DateTime.to_unix(now, :second)
+    key = typing_key(channel_id)
+
+    case Redis.pipeline([
+           ["ZADD", key, Integer.to_string(timestamp), user_id],
+           ["EXPIRE", key, Integer.to_string(@typing_ttl)]
+         ]) do
+      {:ok, _results} -> :ok
+      {:error, _reason} -> :error
+    end
+  end
+
+  def remove_typing(channel_id, user_id) when is_binary(channel_id) and is_binary(user_id) do
+    case Redis.command(["ZREM", typing_key(channel_id), user_id]) do
+      {:ok, _removed} -> :ok
+      {:error, _reason} -> :error
+    end
+  end
+
+  def list_typing_user_ids(channel_id, now \\ DateTime.utc_now()) when is_binary(channel_id) do
+    min_score = DateTime.add(now, -@typing_ttl, :second) |> DateTime.to_unix(:second)
+
+    case Redis.command([
+           "ZRANGEBYSCORE",
+           typing_key(channel_id),
+           Integer.to_string(min_score),
+           "+inf"
+         ]) do
+      {:ok, user_ids} -> user_ids
+      {:error, _reason} -> []
     end
   end
 
@@ -93,4 +131,5 @@ defmodule Rfchat.Ephemeral do
   defp parse_presence_timestamps(_user_ids, {:error, _reason}), do: %{}
 
   defp presence_key(user_id), do: @presence_prefix <> user_id
+  defp typing_key(channel_id), do: @typing_prefix <> channel_id
 end

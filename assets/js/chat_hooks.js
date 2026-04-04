@@ -74,6 +74,11 @@ const RichComposerHook = {
     this.composerShell = this.el.querySelector("[data-rich-composer-shell]")
     this.composerTarget = this.el.dataset.composerTarget || "default"
     this.submitListener = () => this.syncInputs()
+    this.typingStopDelayMs = 4000
+    this.typingActive = false
+    this.typingStopTimer = null
+    this.lastTypingPingTime = 0
+    this.typingPingThrottleMs = 3000
     this.editor = this.buildEditor()
 
     if(this.toolbar) {
@@ -88,6 +93,7 @@ const RichComposerHook = {
       this.editor.commands.clearContent(true)
       this.syncInputs()
       this.syncComposerChrome()
+      this.stopTyping()
       this.editor.commands.focus("end")
     })
 
@@ -100,6 +106,9 @@ const RichComposerHook = {
     }
 
     this.el.removeEventListener("submit", this.submitListener)
+
+    this.stopTyping()
+    this.clearTypingStopTimer()
 
     this.editor?.destroy()
   },
@@ -193,6 +202,7 @@ const RichComposerHook = {
       onUpdate: () => {
         this.syncInputs()
         this.syncComposerChrome()
+        this.handleTypingActivity()
       },
       onTransaction: ({ editor }) => {
         syncToolbarState(this.toolbar, editor)
@@ -231,6 +241,48 @@ const RichComposerHook = {
     this.composerShell.querySelectorAll("[data-expanded]").forEach(node => {
       node.dataset.expanded = isExpanded ? "true" : "false"
     })
+  },
+
+  handleTypingActivity() {
+    const hasText = (this.bodyInput?.value || "").trim().length > 0
+
+    if(!hasText) {
+      this.stopTyping()
+      return
+    }
+
+    const now = Date.now()
+    if(now - this.lastTypingPingTime >= this.typingPingThrottleMs) {
+      this.pushEvent(this.typingPingEvent(), {})
+      this.lastTypingPingTime = now
+      this.typingActive = true
+    }
+
+    this.clearTypingStopTimer()
+    this.typingStopTimer = window.setTimeout(() => this.stopTyping(), this.typingStopDelayMs)
+  },
+
+  stopTyping() {
+    if(!this.typingActive) return
+
+    this.pushEvent(this.typingStopEvent(), {})
+    this.typingActive = false
+    this.clearTypingStopTimer()
+  },
+
+  clearTypingStopTimer() {
+    if(this.typingStopTimer) {
+      window.clearTimeout(this.typingStopTimer)
+      this.typingStopTimer = null
+    }
+  },
+
+  typingPingEvent() {
+    return this.composerTarget === "thread" ? "typing_ping_thread" : "typing_ping"
+  },
+
+  typingStopEvent() {
+    return this.composerTarget === "thread" ? "typing_stop_thread" : "typing_stop"
   },
 }
 

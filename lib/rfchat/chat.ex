@@ -22,6 +22,7 @@ defmodule Rfchat.Chat do
   alias Rfchat.Chat.Role
   alias Rfchat.Chat.User
   alias Rfchat.Chat.AuditLogEntry
+  alias Rfchat.Ephemeral
   alias Rfchat.Repo
 
   @channel_events_topic "chat:channels"
@@ -119,6 +120,35 @@ defmodule Rfchat.Chat do
   defdelegate update_channel_membership_notification(user, channel_id, attrs), to: Notifications
   defdelegate unread_counts_for_user(user, channels), to: Notifications
   defdelegate unread_mentions_for_user(user, channels), to: Notifications
+
+  def announce_typing(%Channel{} = channel, %User{} = user) do
+    _ = Ephemeral.put_typing(channel.id, user.id)
+    broadcast({:typing_started, channel.id, user.id})
+    :ok
+  end
+
+  def clear_typing(%Channel{} = channel, %User{} = user) do
+    _ = Ephemeral.remove_typing(channel.id, user.id)
+    broadcast({:typing_stopped, channel.id, user.id})
+    :ok
+  end
+
+  def list_typing_users(%Channel{} = channel, %User{} = current_user) do
+    user_ids =
+      channel.id
+      |> Ephemeral.list_typing_user_ids()
+      |> Enum.reject(&(&1 == current_user.id))
+
+    if user_ids == [] do
+      []
+    else
+      User
+      |> where([user], user.id in ^user_ids)
+      |> where([user], is_nil(user.deleted_at))
+      |> order_by([user], asc: user.display_name, asc: user.username)
+      |> Repo.all()
+    end
+  end
 
   def list_messages(channel_id, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)

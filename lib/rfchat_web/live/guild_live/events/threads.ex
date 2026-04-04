@@ -76,12 +76,14 @@ defmodule RfchatWeb.GuildLive.Events.Threads do
                State.maybe_put_thread_reply(socket, message_params)
              ) do
           {:ok, message} ->
+            Chat.clear_typing(socket.assigns.active_thread, socket.assigns.current_user)
             socket = push_event(socket, "composer:clear", %{target: "thread"})
 
             {:noreply,
              socket
              |> State.assign_thread_message_form()
              |> assign(:thread_reply_to_message, nil)
+             |> State.refresh_thread_typing_users()
              |> State.maybe_insert_thread_message(message)
              |> State.refresh_thread_summaries_for_active_channel()}
 

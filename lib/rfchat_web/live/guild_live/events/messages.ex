@@ -4,6 +4,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
   import Phoenix.Component, only: [assign: 3, to_form: 1, to_form: 2]
   import Phoenix.LiveView, only: [put_flash: 3, push_event: 3, stream_insert: 3]
 
+  alias Rfchat.Accounts
   alias Rfchat.Chat
   alias RfchatWeb.GuildLive.Events.Helpers
   alias RfchatWeb.GuildLive.State
@@ -15,6 +16,16 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
       |> State.maybe_insert_thread_message(message)
       |> State.maybe_push_mention_notification(message)
       |> update_unread_state(message)
+
+    {:noreply, socket}
+  end
+
+  def handle_info({type, channel_id, user_id}, socket)
+      when type in [:typing_started, :typing_stopped] do
+    socket =
+      socket
+      |> maybe_refresh_typing_users(channel_id, type, user_id)
+      |> maybe_refresh_thread_typing_users(channel_id, type, user_id)
 
     {:noreply, socket}
   end
@@ -162,12 +173,14 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
                State.maybe_put_reply(socket, message_params)
              ) do
           {:ok, message} ->
+            Chat.clear_typing(socket.assigns.active_channel, socket.assigns.current_user)
             socket = push_event(socket, "composer:clear", %{target: "channel"})
 
             {:noreply,
              socket
              |> State.assign_message_form()
              |> State.clear_reply_to_message()
+             |> State.refresh_typing_users()
              |> State.maybe_insert_message(message)}
 
           {:error, :forbidden} ->
@@ -182,6 +195,50 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
           {:error, changeset} ->
             {:noreply, assign(socket, :message_form, to_form(changeset))}
         end
+    end
+  end
+
+  def handle_event("typing_ping", _params, socket) do
+    case socket.assigns.active_channel do
+      %{} = channel ->
+        :ok = Chat.announce_typing(channel, socket.assigns.current_user)
+        {:noreply, socket}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("typing_stop", _params, socket) do
+    case socket.assigns.active_channel do
+      %{} = channel ->
+        :ok = Chat.clear_typing(channel, socket.assigns.current_user)
+        {:noreply, State.refresh_typing_users(socket)}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("typing_ping_thread", _params, socket) do
+    case socket.assigns.active_thread do
+      %{} = thread ->
+        :ok = Chat.announce_typing(thread, socket.assigns.current_user)
+        {:noreply, socket}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("typing_stop_thread", _params, socket) do
+    case socket.assigns.active_thread do
+      %{} = thread ->
+        :ok = Chat.clear_typing(thread, socket.assigns.current_user)
+        {:noreply, State.refresh_thread_typing_users(socket)}
+
+      nil ->
+        {:noreply, socket}
     end
   end
 
@@ -349,5 +406,52 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
         (Map.get(entity, "id") == current_user.id or
            MapSet.member?(member_role_ids, Map.get(entity, "id")))
     end) or mentions_everyone?
+  end
+
+  defp maybe_refresh_typing_users(socket, channel_id, type, user_id) do
+    if socket.assigns.active_channel && socket.assigns.active_channel.id == channel_id do
+      update_typing_assign(socket, :typing_users, socket.assigns.active_channel, type, user_id)
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_thread_typing_users(socket, channel_id, type, user_id) do
+    if socket.assigns.active_thread && socket.assigns.active_thread.id == channel_id do
+      update_typing_assign(
+        socket,
+        :thread_typing_users,
+        socket.assigns.active_thread,
+        type,
+        user_id
+      )
+    else
+      socket
+    end
+  end
+
+  defp update_typing_assign(socket, assign_key, channel, :typing_started, user_id) do
+    if user_id == socket.assigns.current_user.id do
+      socket
+    else
+      user = Accounts.get_user_with_membership!(user_id)
+
+      if Chat.can_view_channel?(channel, user) do
+        assign(socket, assign_key, merge_typing_user(socket.assigns[assign_key] || [], user))
+      else
+        socket
+      end
+    end
+  end
+
+  defp update_typing_assign(socket, assign_key, _channel, :typing_stopped, user_id) do
+    assign(socket, assign_key, Enum.reject(socket.assigns[assign_key] || [], &(&1.id == user_id)))
+  end
+
+  defp merge_typing_user(users, user) do
+    users
+    |> Enum.reject(&(&1.id == user.id))
+    |> Kernel.++([user])
+    |> Enum.sort_by(&{&1.display_name, &1.username})
   end
 end
