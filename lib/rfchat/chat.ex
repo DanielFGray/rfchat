@@ -34,6 +34,7 @@ defmodule Rfchat.Chat do
   defdelegate get_server_settings(), to: ServerConfig
   defdelegate change_server_settings(server_settings, attrs \\ %{}), to: ServerConfig
   defdelegate update_server_settings(attrs, actor), to: ServerConfig
+  defdelegate remove_server_icon(actor), to: ServerConfig
   defdelegate server_icon_url(settings), to: ServerConfig
   defdelegate default_server_name(), to: ServerConfig
 
@@ -286,11 +287,12 @@ defmodule Rfchat.Chat do
   end
 
   def update_message(%Message{} = message, %User{} = actor, attrs) do
-    message = Repo.preload(message, channel: [:permission_overwrites])
+    message = with_current_overwrites(message)
+    member = Permissions.current_member(actor.id)
 
-    if message.author_id == actor.id do
+    if can_edit_message?(message, member) do
       with {:ok, attrs} <- normalize_message_attrs(attrs),
-           :ok <- authorize_message_mentions(message.channel, actor, attrs) do
+           :ok <- authorize_message_mentions(message.channel, member, attrs) do
         Repo.transaction(fn ->
           with {:ok, updated_message} <-
                  message
@@ -320,7 +322,7 @@ defmodule Rfchat.Chat do
   end
 
   def delete_message(%Message{} = message, %User{} = actor) do
-    message = Repo.preload(message, channel: [:permission_overwrites])
+    message = with_current_overwrites(message)
 
     if message.author_id == actor.id or can_manage_messages?(message.channel, actor) do
       now = DateTime.utc_now()
@@ -365,7 +367,7 @@ defmodule Rfchat.Chat do
 
   def toggle_reaction(%Message{} = message, %User{} = user, emoji_unicode)
       when is_binary(emoji_unicode) do
-    message = Repo.preload(message, channel: [:permission_overwrites])
+    message = with_current_overwrites(message)
     emoji_unicode = String.trim(emoji_unicode)
 
     if emoji_unicode == "" do
@@ -409,7 +411,7 @@ defmodule Rfchat.Chat do
 
   def toggle_reaction(%Message{} = message, %User{} = user, %{"emoji_id" => emoji_id})
       when is_binary(emoji_id) do
-    message = Repo.preload(message, channel: [:permission_overwrites])
+    message = with_current_overwrites(message)
 
     with {:ok, emoji} <- Emojis.fetch_available_emoji_for_user(emoji_id, user),
          true <- can_add_reactions?(message.channel, user) do
@@ -730,6 +732,22 @@ defmodule Rfchat.Chat do
           authorize_message_mentions(channel, author, attrs)
         end
     end
+  end
+
+  # The member is read fresh from the database, so a timeout or a removed view permission applies
+  # to edits made from a session opened before the change.
+  defp can_edit_message?(%Message{} = message, %User{id: id} = member) do
+    id == message.author_id and not Permissions.timed_out?(member) and
+      Permissions.can_view_channel?(message.channel, member)
+  end
+
+  defp can_edit_message?(%Message{}, nil), do: false
+
+  # A caller may pass a message whose overwrites were loaded before a later
+  # deny. Permission decisions must use the current overwrites, so this reloads
+  # them even when they are already loaded.
+  defp with_current_overwrites(%Message{} = message) do
+    Repo.preload(message, [channel: [:permission_overwrites]], force: true)
   end
 
   defp authorize_message_mentions(channel, author, attrs) do

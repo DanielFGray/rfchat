@@ -28,7 +28,7 @@ defmodule Rfchat.ChatTest do
     end
 
     test "ensure_channel_memberships_for_user/2 initializes read state and unread_counts_for_user/2 tracks new messages" do
-      sender = user_fixture(%{email: "sender@example.com", username: "sender_user"})
+      sender = owner_fixture(%{email: "sender@example.com", username: "sender_user"})
       user = user_fixture(%{email: "reads@example.com", username: "reads_user"})
       engineering = channel_fixture(%{name: "Engineering", slug: unique_slug()})
       channels = [engineering]
@@ -54,7 +54,7 @@ defmodule Rfchat.ChatTest do
     end
 
     test "unread_mentions_for_user/2 counts unread direct mentions" do
-      sender = user_fixture(%{email: "mention-sender@example.com", username: "mention_sender"})
+      sender = owner_fixture(%{email: "mention-sender@example.com", username: "mention_sender"})
       user = user_fixture(%{email: "mention-target@example.com", username: "mention_target"})
       engineering = channel_fixture(%{name: "Engineering", slug: unique_slug()})
       channels = [engineering]
@@ -80,7 +80,10 @@ defmodule Rfchat.ChatTest do
 
     test "unread_mentions_for_user/2 counts unread role mentions for member roles" do
       sender =
-        user_fixture(%{email: "role-mention-sender@example.com", username: "role_mention_sender"})
+        owner_fixture(%{
+          email: "role-mention-sender@example.com",
+          username: "role_mention_sender"
+        })
 
       user =
         user_fixture(%{email: "role-mention-target@example.com", username: "role_mention_target"})
@@ -109,7 +112,7 @@ defmodule Rfchat.ChatTest do
       channel = channel_fixture()
 
       author =
-        user_fixture(%{
+        owner_fixture(%{
           email: "mention-query-author@example.com",
           username: "mention_query_author"
         })
@@ -165,7 +168,7 @@ defmodule Rfchat.ChatTest do
   describe "messages" do
     test "list_messages/2 returns oldest-to-newest messages with authors preloaded" do
       channel = channel_fixture()
-      author = user_fixture()
+      author = owner_fixture()
 
       first = message_fixture(channel, author, %{body: "first"})
       second = message_fixture(channel, author, %{body: "second"})
@@ -187,7 +190,7 @@ defmodule Rfchat.ChatTest do
 
     test "create_message/3 trims and validates body" do
       channel = channel_fixture()
-      author = user_fixture()
+      author = owner_fixture()
 
       assert {:ok, message} = Chat.create_message(channel, author, %{body: "  hey there  "})
       assert message.body == "hey there"
@@ -198,7 +201,7 @@ defmodule Rfchat.ChatTest do
 
     test "create_message/3 and update_message/3 ignore fields only the server sets" do
       channel = channel_fixture()
-      author = user_fixture()
+      author = owner_fixture()
       past = "2020-01-01T00:00:00Z"
 
       server_fields = %{
@@ -229,7 +232,7 @@ defmodule Rfchat.ChatTest do
     test "create_message/3 rejects cross-channel reply targets" do
       channel = channel_fixture(%{slug: unique_slug()})
       other_channel = channel_fixture(%{slug: unique_slug()})
-      author = user_fixture()
+      author = owner_fixture()
       other_message = message_fixture(other_channel, author, %{body: "elsewhere"})
 
       assert {:error, changeset} =
@@ -354,7 +357,7 @@ defmodule Rfchat.ChatTest do
 
     test "create_message/3 persists mention join rows from metadata and body" do
       channel = channel_fixture()
-      author = user_fixture()
+      author = owner_fixture()
       mentioned_user = user_fixture(%{email: "mentioned@example.com", username: "mentioned_user"})
       mentioned_role = role_fixture(%{name: "@ops", mentionable: true})
 
@@ -385,7 +388,7 @@ defmodule Rfchat.ChatTest do
 
     test "update_message/3 refreshes mention join rows" do
       channel = channel_fixture()
-      author = user_fixture()
+      author = owner_fixture()
 
       first_user =
         user_fixture(%{email: "first-mentioned@example.com", username: "first_mentioned"})
@@ -433,10 +436,75 @@ defmodule Rfchat.ChatTest do
              )
     end
 
+    test "update_message/3 refuses an author who is timed out" do
+      Bootstrap.ensure_seed_data!()
+      owner = owner_fixture()
+      channel = channel_fixture()
+      author = user_fixture()
+      message = message_fixture(channel, author, %{body: "before"})
+
+      assert {:ok, _timed_out, _case} = Chat.timeout_member(owner, author, 10)
+
+      assert {:error, :forbidden} = Chat.update_message(message, author, %{body: "after"})
+      assert Chat.get_message!(message.id).body == "before"
+    end
+
+    test "update_message/3 refuses an author who cannot view the channel" do
+      Bootstrap.ensure_seed_data!()
+      _owner = owner_fixture()
+      channel = channel_fixture()
+      author = user_fixture()
+      message = message_fixture(channel, author, %{body: "before"})
+
+      channel_permission_overwrite_fixture(channel, %{
+        role_id: Chat.default_role().id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      assert {:error, :forbidden} = Chat.update_message(message, author, %{body: "after"})
+      assert Chat.get_message!(message.id).body == "before"
+    end
+
+    test "update_message/3 uses current overwrites when given a message loaded before a deny" do
+      Bootstrap.ensure_seed_data!()
+      _owner = owner_fixture()
+      channel = channel_fixture()
+      author = user_fixture()
+      message = message_fixture(channel, author, %{body: "before"})
+
+      assert {:ok, edited} = Chat.update_message(message, author, %{body: "first edit"})
+
+      channel_permission_overwrite_fixture(channel, %{
+        role_id: Chat.default_role().id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      assert {:error, :forbidden} = Chat.update_message(edited, author, %{body: "second edit"})
+      assert Chat.get_message!(message.id).body == "first edit"
+    end
+
+    test "update_message/3 refuses a thread reply when the parent channel is hidden" do
+      Bootstrap.ensure_seed_data!()
+      _owner = owner_fixture()
+      channel = channel_fixture()
+      author = user_fixture()
+      starter = message_fixture(channel, author, %{body: "Thread topic"})
+      thread = thread_fixture(channel, starter, author)
+      reply = message_fixture(thread, author, %{body: "before"})
+
+      channel_permission_overwrite_fixture(channel, %{
+        role_id: Chat.default_role().id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      assert {:error, :forbidden} = Chat.update_message(reply, author, %{body: "after"})
+      assert Chat.get_message!(reply.id).body == "before"
+    end
+
     test "create_message/3 rejects locked role mentions without mention_everyone" do
       Bootstrap.ensure_seed_data!()
       channel = channel_fixture()
-      _owner = user_fixture(%{email: "mention-owner@example.com", username: "mention_owner"})
+      _owner = owner_fixture(%{email: "mention-owner@example.com", username: "mention_owner"})
       author = user_fixture(%{email: "mention-member@example.com", username: "mention_member"})
       locked_role = role_fixture(%{name: "@staff", mentionable: false})
 
@@ -523,8 +591,7 @@ defmodule Rfchat.ChatTest do
   describe "moderation" do
     setup do
       Bootstrap.ensure_seed_data!()
-      # The first account registered becomes the owner, who may moderate anyone.
-      _owner = user_fixture()
+      _owner = owner_fixture()
       moderator = user_fixture()
 
       mod_role =
