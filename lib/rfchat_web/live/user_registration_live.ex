@@ -74,7 +74,7 @@ defmodule RfchatWeb.UserRegistrationLive do
             <.form
               for={@form}
               id="registration-form"
-              action={~p"/register"}
+              action={~p"/login?_action=registered"}
               method="post"
               phx-change="validate"
               phx-submit="save"

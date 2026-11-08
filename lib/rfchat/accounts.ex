@@ -120,7 +120,7 @@ defmodule Rfchat.Accounts do
   end
 
   def change_registration_user(%User{} = user, attrs \\ %{}) do
-    User.registration_changeset(user, attrs)
+    User.registration_changeset(user, attrs, hash_password: false)
   end
 
   def change_profile_user(%User{} = user, attrs \\ %{}) do

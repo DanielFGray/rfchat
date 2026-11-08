@@ -5,7 +5,9 @@ defmodule RfchatWeb.UserSessionController do
   alias Rfchat.Accounts.LoginRateLimiter
   alias RfchatWeb.UserAuth
 
-  def create(conn, %{"user" => %{"email" => email, "password" => password} = user_params}) do
+  # The registration form signs the new account in by posting here with `_action=registered`, so
+  # every password check goes through the login limiter.
+  def create(conn, %{"user" => %{"email" => email, "password" => password} = user_params} = params) do
     ip_address = conn.remote_ip |> :inet.ntoa() |> to_string()
 
     case LoginRateLimiter.allow_login_attempt(ip_address, email) do
@@ -29,12 +31,22 @@ defmodule RfchatWeb.UserSessionController do
           user ->
             :ok = LoginRateLimiter.clear_attempts(ip_address, email)
 
-            UserAuth.log_in_user(conn, user, %{
+            conn
+            |> welcome(params["_action"], user)
+            |> UserAuth.log_in_user(user, %{
               "remember_me" => Map.get(user_params, "remember_me", "false")
             })
         end
     end
   end
+
+  defp welcome(conn, "registered", user) do
+    if user.membership && user.membership.is_owner,
+      do: put_flash(conn, :info, "Account created. You are now signed in as the server owner."),
+      else: put_flash(conn, :info, "Account created. You are now signed in.")
+  end
+
+  defp welcome(conn, _action, _user), do: conn
 
   def delete(conn, _params) do
     conn

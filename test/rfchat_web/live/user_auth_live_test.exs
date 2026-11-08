@@ -30,6 +30,45 @@ defmodule RfchatWeb.UserAuthLiveTest do
     conn = follow_trigger_action(registration_form, conn)
 
     assert redirected_to(conn) == ~p"/"
+    assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Account created"
+  end
+
+  test "registration signs in through the login limiter", %{conn: conn} do
+    Enum.each(1..5, fn _attempt ->
+      :ok = LoginRateLimiter.record_failed_attempt("127.0.0.1", "limited-signup@example.com")
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/register")
+
+    registration_form =
+      form(view, "#registration-form", %{
+        user: %{
+          email: "limited-signup@example.com",
+          username: "limited_signup",
+          display_name: "Limited Signup",
+          password: "supersecurepass"
+        }
+      })
+
+    render_submit(registration_form)
+
+    conn = follow_trigger_action(registration_form, conn)
+
+    assert redirected_to(conn) == ~p"/login"
+    assert Phoenix.Flash.get(conn.assigns.flash, :error) =~ "Too many login attempts"
+  end
+
+  test "registration form validation does not hash the password" do
+    changeset =
+      Rfchat.Accounts.change_registration_user(%Rfchat.Chat.User{}, %{
+        email: "validate@example.com",
+        username: "validate_user",
+        display_name: "Validate User",
+        password: "supersecurepass"
+      })
+
+    assert changeset.valid?
+    refute Ecto.Changeset.get_change(changeset, :hashed_password)
   end
 
   test "first registration signs in the server owner", %{conn: conn} do
@@ -56,6 +95,7 @@ defmodule RfchatWeb.UserAuthLiveTest do
       |> Rfchat.Repo.preload(:membership)
 
     assert owner.membership.is_owner
+    assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "server owner"
   end
 
   test "login redirects authenticated user into guild shell", %{conn: conn} do

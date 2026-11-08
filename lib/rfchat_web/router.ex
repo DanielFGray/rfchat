@@ -61,7 +61,6 @@ defmodule RfchatWeb.Router do
   scope "/", RfchatWeb do
     pipe_through([:browser, :redirect_if_user_is_authenticated])
 
-    post("/register", UserRegistrationController, :create)
     post("/login", UserSessionController, :create)
 
     live_session :redirect_if_user_is_authenticated,
