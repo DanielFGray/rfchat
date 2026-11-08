@@ -21,7 +21,7 @@ module.exports = defineConfig({
   },
   webServer: {
     command:
-      `${e2eMixEnv} mix ecto.reset && ${e2eMixEnv} mix run priv/repo/e2e_seeds.exs && ${e2eMixEnv} mix assets.build && ${e2eMixEnv} mix phx.server`,
+      `${e2eMixEnv} mix ecto.migrate && ${e2eMixEnv} mix run priv/repo/e2e_reset.exs && ${e2eMixEnv} mix assets.build && ${e2eMixEnv} mix phx.server`,
     url: 'http://127.0.0.1:4001/login',
     reuseExistingServer: false,
     stdout: 'pipe',

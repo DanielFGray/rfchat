@@ -194,6 +194,8 @@ defmodule RfchatWeb.GuildLiveSettingsTest do
     assert has_element?(view, "#manage-emoji-#{List.last(Chat.list_custom_emojis()).id}")
 
     emoji = List.last(Chat.list_custom_emojis())
+    assert build_conn() |> get(Chat.asset_url(emoji.asset)) |> response(200) == "fake png bytes"
+
     view |> element("#delete-emoji-#{emoji.id}") |> render_click()
     refute Enum.any?(Chat.list_custom_emojis(), &(&1.id == emoji.id))
   end

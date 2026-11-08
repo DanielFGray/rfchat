@@ -52,8 +52,7 @@ config :rfchat, RfchatWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
-      # Static assets, except user uploads
-      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
+      ~r"priv/static/.*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
       # Gettext translations
       ~r"priv/gettext/.*\.po$"E,
       # Router, Controllers, LiveViews and LiveComponents
@@ -64,6 +63,8 @@ config :rfchat, RfchatWeb.Endpoint,
 
 # Enable dev routes for dashboard and mailbox
 config :rfchat, dev_routes: true
+
+config :rfchat, :uploads_dir, Path.expand("../tmp/uploads", __DIR__)
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"

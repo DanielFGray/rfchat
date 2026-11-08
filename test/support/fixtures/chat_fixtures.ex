@@ -108,7 +108,7 @@ defmodule Rfchat.ChatFixtures do
         uploader_id: user.id,
         kind: :emoji,
         storage_provider: "local",
-        storage_key: "uploads/emojis/test-#{System.unique_integer([:positive])}.png",
+        storage_key: "emojis/test-#{System.unique_integer([:positive])}.png",
         original_filename: "emoji.png",
         content_type: "image/png",
         byte_size: 128,

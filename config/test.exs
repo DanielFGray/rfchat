@@ -29,5 +29,7 @@ config :phoenix_live_view,
 config :phoenix,
   sort_verified_routes_query_params: true
 
+config :rfchat, :uploads_dir, Path.expand("../tmp/test/uploads", __DIR__)
+
 config :rfchat, :defer_guild_live_hydration, false
 config :rfchat, :cache_default_role, false
