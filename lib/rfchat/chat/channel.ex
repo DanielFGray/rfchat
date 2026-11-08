@@ -46,6 +46,15 @@ defmodule Rfchat.Chat.Channel do
     timestamps(type: :utc_datetime_usec)
   end
 
+  @thread_kinds [:thread_public, :thread_private, :thread_announcement]
+
+  def thread?(%__MODULE__{kind: kind}), do: kind in @thread_kinds
+
+  @doc """
+  A changeset for a channel or category that a channel manager creates or edits. A thread is
+  not one: its kind, parent, starter message and creator are fixed when it is created (see
+  `thread_changeset/2`), because a thread's visibility comes from its parent.
+  """
   def changeset(channel, attrs) do
     channel
     |> cast(attrs, [
@@ -55,14 +64,39 @@ defmodule Rfchat.Chat.Channel do
       :topic,
       :kind,
       :parent_channel_id,
-      :created_by_id,
-      :starter_message_id,
       :nsfw,
       :slowmode_seconds,
-      :default_auto_archive_minutes,
-      :archived_at,
-      :locked_at
+      :default_auto_archive_minutes
     ])
+    |> validate_not_thread()
+    |> validate_settings()
+  end
+
+  @doc """
+  A changeset for a new thread. The caller sets the kind, slug, position, parent channel,
+  starter message and creator on the struct; a client chooses only the name.
+  """
+  def thread_changeset(%__MODULE__{kind: kind} = thread, attrs) when kind in @thread_kinds do
+    thread
+    |> cast(attrs, [:name])
+    |> validate_settings()
+  end
+
+  defp validate_not_thread(changeset) do
+    cond do
+      changeset.data.kind in @thread_kinds ->
+        add_error(changeset, :kind, "a thread is not edited as a channel")
+
+      get_field(changeset, :kind) in @thread_kinds ->
+        add_error(changeset, :kind, "is invalid")
+
+      true ->
+        changeset
+    end
+  end
+
+  defp validate_settings(changeset) do
+    changeset
     |> update_change(:name, &normalize_text/1)
     |> update_change(:slug, &normalize_slug/1)
     |> update_change(:topic, &normalize_optional_text/1)

@@ -254,6 +254,67 @@ defmodule Rfchat.ChatTest do
       assert Chat.get_thread_for_starter_message(starter.id).id == thread.id
     end
 
+    test "create_public_thread/4 takes only the name from its attrs" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture()
+      other_channel = channel_fixture()
+      author = user_fixture()
+      other_user = user_fixture()
+      starter = message_fixture(channel, author, %{body: "Discuss roadmap here"})
+      elsewhere = message_fixture(other_channel, author, %{body: "somewhere else"})
+
+      assert {:ok, thread} =
+               Chat.create_public_thread(channel, starter, author, %{
+                 "name" => "Roadmap",
+                 "kind" => "text",
+                 "parent_channel_id" => other_channel.id,
+                 "starter_message_id" => elsewhere.id,
+                 "created_by_id" => other_user.id,
+                 "locked_at" => "2020-01-01T00:00:00Z"
+               })
+
+      assert %{
+               name: "Roadmap",
+               kind: :thread_public,
+               locked_at: nil
+             } = thread
+
+      assert {thread.parent_channel_id, thread.starter_message_id, thread.created_by_id} ==
+               {channel.id, starter.id, author.id}
+    end
+
+    test "channel management refuses threads and parents that are not categories" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture()
+      author = user_fixture()
+      starter = message_fixture(channel, author, %{body: "thread starter"})
+      {:ok, thread} = Chat.create_public_thread(channel, starter, author)
+
+      assert {:error, changeset} =
+               Chat.update_channel(thread, %{"kind" => "text", "parent_channel_id" => nil})
+
+      assert errors_on(changeset).kind
+      assert {:error, :thread} = Chat.delete_channel(thread)
+
+      assert {:error, changeset} =
+               Chat.create_channel(%{
+                 name: "Under text",
+                 slug: unique_slug(),
+                 parent_channel_id: channel.id
+               })
+
+      assert "must be a category" in errors_on(changeset).parent_channel_id
+
+      assert {:error, changeset} =
+               Chat.create_channel(%{
+                 name: "Fake thread",
+                 slug: unique_slug(),
+                 kind: "thread_public"
+               })
+
+      assert "is invalid" in errors_on(changeset).kind
+    end
+
     test "list_threads_for_channel/1 and list_thread_messages/2 return thread conversations" do
       Bootstrap.ensure_seed_data!()
       channel = channel_fixture(%{slug: unique_slug()})

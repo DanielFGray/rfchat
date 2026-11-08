@@ -111,12 +111,11 @@ defmodule Rfchat.Chat.Threads do
           {:ok, thread}
 
         nil ->
-          attrs = normalize_thread_attrs(attrs, starter_message, parent_channel)
-
           Repo.transaction(fn ->
             with {:ok, thread} <-
-                   %Channel{created_by_id: author.id}
-                   |> Channel.changeset(attrs)
+                   starter_message
+                   |> new_thread(parent_channel, author.id)
+                   |> Channel.thread_changeset(thread_name_attrs(attrs))
                    |> Repo.insert() do
               :ok = Rfchat.Chat.ensure_channel_memberships_for_user(author, [thread])
               Repo.preload(thread, [:parent_channel, starter_message: :author])
@@ -136,32 +135,37 @@ defmodule Rfchat.Chat.Threads do
     end
   end
 
-  def normalize_thread_attrs(attrs, starter_message, parent_channel) do
-    attrs =
-      attrs
-      |> Enum.into(%{})
-      |> Enum.reduce(%{}, fn
-        {key, value}, acc when is_atom(key) -> Map.put(acc, Atom.to_string(key), value)
-        {key, value}, acc -> Map.put(acc, key, value)
-      end)
-
-    parent_channel = parent_channel || starter_message.channel
-
-    attrs
-    |> Map.put_new("name", thread_name_from_message(starter_message))
-    |> Map.put_new("slug", "thread-#{Ecto.UUID.generate()}")
-    |> Map.put_new("kind", :thread_public)
-    |> Map.put_new("position", next_thread_position(parent_channel.id))
-    |> Map.put_new("parent_channel_id", parent_channel.id)
-    |> Map.put_new("starter_message_id", starter_message.id)
-    |> Map.put_new("topic", nil)
-  end
-
   def invalid_thread_changeset(parent_channel, starter_message, message) do
-    %Channel{created_by_id: starter_message.author_id}
-    |> Channel.changeset(normalize_thread_attrs(%{}, starter_message, parent_channel))
+    starter_message
+    |> new_thread(parent_channel, starter_message.author_id)
+    |> Channel.thread_changeset(%{})
     |> Ecto.Changeset.add_error(:starter_message_id, message)
   end
+
+  # Everything but the name comes from the starter message and its channel, so a client cannot
+  # choose a thread's kind, parent, starter message or creator.
+  defp new_thread(starter_message, parent_channel, creator_id) do
+    parent_channel = parent_channel || starter_message.channel
+
+    %Channel{
+      kind: :thread_public,
+      name: thread_name_from_message(starter_message),
+      slug: "thread-#{Ecto.UUID.generate()}",
+      position: next_thread_position(parent_channel.id),
+      parent_channel_id: parent_channel.id,
+      starter_message_id: starter_message.id,
+      created_by_id: creator_id
+    }
+  end
+
+  defp thread_name_attrs(attrs) when is_map(attrs) do
+    case Map.get(attrs, "name", Map.get(attrs, :name)) do
+      name when is_binary(name) and name != "" -> %{"name" => name}
+      _blank -> %{}
+    end
+  end
+
+  defp thread_name_attrs(_attrs), do: %{}
 
   def thread_name_from_message(%Message{body: body}) do
     body

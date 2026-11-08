@@ -144,8 +144,7 @@ defmodule Rfchat.Chat.Permissions do
     end
   end
 
-  def thread_channel?(%Channel{kind: kind}),
-    do: kind in [:thread_public, :thread_private, :thread_announcement]
+  defdelegate thread_channel?(channel), to: Channel, as: :thread?
 
   def thread_host_channel?(%Channel{kind: kind}), do: kind in [:text, :announcement, :forum]
 

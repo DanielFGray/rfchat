@@ -168,7 +168,7 @@ defmodule Rfchat.Chat.Channels do
 
   def create_channel(attrs) do
     %Channel{}
-    |> Channel.changeset(attrs)
+    |> managed_channel_changeset(attrs)
     |> Repo.insert()
     |> case do
       {:ok, channel} ->
@@ -186,7 +186,7 @@ defmodule Rfchat.Chat.Channels do
 
   def update_channel(%Channel{} = channel, attrs) do
     channel
-    |> Channel.changeset(attrs)
+    |> managed_channel_changeset(attrs)
     |> Repo.update()
     |> case do
       {:ok, updated_channel} ->
@@ -198,15 +198,15 @@ defmodule Rfchat.Chat.Channels do
     end
   end
 
+  @doc "Deletes a channel or category. A thread is refused: it goes with its starter message."
   def delete_channel(%Channel{} = channel) do
-    Repo.delete(channel)
-    |> case do
-      {:ok, deleted_channel} ->
-        Topics.broadcast_guild({:channel_deleted, deleted_channel})
-        {:ok, deleted_channel}
-
-      error ->
-        error
+    with false <- Channel.thread?(channel),
+         {:ok, deleted_channel} <- Repo.delete(channel) do
+      Topics.broadcast_guild({:channel_deleted, deleted_channel})
+      {:ok, deleted_channel}
+    else
+      true -> {:error, :thread}
+      error -> error
     end
   end
 
@@ -304,7 +304,20 @@ defmodule Rfchat.Chat.Channels do
   end
 
   defp visible_text_channel?(channel) do
-    channel.kind not in [:category, :thread_public, :thread_private, :thread_announcement]
+    channel.kind != :category and not Channel.thread?(channel)
+  end
+
+  # A manager places a channel only under a category. Any other parent would make the channel a
+  # child of a channel, whose visibility rules are a thread's.
+  defp managed_channel_changeset(channel, attrs) do
+    channel
+    |> Channel.changeset(attrs)
+    |> Ecto.Changeset.validate_change(:parent_channel_id, fn :parent_channel_id, parent_id ->
+      case Repo.get(Channel, parent_id) do
+        %Channel{kind: :category} -> []
+        _other -> [parent_channel_id: "must be a category"]
+      end
+    end)
   end
 
   defp normalize_optional_binary_id(nil), do: nil
