@@ -73,7 +73,6 @@ ENV MIX_ENV="prod"
 
 COPY --from=builder /app/_build/${MIX_ENV}/rel/rfchat ./
 
-# No USER line: Nomad runs this image under rootless Podman, where container root is the
-# unprivileged host nomad user that owns the host volume mounted at UPLOADS_DIR. Any other
-# container user maps to a subordinate uid that cannot write that volume.
+# No USER line: Nomad runs this image under rootless Podman, where container root is already
+# the unprivileged host nomad user.
 CMD ["/app/bin/server"]

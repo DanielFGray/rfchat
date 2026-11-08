@@ -14,5 +14,31 @@ services:
       timeout: 3s
       retries: 10
 
+  # The local S3 store for uploads. It runs without authentication.
+  s3:
+    image: chrislusf/seaweedfs:4.50
+    container_name: rfchat-s3
+    restart: unless-stopped
+    command: ["server", "-s3", "-dir=/data"]
+    ports:
+      - "${S3_PORT:-8333}:8333"
+    volumes:
+      - s3-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8333/status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Creates the dev bucket once the store is up; creating an existing bucket succeeds.
+  s3-bucket:
+    image: chrislusf/seaweedfs:4.50
+    depends_on:
+      s3:
+        condition: service_healthy
+    entrypoint: ["sh", "-c", "echo 's3.bucket.create -name rfchat' | weed shell -master=s3:9333"]
+    restart: "no"
+
 volumes:
   valkey-data:
+  s3-data:

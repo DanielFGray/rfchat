@@ -27,12 +27,6 @@ defmodule RfchatWeb.Endpoint do
     only: RfchatWeb.static_paths(),
     raise_on_missing_only: code_reloading?
 
-  # Uploads live outside the release, so the directory is read on each request rather than
-  # fixed when the plug is compiled.
-  plug Plug.Static,
-    at: "/uploads",
-    from: {Rfchat.Chat.MediaAssets, :uploads_dir, []}
-
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.
   if code_reloading? do

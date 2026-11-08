@@ -29,7 +29,14 @@ config :phoenix_live_view,
 config :phoenix,
   sort_verified_routes_query_params: true
 
-config :rfchat, :uploads_dir, Path.expand("../tmp/test/uploads", __DIR__)
+# Requests go to an in-memory bucket through Req's plug transport; signing still runs.
+config :rfchat, Rfchat.ObjectStore,
+  endpoint: "http://object-store.test",
+  bucket: "rfchat-test",
+  region: "us-east-1",
+  access_key_id: "test",
+  secret_access_key: "test",
+  req_options: [plug: Rfchat.TestObjectStore, retry: false]
 
 config :rfchat, :defer_guild_live_hydration, false
 config :rfchat, :cache_default_role, false

@@ -198,5 +198,6 @@ defmodule RfchatWeb.GuildLiveSettingsTest do
 
     view |> element("#delete-emoji-#{emoji.id}") |> render_click()
     refute Enum.any?(Chat.list_custom_emojis(), &(&1.id == emoji.id))
+    assert build_conn() |> get(Chat.asset_url(emoji.asset)) |> response(404)
   end
 end

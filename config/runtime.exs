@@ -22,7 +22,10 @@ end
 
 config :rfchat,
   guild_name: System.get_env("RFCHAT_GUILD_NAME", "RFChat"),
-  redis_url: System.get_env("REDIS_URL", "redis://localhost:6379/0")
+  redis_url: System.get_env("REDIS_URL", "redis://localhost:6379/0"),
+  # The platform gives each deploy its own prefix, colon included: `rfchat:` live,
+  # `rfchat-staged:` in a staged copy. The Valkey login may touch only keys under it.
+  valkey_key_prefix: System.get_env("VALKEY_KEY_PREFIX", "rfchat:")
 
 config :rfchat, RfchatWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
@@ -68,10 +71,29 @@ if config_env() == :prod do
         raise("environment variable PHX_URL is missing, for example https://chat.example.com")
     )
 
-  config :rfchat,
-    uploads_dir:
-      System.get_env("UPLOADS_DIR") ||
-        raise("environment variable UPLOADS_DIR is missing; it names a persistent directory")
+  # The platform gives each deploy, and each staged copy, its own bucket and key.
+  fetch_s3_env! = fn name ->
+    System.get_env(name) || raise("environment variable #{name} is missing")
+  end
+
+  config :rfchat, Rfchat.ObjectStore,
+    endpoint: fetch_s3_env!.("S3_ENDPOINT"),
+    bucket: fetch_s3_env!.("S3_BUCKET"),
+    region: fetch_s3_env!.("S3_REGION"),
+    access_key_id: fetch_s3_env!.("S3_ACCESS_KEY_ID"),
+    secret_access_key: fetch_s3_env!.("S3_SECRET_ACCESS_KEY")
+
+  # The api login holds no grants and does not inherit the visitor role, so each server
+  # connection switches to it. The migrate step logs in as the migration login, which cannot
+  # take that role; `Rfchat.Release.migrate/0` starts the Repo without this callback.
+  visitor_role = System.get_env("DATABASE_VISITOR")
+
+  if visitor_role do
+    quoted_role = ~s("#{String.replace(visitor_role, ~s("), ~s(""))}")
+
+    config :rfchat, Rfchat.Repo,
+      after_connect: {Postgrex, :query!, ["SET ROLE #{quoted_role}", []]}
+  end
 
   check_origin =
     case System.get_env("PHX_CHECK_ORIGIN") do

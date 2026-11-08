@@ -1,26 +1,25 @@
 defmodule Rfchat.Chat.MediaAssets do
   @moduledoc """
-  Uploaded images. A `storage_key` is the file's path under `uploads_dir/0`, which the
-  endpoint serves at `/uploads`.
+  Uploaded images. Each asset's bytes live in `Rfchat.ObjectStore` under its `storage_key`,
+  and the app serves them at `asset_url/1`.
   """
 
   alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.User
+  alias Rfchat.ObjectStore
   alias Rfchat.Repo
 
   @emoji_upload_dir "emojis"
   @server_icon_upload_dir "server_icons"
   @allowed_upload_content_types ~w(image/png image/jpeg image/gif image/webp)
 
-  @doc """
-  The directory that holds uploaded files. A deploy mounts it on a volume, so files outlive
-  the release image.
-  """
-  def uploads_dir, do: Application.fetch_env!(:rfchat, :uploads_dir)
-
   def asset_url(%MediaAsset{storage_key: storage_key}) when is_binary(storage_key),
     do: "/uploads/#{storage_key}"
 
+  @doc """
+  Stores the uploaded file in the object store, then records it. Returns
+  `{:error, reason, :upload}` when the file is refused or cannot be stored.
+  """
   def create_media_asset_from_upload(
         %{path: path, client_name: client_name, client_type: client_type},
         %User{} = creator,
@@ -31,23 +30,21 @@ defmodule Rfchat.Chat.MediaAssets do
     kind = Keyword.get(opts, :kind, :emoji)
 
     with :ok <- validate_upload_type(client_type, allowed_types),
-         {:ok, %{size: byte_size}} <- File.stat(path),
-         ext <- upload_extension(client_name, client_type),
-         storage_key <- Path.join(upload_dir, "#{Ecto.UUID.generate()}#{ext}"),
-         destination <- asset_destination_path(storage_key),
-         :ok <- File.mkdir_p(Path.dirname(destination)),
-         :ok <- File.cp(path, destination),
-         {:ok, sha256} <- file_sha256(destination),
+         {:ok, body} <- File.read(path),
+         storage_key =
+           "#{upload_dir}/#{Ecto.UUID.generate()}#{upload_extension(client_name, client_type)}",
+         :ok <- ObjectStore.put(storage_key, body, client_type),
          {:ok, asset} <-
            %MediaAsset{}
            |> MediaAsset.changeset(%{
              uploader_id: creator.id,
              kind: kind,
+             storage_provider: "s3",
              storage_key: storage_key,
              original_filename: client_name,
              content_type: client_type,
-             byte_size: byte_size,
-             sha256: sha256
+             byte_size: byte_size(body),
+             sha256: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower)
            })
            |> Repo.insert() do
       {:ok, asset}
@@ -64,9 +61,10 @@ defmodule Rfchat.Chat.MediaAssets do
     )
   end
 
-  def delete_media_asset(%MediaAsset{} = asset) do
-    maybe_delete_asset_file(asset)
-    Repo.delete(asset)
+  def delete_media_asset(%MediaAsset{storage_key: storage_key} = asset) do
+    with :ok <- ObjectStore.delete(storage_key) do
+      Repo.delete(asset)
+    end
   end
 
   defp validate_upload_type(content_type, allowed_types) do
@@ -76,14 +74,9 @@ defmodule Rfchat.Chat.MediaAssets do
   defp upload_extension(filename, content_type) do
     ext = filename |> Path.extname() |> String.downcase()
 
-    case ext do
-      ".png" -> ext
-      ".jpg" -> ext
-      ".jpeg" -> ext
-      ".gif" -> ext
-      ".webp" -> ext
-      _ -> extension_for_content_type(content_type)
-    end
+    if ext in ~w(.png .jpg .jpeg .gif .webp),
+      do: ext,
+      else: extension_for_content_type(content_type)
   end
 
   defp extension_for_content_type("image/png"), do: ".png"
@@ -91,22 +84,4 @@ defmodule Rfchat.Chat.MediaAssets do
   defp extension_for_content_type("image/gif"), do: ".gif"
   defp extension_for_content_type("image/webp"), do: ".webp"
   defp extension_for_content_type(_), do: ".bin"
-
-  defp asset_destination_path(storage_key), do: Path.join(uploads_dir(), storage_key)
-
-  defp file_sha256(path) do
-    case File.read(path) do
-      {:ok, binary} -> {:ok, :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp maybe_delete_asset_file(%MediaAsset{storage_key: storage_key})
-       when is_binary(storage_key) do
-    storage_key
-    |> asset_destination_path()
-    |> File.rm()
-
-    :ok
-  end
 end

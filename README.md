@@ -52,13 +52,14 @@ In dev and test, Phoenix reads:
 
 - `DATABASE_URL`, `TEST_DATABASE_URL`, `DATABASE_VISITOR`: written by `ops dev db up`
 - `REDIS_URL`, `REDIS_PORT`: the local Valkey
+- `S3_PORT`: the local S3 store (SeaweedFS) that holds uploads; `config/dev.exs` points at it
 - `PORT`, `POOL_SIZE`, `RFCHAT_GUILD_NAME`
 
-A deploy gets its environment from `cartridge.json`: `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY_BASE`, `DATABASE_VISITOR`, `PHX_URL` (the service's route URL) and `UPLOADS_DIR` (a directory on the `rfchat-data` volume).
+A deploy gets its environment from `cartridge.json`: `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY_BASE`, `DATABASE_VISITOR` (the role each server connection switches to with `SET ROLE`), `PHX_URL` (the service's route URL), `VALKEY_KEY_PREFIX`, and the upload bucket: `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Tests keep the bucket in memory.
 
 ## Deploy
 
-`ops release` builds the `Dockerfile` from the committed `HEAD` and deploys the image as `cartridge.json` declares. Its migrate step, `/app/bin/migrate`, runs the migrations and adds the seed data before the server starts. Before the first deploy, set the session secret once with `ops secret set secret_key_base` (generate the value with `mix phx.gen.secret`). `ops stage` refuses a cartridge whose service writes a host volume, so it refuses this one while uploads live on `rfchat-data`.
+`ops release` builds the `Dockerfile` from the committed `HEAD` and deploys the image as `cartridge.json` declares. Its migrate step, `/app/bin/migrate`, runs the migrations and adds the seed data before the server starts. Before the first deploy, set the session secret once with `ops secret set secret_key_base` (generate the value with `mix phx.gen.secret`). The platform has no S3 service yet, so `cartridge.json` does not map the bucket variables, and the app cannot be deployed or staged until it does.
 
 ## Initial architecture direction
 

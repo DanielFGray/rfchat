@@ -13,14 +13,13 @@
       "cpu": 500,
       "memoryMB": 512,
       "networkMode": "bridge",
-      "storage": { "volume": "rfchat-data", "mountPath": "/data" },
       "routes": [{ "access": "tailnet" }],
       "environment": [
         { "name": "PHX_SERVER", "value": "true" },
         { "name": "PORT", "value": "4000" },
-        { "name": "UPLOADS_DIR", "value": "/data/uploads" },
         { "name": "DATABASE_VISITOR", "database": "rfchat", "role": "visitor" },
-        { "name": "PHX_URL", "route": "rfchat" }
+        { "name": "PHX_URL", "route": "rfchat" },
+        { "name": "VALKEY_KEY_PREFIX", "valkey": "keyPrefix" }
       ],
       "connections": [],
       "migrate": {

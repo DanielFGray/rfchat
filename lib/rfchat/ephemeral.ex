@@ -2,11 +2,11 @@ defmodule Rfchat.Ephemeral do
   @moduledoc """
   Short-lived state in Valkey: presence, typing and rate-limit counters.
 
-  Every key this module touches starts with `rfchat:`, because the deployed Valkey user may
-  read and write only keys that match `rfchat:*`. Callers pass keys without that prefix.
+  Every key this module touches starts with the deploy's key prefix (`rfchat:` live,
+  `rfchat-staged:` in a staged copy), because its Valkey user may read and write only keys
+  under that prefix. Callers pass keys without it.
   """
 
-  @key_prefix "rfchat:"
   @presence_prefix "presence:user:"
   @typing_prefix "typing:channel:"
 
@@ -145,5 +145,5 @@ defmodule Rfchat.Ephemeral do
 
   defp presence_key(user_id), do: namespaced(@presence_prefix <> user_id)
   defp typing_key(channel_id), do: namespaced(@typing_prefix <> channel_id)
-  defp namespaced(key), do: @key_prefix <> key
+  defp namespaced(key), do: Application.fetch_env!(:rfchat, :valkey_key_prefix) <> key
 end

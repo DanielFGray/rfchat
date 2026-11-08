@@ -64,7 +64,13 @@ config :rfchat, RfchatWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :rfchat, dev_routes: true
 
-config :rfchat, :uploads_dir, Path.expand("../tmp/uploads", __DIR__)
+# The local S3 store from docker-compose.yml. It runs without authentication, so any key works.
+config :rfchat, Rfchat.ObjectStore,
+  endpoint: "http://localhost:#{System.get_env("S3_PORT", "8333")}",
+  bucket: "rfchat",
+  region: "us-east-1",
+  access_key_id: "dev",
+  secret_access_key: "dev"
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :default_formatter, format: "[$level] $message\n"
