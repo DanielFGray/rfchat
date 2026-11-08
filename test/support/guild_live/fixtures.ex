@@ -30,7 +30,7 @@ defmodule RfchatWeb.GuildLiveFixtures do
 
   def log_in_owner_user(conn) do
     user =
-      user_fixture(%{
+      owner_fixture(%{
         email: "guildlive-owner@example.com",
         username: "guildlive_owner",
         display_name: "Guildlive Owner"

@@ -90,11 +90,7 @@ defmodule Rfchat.Accounts do
         |> User.registration_changeset(attrs)
         |> Repo.insert!()
 
-      lock_ownership!()
-      owner_candidate? = not owner_exists?()
-
-      membership =
-        create_membership!(user, now, owner_candidate?)
+      membership = create_membership!(user, now)
 
       user
       |> Repo.preload([:membership, member_roles: :role])
@@ -107,6 +103,47 @@ defmodule Rfchat.Accounts do
     end
   rescue
     error in Ecto.InvalidChangesetError -> {:error, error.changeset}
+  end
+
+  @doc """
+  Promote an existing active human member to the first server owner.
+
+  The ownership lock makes the check and promotion one decision across concurrent release
+  commands. Existing owners remain owners; transfers use `promote_to_owner/2` instead.
+  """
+  def promote_first_owner(email) when is_binary(email) do
+    Repo.transaction(fn ->
+      lock_ownership!()
+
+      cond do
+        owner_exists?() ->
+          Repo.rollback(:owner_exists)
+
+        true ->
+          case Repo.one(
+                 from user in User,
+                   join: membership in Membership,
+                   on: membership.user_id == user.id,
+                   where:
+                     user.email == ^String.downcase(email) and is_nil(user.deleted_at) and
+                       user.bot == false and is_nil(membership.deactivated_at),
+                   select: {user, membership}
+               ) do
+            {user, membership} ->
+              updated_membership =
+                membership
+                |> Membership.ownership_changeset(true)
+                |> Repo.update!()
+
+              user
+              |> Repo.preload([:membership, member_roles: :role])
+              |> Map.put(:membership, updated_membership)
+
+            nil ->
+              Repo.rollback(:not_found)
+          end
+      end
+    end)
   end
 
   def register_user!(attrs) do
@@ -281,7 +318,7 @@ defmodule Rfchat.Accounts do
           subject_membership
 
         true ->
-          subject_membership |> Membership.changeset(%{is_owner: is_owner}) |> Repo.update!()
+          subject_membership |> Membership.ownership_changeset(is_owner) |> Repo.update!()
       end
     end)
   end
@@ -296,14 +333,17 @@ defmodule Rfchat.Accounts do
     Repo.query!("SELECT pg_advisory_xact_lock($1)", [@ownership_lock_key])
   end
 
-  defp create_membership!(%User{} = user, now, owner_candidate?) do
-    %Membership{user_id: user.id}
-    |> Membership.changeset(%{joined_at: now, is_owner: owner_candidate?})
+  defp create_membership!(%User{} = user, now) do
+    %Membership{user_id: user.id, is_owner: false}
+    |> Membership.changeset(%{joined_at: now})
     |> Repo.insert!()
   end
 
   defp owner_exists? do
-    Repo.exists?(from(membership in Membership, where: membership.is_owner == true))
+    Repo.exists?(
+      from membership in Membership,
+        where: membership.is_owner == true and is_nil(membership.deactivated_at)
+    )
   end
 
   defp touch_session(token) do

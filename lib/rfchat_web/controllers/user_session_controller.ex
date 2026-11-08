@@ -43,11 +43,7 @@ defmodule RfchatWeb.UserSessionController do
     end
   end
 
-  defp welcome(conn, "registered", user) do
-    if user.membership && user.membership.is_owner,
-      do: put_flash(conn, :info, "Account created. You are now signed in as the server owner."),
-      else: put_flash(conn, :info, "Account created. You are now signed in.")
-  end
+  defp welcome(conn, "registered", _user), do: put_flash(conn, :info, "Account created")
 
   defp welcome(conn, _action, _user), do: conn
 

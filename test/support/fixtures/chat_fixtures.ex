@@ -1,6 +1,8 @@
 defmodule Rfchat.ChatFixtures do
   @moduledoc false
 
+  import Ecto.Query
+
   alias Rfchat.Accounts
   alias Rfchat.Bots
   alias Rfchat.Chat
@@ -27,6 +29,28 @@ defmodule Rfchat.ChatFixtures do
 
     {:ok, user} = Accounts.register_user(attrs)
     user
+  end
+
+  def owner_fixture(attrs \\ %{}) do
+    user = user_fixture(attrs)
+
+    case Accounts.promote_first_owner(user.email) do
+      {:ok, owner} ->
+        owner
+
+      {:error, :owner_exists} ->
+        existing_owner =
+          Repo.one!(
+            from membership in Rfchat.Chat.Membership,
+              where: membership.is_owner and is_nil(membership.deactivated_at),
+              select: membership.user_id,
+              limit: 1
+          )
+          |> Accounts.get_user_with_membership!()
+
+        {:ok, membership} = Accounts.promote_to_owner(existing_owner, user)
+        %{user | membership: membership}
+    end
   end
 
   def channel_fixture(attrs \\ %{}) do

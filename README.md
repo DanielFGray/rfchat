@@ -111,7 +111,7 @@ The root route now serves a minimal guild chat shell:
 - owners can open an in-app channel manager to create/edit categories and text channels
 - channel list now renders grouped sections when channels belong to categories
 - seeded system poster: `rfchat_system`
-- first registered account becomes the server owner
+- an operator assigns the first server owner after registration
 - default `@everyone` role grants baseline channel visibility + messaging
 - channel switching via LiveView patch params
 - local message posting persisted to Postgres
@@ -121,6 +121,16 @@ The root route now serves a minimal guild chat shell:
 - admins with emoji permission can upload/delete custom emoji and everyone can use them in a searchable full Unicode + custom reaction picker
 
 Login is rate limited, session metadata stores IP/user-agent, and channel rendering/posting now respects membership + permission checks.
+
+### Assign the first owner
+
+Register the account that should own the server, then run this command from a development checkout:
+
+```bash
+mix run -e 'Rfchat.Accounts.promote_first_owner("you@example.com")'
+```
+
+In a release install, run `bin/make-owner you@example.com` from the release directory.
 
 This is intentionally barebones infra, not polished product UX.
 

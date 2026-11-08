@@ -29,15 +29,19 @@ defmodule Rfchat.AccountsOwnershipRaceTest do
     end)
   end
 
-  test "concurrent first registrations make exactly one owner" do
-    first = hold_open(fn -> Accounts.register_user(user_attrs()) end)
+  test "concurrent first promotions leave exactly one owner" do
+    {:ok, first_user} = Accounts.register_user(user_attrs())
+    {:ok, second_user} = Accounts.register_user(user_attrs())
+    first = hold_open(fn -> Accounts.promote_first_owner(first_user.email) end)
 
     second =
-      Task.async(fn -> on_own_connection(fn -> Accounts.register_user(user_attrs()) end) end)
+      Task.async(fn ->
+        on_own_connection(fn -> Accounts.promote_first_owner(second_user.email) end)
+      end)
 
-    assert Task.yield(second, @blocked_ms) == nil, "the second registration did not wait"
+    assert Task.yield(second, @blocked_ms) == nil, "the second promotion did not wait"
     assert {:ok, %User{}} = commit(first)
-    assert {:ok, %User{}} = Task.await(second)
+    assert {:error, :owner_exists} = Task.await(second)
 
     assert owner_count() == 1
   end
@@ -45,6 +49,7 @@ defmodule Rfchat.AccountsOwnershipRaceTest do
   test "two owners demoting each other at once leave one owner" do
     {:ok, alice} = Accounts.register_user(user_attrs())
     {:ok, bob} = Accounts.register_user(user_attrs())
+    {:ok, alice} = Accounts.promote_first_owner(alice.email)
     {:ok, _} = Accounts.promote_to_owner(alice, bob)
 
     first = hold_open(fn -> Accounts.demote_from_owner(alice, bob) end)

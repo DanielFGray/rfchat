@@ -30,7 +30,7 @@ defmodule RfchatWeb.UserAuthLiveTest do
     conn = follow_trigger_action(registration_form, conn)
 
     assert redirected_to(conn) == ~p"/"
-    assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "Account created"
+    assert Phoenix.Flash.get(conn.assigns.flash, :info) == "Account created"
   end
 
   test "registration signs in through the login limiter", %{conn: conn} do
@@ -71,7 +71,7 @@ defmodule RfchatWeb.UserAuthLiveTest do
     refute Ecto.Changeset.get_change(changeset, :hashed_password)
   end
 
-  test "first registration signs in the server owner", %{conn: conn} do
+  test "first registration signs in a member", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/register")
 
     registration_form =
@@ -90,12 +90,12 @@ defmodule RfchatWeb.UserAuthLiveTest do
 
     assert redirected_to(conn) == ~p"/"
 
-    owner =
+    member =
       Rfchat.Accounts.get_user_by_email("owner-signup@example.com")
       |> Rfchat.Repo.preload(:membership)
 
-    assert owner.membership.is_owner
-    assert Phoenix.Flash.get(conn.assigns.flash, :info) =~ "server owner"
+    refute member.membership.is_owner
+    assert Phoenix.Flash.get(conn.assigns.flash, :info) == "Account created"
   end
 
   test "login redirects authenticated user into guild shell", %{conn: conn} do

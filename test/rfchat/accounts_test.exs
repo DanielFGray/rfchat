@@ -3,6 +3,8 @@ defmodule Rfchat.AccountsTest do
 
   alias Rfchat.Accounts
   alias Rfchat.Accounts.LoginRateLimiter
+  alias Rfchat.Chat.Membership
+  alias Rfchat.Chat.User
   alias Rfchat.Chat.UserSession
   alias Rfchat.Repo
 
@@ -25,28 +27,36 @@ defmodule Rfchat.AccountsTest do
     assert user.email == "new@example.com"
     assert user.hashed_password
     assert user.membership.user_id == user.id
-    assert user.membership.is_owner
+    refute user.membership.is_owner
   end
 
-  test "only the first registered account becomes owner" do
-    assert {:ok, first_user} =
-             Accounts.register_user(%{
-               email: "owner@example.com",
-               username: "owner_user",
-               display_name: "Owner User",
-               password: "supersecurepass"
-             })
+  describe "promote_first_owner/1" do
+    test "promotes an existing member once" do
+      member = user_fixture(%{email: "owner@example.com", username: "owner_user"})
 
-    assert {:ok, second_user} =
-             Accounts.register_user(%{
-               email: "member@example.com",
-               username: "member_user",
-               display_name: "Member User",
-               password: "supersecurepass"
-             })
+      assert {:ok, owner} = Accounts.promote_first_owner(member.email)
+      assert owner.membership.is_owner
+      assert {:error, :owner_exists} = Accounts.promote_first_owner(member.email)
+    end
 
-    assert first_user.membership.is_owner
-    refute second_user.membership.is_owner
+    test "returns not_found for unknown users and bots" do
+      assert {:error, :not_found} = Accounts.promote_first_owner("missing@example.com")
+
+      bot =
+        %User{bot: true}
+        |> User.changeset(%{
+          email: "bot@example.com",
+          username: "bot_user",
+          display_name: "Bot"
+        })
+        |> Repo.insert!()
+
+      %Membership{user_id: bot.id}
+      |> Membership.changeset(%{joined_at: DateTime.utc_now()})
+      |> Repo.insert!()
+
+      assert {:error, :not_found} = Accounts.promote_first_owner(bot.email)
+    end
   end
 
   test "get_user_by_email_and_password/2 authenticates correctly" do
@@ -85,12 +95,12 @@ defmodule Rfchat.AccountsTest do
 
   describe "owner?/1" do
     test "returns true for an owner" do
-      owner = user_fixture()
+      owner = owner_fixture()
       assert Accounts.owner?(owner)
     end
 
     test "returns false for a regular member" do
-      _owner = user_fixture()
+      _owner = owner_fixture()
       member = user_fixture()
       refute Accounts.owner?(member)
     end
@@ -102,7 +112,7 @@ defmodule Rfchat.AccountsTest do
 
   describe "promote_to_owner/2" do
     test "owner can promote a regular member" do
-      owner = user_fixture()
+      owner = owner_fixture()
       member = user_fixture()
 
       member = Accounts.get_user_with_membership!(member.id)
@@ -113,7 +123,7 @@ defmodule Rfchat.AccountsTest do
     end
 
     test "non-owner cannot promote anyone" do
-      _owner = user_fixture()
+      _owner = owner_fixture()
       member_a = user_fixture()
       member_b = user_fixture()
 
@@ -124,12 +134,12 @@ defmodule Rfchat.AccountsTest do
     end
 
     test "owner cannot promote themselves" do
-      owner = user_fixture()
+      owner = owner_fixture()
       assert {:error, :self} = Accounts.promote_to_owner(owner, owner)
     end
 
     test "multiple owners can coexist" do
-      owner = user_fixture()
+      owner = owner_fixture()
       member = user_fixture()
 
       member = Accounts.get_user_with_membership!(member.id)
@@ -143,7 +153,7 @@ defmodule Rfchat.AccountsTest do
 
   describe "demote_from_owner/2" do
     test "owner can demote another owner" do
-      owner = user_fixture()
+      owner = owner_fixture()
       member = user_fixture()
 
       member = Accounts.get_user_with_membership!(member.id)
@@ -157,12 +167,12 @@ defmodule Rfchat.AccountsTest do
     end
 
     test "owner cannot demote themselves" do
-      owner = user_fixture()
+      owner = owner_fixture()
       assert {:error, :self} = Accounts.demote_from_owner(owner, owner)
     end
 
     test "non-owner cannot demote anyone" do
-      _owner = user_fixture()
+      _owner = owner_fixture()
       member = user_fixture()
 
       member = Accounts.get_user_with_membership!(member.id)

@@ -71,7 +71,7 @@ defmodule RfchatWeb.TestSupportControllerTest do
   describe "set_server_name" do
     test "updates server branding", %{conn: conn} do
       Bootstrap.ensure_seed_data!()
-      user_fixture(%{email: "test_owner_ss@example.com", username: "test_owner_ss"})
+      owner_fixture(%{email: "test_owner_ss@example.com", username: "test_owner_ss"})
 
       conn =
         get(conn, ~p"/api/testing/command", %{

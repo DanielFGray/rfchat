@@ -18,3 +18,7 @@ Bootstrap.ensure_seed_data!()
     display_name: "E2E User",
     password: "supersecurepass"
   })
+
+# Registration never makes an owner; the seed user becomes owner through the
+# same operator path a release uses (bin/make-owner).
+{:ok, _owner} = Accounts.promote_first_owner("e2e@example.com")

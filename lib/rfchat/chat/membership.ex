@@ -21,6 +21,12 @@ defmodule Rfchat.Chat.Membership do
     timestamps(type: :utc_datetime_usec)
   end
 
+  def ownership_changeset(membership, is_owner) when is_boolean(is_owner) do
+    membership
+    |> change()
+    |> put_change(:is_owner, is_owner)
+  end
+
   def changeset(membership, attrs) do
     membership
     |> cast(attrs, [
@@ -32,7 +38,6 @@ defmodule Rfchat.Chat.Membership do
       :last_seen_at,
       :timeout_until,
       :deactivated_at,
-      :is_owner,
       :flags
     ])
     |> validate_required([:user_id, :joined_at])
