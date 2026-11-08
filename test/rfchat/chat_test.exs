@@ -520,6 +520,44 @@ defmodule Rfchat.ChatTest do
     end
   end
 
+  describe "moderation" do
+    setup do
+      Bootstrap.ensure_seed_data!()
+      # The first account registered becomes the owner, who may moderate anyone.
+      _owner = user_fixture()
+      moderator = user_fixture()
+
+      mod_role =
+        role_fixture(%{permissions: PermissionBits.combine([:ban_members]), position: 50})
+
+      member_role_fixture(moderator, mod_role)
+      %{moderator: moderator}
+    end
+
+    test "ban_member/3 bans a member ranked below the moderator", %{moderator: moderator} do
+      member = user_fixture()
+      member_role_fixture(member, role_fixture(%{position: 10}))
+
+      assert {:ok, banned, _case} = Chat.ban_member(moderator, member)
+      assert banned.membership.deactivated_at
+    end
+
+    test "ban_member/3 refuses a member ranked at or above the moderator", %{moderator: moderator} do
+      peer = user_fixture()
+      member_role_fixture(peer, role_fixture(%{position: 50}))
+
+      admin = user_fixture()
+
+      member_role_fixture(
+        admin,
+        role_fixture(%{permissions: PermissionBits.combine([:administrator]), position: 60})
+      )
+
+      assert {:error, :forbidden} = Chat.ban_member(moderator, peer)
+      assert {:error, :forbidden} = Chat.ban_member(moderator, admin)
+    end
+  end
+
   describe "seed bootstrap" do
     test "ensure_seed_data!/0 creates default channels, role, and welcome message idempotently" do
       first = Bootstrap.ensure_seed_data!()

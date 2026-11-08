@@ -528,17 +528,25 @@ defmodule Rfchat.Chat do
     end
   end
 
+  # Both members are read from the database, because a session's copy can be stale after a role
+  # change. The owner may moderate anyone else; any other moderator only members whose highest
+  # role sits below their own, as on Discord.
   defp authorize_member_moderation(%User{} = actor, %User{} = subject, permission_name) do
-    actor = Repo.preload(actor, [:membership, member_roles: :role])
-    subject = Repo.preload(subject, [:membership, member_roles: :role])
+    actor = Permissions.current_member(actor.id)
+    subject = Permissions.current_member(subject.id)
 
     cond do
+      is_nil(actor) or is_nil(subject) -> {:error, :forbidden}
       actor.id == subject.id -> {:error, :forbidden}
-      subject.membership && subject.membership.is_owner -> {:error, :forbidden}
+      owner?(subject) -> {:error, :forbidden}
       not moderation_permission?(actor, permission_name) -> {:error, :forbidden}
-      true -> :ok
+      owner?(actor) -> :ok
+      Permissions.top_role_position(actor) > Permissions.top_role_position(subject) -> :ok
+      true -> {:error, :forbidden}
     end
   end
+
+  defp owner?(%User{membership: membership}), do: match?(%{is_owner: true}, membership)
 
   defp record_moderation_case(%User{} = actor, %User{} = subject, action_type, reason, attrs) do
     attrs = %{

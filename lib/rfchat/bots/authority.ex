@@ -88,16 +88,11 @@ defmodule Rfchat.Bots.Authority do
   defp grantable?(_authority, %Role{}), do: false
 
   defp authority(%User{} = user) do
-    default_role = Permissions.default_role()
-
     %__MODULE__{
       user: user,
       owner?: active_owner?(user),
-      permissions: Authorization.base_permissions(user, default_role),
-      top_position:
-        user.member_roles
-        |> Enum.map(& &1.role.position)
-        |> Enum.max(fn -> (default_role && default_role.position) || 0 end)
+      permissions: Authorization.base_permissions(user, Permissions.default_role()),
+      top_position: Permissions.top_role_position(user)
     }
   end
 

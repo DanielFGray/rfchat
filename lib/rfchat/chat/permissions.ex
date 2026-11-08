@@ -23,6 +23,18 @@ defmodule Rfchat.Chat.Permissions do
     |> Repo.one()
   end
 
+  @doc """
+  The position of the member's highest role, or the default role's position when the member has
+  none. A member acts on another member, or on a role, only below this position.
+  """
+  def top_role_position(%User{member_roles: member_roles}) when is_list(member_roles) do
+    default_role = default_role()
+
+    member_roles
+    |> Enum.map(& &1.role.position)
+    |> Enum.max(fn -> (default_role && default_role.position) || 0 end)
+  end
+
   @doc "The member's server-wide permissions as the database holds them now."
   def current_permissions(%User{id: user_id}) do
     case current_member(user_id) do
