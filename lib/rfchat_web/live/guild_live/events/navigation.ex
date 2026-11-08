@@ -50,10 +50,7 @@ defmodule RfchatWeb.GuildLive.Events.Navigation do
       case resolve_channel_for_socket(socket, slug) do
         {:ok, channel} ->
           if socket.assigns.active_channel && socket.assigns.active_channel.id == channel.id do
-            {:noreply,
-             socket
-             |> assign(:active_thread, nil)
-             |> assign(:thread_focus?, false)}
+            {:noreply, State.close_thread(socket)}
           else
             {:noreply,
              socket
@@ -92,7 +89,11 @@ defmodule RfchatWeb.GuildLive.Events.Navigation do
   end
 
   def handle_info({:channel_created, channel}, socket) do
-    {:noreply, State.maybe_refresh_thread_summaries(socket, channel)}
+    if Chat.thread_channel?(channel) do
+      {:noreply, State.maybe_refresh_thread_summaries(socket, channel)}
+    else
+      {:noreply, State.refresh_channels(socket)}
+    end
   end
 
   def handle_info({:channel_updated, _channel}, socket) do

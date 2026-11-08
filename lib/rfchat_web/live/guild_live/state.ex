@@ -11,6 +11,7 @@ defmodule RfchatWeb.GuildLive.State do
   alias Rfchat.Accounts
   alias Rfchat.Chat
   alias Rfchat.Chat.Message
+  alias Rfchat.Chat.Topics
 
   @defer_hydration Application.compile_env(:rfchat, :defer_guild_live_hydration, true)
 
@@ -65,6 +66,34 @@ defmodule RfchatWeb.GuildLive.State do
     |> assign(:channel_sections, Chat.build_channel_tree(visible_channels))
     |> assign(:navigation_ready?, true)
     |> sync_active_channel(channels)
+    |> sync_channel_subscriptions()
+  end
+
+  @doc """
+  Subscribes the socket to the topics of its listed channels, the active channel and the active
+  thread, and unsubscribes it from all other channel topics.
+
+  The subscription set is the only filter between channel events and this socket, so each
+  function that changes `:channels`, `:active_channel` or `:active_thread` calls this.
+  """
+  def sync_channel_subscriptions(socket) do
+    if connected?(socket) do
+      %{channels: channels, active_channel: active_channel, active_thread: active_thread} =
+        socket.assigns
+
+      wanted =
+        [active_channel, active_thread | channels]
+        |> Enum.reject(&is_nil/1)
+        |> MapSet.new(& &1.id)
+
+      assign(
+        socket,
+        :subscribed_channel_ids,
+        Topics.sync_channel_subscriptions(socket.assigns.subscribed_channel_ids, wanted)
+      )
+    else
+      socket
+    end
   end
 
   def hydrate_unread_state(socket) do
@@ -171,6 +200,7 @@ defmodule RfchatWeb.GuildLive.State do
     |> assign(:unread_counts, unread_counts)
     |> assign(:unread_mentions, unread_mentions)
     |> stream(:messages, messages, reset: true)
+    |> sync_channel_subscriptions()
     |> maybe_restore_thread(active_thread)
   end
 
@@ -224,6 +254,7 @@ defmodule RfchatWeb.GuildLive.State do
         else: false
       )
     )
+    |> sync_channel_subscriptions()
   end
 
   def maybe_insert_message(socket, message) do
@@ -234,9 +265,6 @@ defmodule RfchatWeb.GuildLive.State do
         socket
 
       active_channel.id != message.channel_id ->
-        socket
-
-      not Chat.can_view_channel?(active_channel, socket.assigns.current_user) ->
         socket
 
       not socket.assigns.channel_ready? ->
@@ -404,6 +432,13 @@ defmodule RfchatWeb.GuildLive.State do
 
   def open_thread(socket, thread, opts \\ []) do
     previous_starter_message_id = current_thread_starter_id(socket)
+
+    # Subscribe before listing, so a message posted between the two is not lost.
+    socket =
+      socket
+      |> assign(:active_thread, thread)
+      |> sync_channel_subscriptions()
+
     thread_messages = Chat.list_thread_messages(thread.id)
     last_message = List.last(thread_messages)
     Chat.ensure_channel_memberships_for_user(socket.assigns.current_user, [thread])
@@ -412,7 +447,6 @@ defmodule RfchatWeb.GuildLive.State do
     focus? = Keyword.get(opts, :focus?, false)
 
     socket
-    |> assign(:active_thread, thread)
     |> assign(:thread_focus?, focus?)
     |> assign(:thread_typing_users, Chat.list_typing_users(thread, socket.assigns.current_user))
     |> assign(:thread_reply_to_message, nil)
@@ -449,6 +483,7 @@ defmodule RfchatWeb.GuildLive.State do
     |> assign_thread_message_form()
     |> stream(:thread_messages, [], reset: true)
     |> rerender_messages([previous_starter_message_id])
+    |> sync_channel_subscriptions()
   end
 
   def current_thread_starter_id(socket) do
@@ -498,6 +533,7 @@ defmodule RfchatWeb.GuildLive.State do
     |> assign(:typing_users, [])
     |> close_thread()
     |> stream(:messages, [], reset: true)
+    |> sync_channel_subscriptions()
   end
 
   def refresh_typing_users(socket) do

@@ -262,7 +262,12 @@ defmodule RfchatWeb.API.BotControllerTest do
       role_fixture(%{
         name: "Bot SSE Role",
         permissions:
-          PermissionBits.combine([:view_channel, :send_messages, :create_public_threads])
+          PermissionBits.combine([
+            :view_channel,
+            :send_messages,
+            :create_public_threads,
+            :send_messages_in_threads
+          ])
       })
 
     channel = channel_fixture(%{name: "SSE Channel", slug: unique_slug()})
@@ -309,7 +314,13 @@ defmodule RfchatWeb.API.BotControllerTest do
     assert_receive {^ref, :chunk, message_chunk}
     assert_receive {^ref, :chunk, thread_chunk}
 
+    thread_message = message_fixture(thread, actor, %{body: "inside the new thread"})
+    assert_receive {^ref, :chunk, thread_message_chunk}
+
     Task.shutdown(task, :brutal_kill)
+
+    assert thread_message_chunk =~ "event: message.created\n"
+    assert thread_message_chunk =~ ~s("id":"#{thread_message.id}")
 
     assert message_chunk =~ "event: message.created\n"
     assert message_chunk =~ ~s("id":"#{created_message.id}")
@@ -322,6 +333,66 @@ defmodule RfchatWeb.API.BotControllerTest do
     assert thread_chunk =~ ~s("id":"#{thread.id}")
     assert thread_chunk =~ ~s("starter_message_id":"#{starter.id}")
     assert thread_chunk =~ ~s("parent_channel":{"id":"#{channel.id}")
+  end
+
+  test "events skip channels and threads the bot cannot view", _context do
+    actor =
+      user_fixture(%{email: "bot-api-sse-hidden@example.com", username: "bot_api_sse_hidden"})
+
+    role =
+      role_fixture(%{
+        name: "Bot SSE Hidden Role",
+        permissions:
+          PermissionBits.combine([
+            :view_channel,
+            :send_messages,
+            :create_public_threads,
+            :send_messages_in_threads
+          ])
+      })
+
+    _actor_role = member_role_fixture(actor, role)
+    bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
+    visible_channel = channel_fixture(%{name: "SSE Visible", slug: unique_slug()})
+    hidden_channel = channel_fixture(%{name: "SSE Hidden", slug: unique_slug()})
+
+    channel_permission_overwrite_fixture(hidden_channel, %{
+      user_id: bot_user.id,
+      deny_permissions: PermissionBits.combine([:view_channel])
+    })
+
+    hidden_starter = message_fixture(hidden_channel, actor, %{body: "hidden starter"})
+    hidden_thread = thread_fixture(hidden_channel, hidden_starter, actor)
+
+    {conn, ref} =
+      Phoenix.ConnTest.build_conn()
+      |> TestStreamAdapter.wrap()
+
+    conn =
+      assign(conn, :current_bot_scope, %Bots.BotScope{
+        bot_user: bot_user,
+        roles: [],
+        base_permissions: role.permissions
+      })
+
+    task =
+      Task.async(fn ->
+        catch_exit(BotController.events(conn, %{}))
+      end)
+
+    assert_receive {:plug_conn, :sent}
+    assert_receive {^ref, :chunk, _ready_chunk}
+
+    _hidden_message = message_fixture(hidden_channel, actor, %{body: "not for the bot"})
+    _hidden_thread_message = message_fixture(hidden_thread, actor, %{body: "not for the bot"})
+    visible_message = message_fixture(visible_channel, actor, %{body: "for the bot"})
+
+    # Each process receives one sender's events in send order, so the first chunk after the
+    # hidden posts shows whether either of them was streamed.
+    assert_receive {^ref, :chunk, next_chunk}
+    Task.shutdown(task, :brutal_kill)
+
+    assert next_chunk =~ ~s("id":"#{visible_message.id}")
   end
 
   test "bot management endpoints do not treat human users as bots", %{conn: conn} do

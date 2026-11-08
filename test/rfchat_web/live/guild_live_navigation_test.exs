@@ -8,6 +8,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
   alias Rfchat.Bootstrap
   alias Rfchat.Chat
   alias Rfchat.Chat.PermissionBits
+  alias Rfchat.Repo
 
   test "renders guild shell with seeded channels and welcome message", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
@@ -124,6 +125,76 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     refute has_element?(view, "#channel-mention-engineering")
 
     Chat.mark_channel_read(current_user, engineering, message)
+  end
+
+  test "counts an inactive channel message once after channel and thread navigation", %{
+    conn: conn
+  } do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+    general = Chat.get_channel_by_slug!("general")
+    author = current_user_from_conn(conn)
+    starter = message_fixture(general, author, %{body: "navigation thread starter"})
+    _thread = thread_fixture(general, starter, author)
+    {:ok, view, _html} = live(conn, ~p"/?channel=general")
+
+    view |> element("#channel-link-engineering") |> render_click()
+    assert_patch(view, ~p"/?channel=engineering")
+    view |> element("#channel-link-general") |> render_click()
+    assert_patch(view, ~p"/?channel=general")
+    view |> element("#open-thread-#{starter.id}") |> render_click()
+    assert has_element?(view, "#thread-panel-#{starter.id}")
+    view |> element("#close-thread-#{starter.id}") |> render_click()
+    refute has_element?(view, "#thread-panel-#{starter.id}")
+
+    sender = user_fixture(%{email: "nav-once-sender@example.com", username: "nav_once_sender"})
+    engineering = Chat.get_channel_by_slug!("engineering")
+    {:ok, _message} = Chat.create_message(engineering, sender, %{body: "counted once"})
+    _ = :sys.get_state(view.pid)
+
+    assert has_element?(view, "#channel-unread-engineering", ~r/^\s*1\s*$/)
+  end
+
+  test "shows unread badge for a channel that becomes visible while connected", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    channel = channel_fixture(%{name: "Late Reveal", slug: unique_slug(), position: 20})
+
+    overwrite =
+      channel_permission_overwrite_fixture(channel, %{
+        role_id: Chat.default_role().id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+    conn = log_in_member_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/")
+    refute has_element?(view, "#channel-link-#{channel.slug}")
+
+    Repo.delete!(overwrite)
+    {:ok, channel} = Chat.update_channel(channel, %{topic: "now visible"})
+    _ = :sys.get_state(view.pid)
+    assert has_element?(view, "#channel-link-#{channel.slug}")
+
+    sender = user_fixture(%{email: "reveal-sender@example.com", username: "reveal_sender"})
+    {:ok, _message} = Chat.create_message(channel, sender, %{body: "after reveal"})
+    _ = :sys.get_state(view.pid)
+
+    assert has_element?(view, "#channel-unread-#{channel.slug}", ~r/^\s*1\s*$/)
+  end
+
+  test "lists a channel created while connected and shows its unread badge", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    channel = channel_fixture(%{name: "Fresh Channel", slug: unique_slug(), position: 20})
+    _ = :sys.get_state(view.pid)
+    assert has_element?(view, "#channel-link-#{channel.slug}")
+
+    sender = user_fixture(%{email: "fresh-sender@example.com", username: "fresh_sender"})
+    {:ok, _message} = Chat.create_message(channel, sender, %{body: "first post"})
+    _ = :sys.get_state(view.pid)
+
+    assert has_element?(view, "#channel-unread-#{channel.slug}", ~r/^\s*1\s*$/)
   end
 
   test "supports opening and closing the mobile channel drawer", %{conn: conn} do
