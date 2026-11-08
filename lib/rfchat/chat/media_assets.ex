@@ -17,6 +17,24 @@ defmodule Rfchat.Chat.MediaAssets do
     do: "/uploads/#{storage_key}"
 
   @doc """
+  The bytes and recorded content type of the asset stored at `storage_key`, as
+  `{:ok, body, content_type}`. A key with no asset row is `{:error, :not_found}` and never
+  reaches the store, so a request can read only an object the app recorded, with the type the
+  app checked when it stored it.
+  """
+  def fetch_upload(storage_key) when is_binary(storage_key) do
+    case Repo.get_by(MediaAsset, storage_provider: "s3", storage_key: storage_key) do
+      nil ->
+        {:error, :not_found}
+
+      %MediaAsset{content_type: content_type} ->
+        with {:ok, body, _stored_type} <- ObjectStore.get(storage_key) do
+          {:ok, body, content_type}
+        end
+    end
+  end
+
+  @doc """
   Stores the uploaded file in the object store, then records it. Returns
   `{:error, reason, :upload}` when the file is refused or cannot be stored.
   """
