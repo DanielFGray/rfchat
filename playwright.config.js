@@ -1,6 +1,9 @@
 const { defineConfig, devices } = require('@playwright/test')
 
-const e2eMixEnv = 'env MIX_ENV=test PHX_SERVER=true PORT=4001 MIX_TEST_PARTITION=e2e MIX_BUILD_PATH=_build/e2e ENABLE_TEST_SUPPORT_COMMANDS=1'
+// PHX_SERVER goes only on `mix phx.server`: config/test.exs turns the endpoint off, and with
+// PHX_SERVER set the reset script would serve port 4001 while it runs, so the readiness check
+// would pass before the real server starts.
+const e2eMixEnv = 'env MIX_ENV=test PORT=4001 MIX_TEST_PARTITION=e2e MIX_BUILD_PATH=_build/e2e ENABLE_TEST_SUPPORT_COMMANDS=1'
 
 module.exports = defineConfig({
   testDir: './tests/e2e',
@@ -21,7 +24,7 @@ module.exports = defineConfig({
   },
   webServer: {
     command:
-      `${e2eMixEnv} mix ecto.migrate && ${e2eMixEnv} mix run priv/repo/e2e_reset.exs && ${e2eMixEnv} mix assets.build && ${e2eMixEnv} mix phx.server`,
+      `${e2eMixEnv} mix ecto.migrate && ${e2eMixEnv} mix run priv/repo/e2e_reset.exs && ${e2eMixEnv} mix assets.build && ${e2eMixEnv} PHX_SERVER=true mix phx.server`,
     url: 'http://127.0.0.1:4001/login',
     reuseExistingServer: false,
     stdout: 'pipe',
