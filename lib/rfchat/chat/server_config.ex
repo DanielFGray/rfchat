@@ -94,10 +94,8 @@ defmodule Rfchat.Chat.ServerConfig do
         end
 
       upload ->
-        case MediaAssets.create_server_icon_from_upload(actor, upload) do
-          {:ok, asset} -> {:ok, asset.id, asset}
-          {:error, reason, :upload} -> {:error, reason, :upload}
-          {:error, reason} -> {:error, reason, :upload}
+        with {:ok, asset} <- MediaAssets.create_server_icon_from_upload(actor, upload) do
+          {:ok, asset.id, asset}
         end
     end
   end

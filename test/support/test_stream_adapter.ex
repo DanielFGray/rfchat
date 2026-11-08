@@ -20,14 +20,9 @@ defmodule RfchatWeb.TestStreamAdapter do
   end
 
   def chunk(%{owner: owner, ref: ref} = payload, body) do
-    case Plug.Adapters.Test.Conn.chunk(payload, body) do
-      {:ok, _sent_body, _payload} = ok ->
-        send(owner, {ref, :chunk, IO.iodata_to_binary(body)})
-        ok
-
-      other ->
-        other
-    end
+    result = Plug.Adapters.Test.Conn.chunk(payload, body)
+    send(owner, {ref, :chunk, IO.iodata_to_binary(body)})
+    result
   end
 
   def read_req_body(payload, options) do
