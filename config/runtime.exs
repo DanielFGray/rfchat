@@ -61,9 +61,17 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
-  host = System.get_env("PHX_HOST") || "localhost"
-  scheme = System.get_env("PHX_SCHEME") || "http"
-  port = String.to_integer(System.get_env("PORT") || "4000")
+  # A deploy gets the service's public URL, such as its tailnet route, from the cartridge.
+  public_url =
+    URI.parse(
+      System.get_env("PHX_URL") ||
+        raise("environment variable PHX_URL is missing, for example https://chat.example.com")
+    )
+
+  config :rfchat,
+    uploads_dir:
+      System.get_env("UPLOADS_DIR") ||
+        raise("environment variable UPLOADS_DIR is missing; it names a persistent directory")
 
   check_origin =
     case System.get_env("PHX_CHECK_ORIGIN") do
@@ -76,7 +84,7 @@ if config_env() == :prod do
   config :rfchat, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   config :rfchat, RfchatWeb.Endpoint,
-    url: [host: host, port: port, scheme: scheme],
+    url: [host: public_url.host, port: public_url.port, scheme: public_url.scheme],
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.

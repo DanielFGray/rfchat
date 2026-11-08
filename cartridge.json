@@ -19,7 +19,8 @@
         { "name": "PHX_SERVER", "value": "true" },
         { "name": "PORT", "value": "4000" },
         { "name": "UPLOADS_DIR", "value": "/data/uploads" },
-        { "name": "DATABASE_VISITOR", "database": "rfchat", "role": "visitor" }
+        { "name": "DATABASE_VISITOR", "database": "rfchat", "role": "visitor" },
+        { "name": "PHX_URL", "route": "rfchat" }
       ],
       "connections": [],
       "migrate": {
@@ -30,6 +31,12 @@
             "database": "rfchat",
             "login": "migration",
             "urlEnv": "DATABASE_URL"
+          },
+          {
+            "_tag": "KvSecret",
+            "path": "secret/data/rfchat",
+            "key": "secret_key_base",
+            "env": "SECRET_KEY_BASE"
           }
         ]
       },

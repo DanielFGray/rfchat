@@ -1,6 +1,12 @@
 defmodule Rfchat.Ephemeral do
-  @moduledoc false
+  @moduledoc """
+  Short-lived state in Valkey: presence, typing and rate-limit counters.
 
+  Every key this module touches starts with `rfchat:`, because the deployed Valkey user may
+  read and write only keys that match `rfchat:*`. Callers pass keys without that prefix.
+  """
+
+  @key_prefix "rfchat:"
   @presence_prefix "presence:user:"
   @typing_prefix "typing:channel:"
 
@@ -70,6 +76,7 @@ defmodule Rfchat.Ephemeral do
   def increment_rate_limit(key, window_seconds, now \\ System.system_time(:second))
       when is_binary(key) and is_integer(window_seconds) do
     expires_at = now + window_seconds
+    key = namespaced(key)
 
     case Redis.pipeline([
            ["INCR", key],
@@ -88,6 +95,8 @@ defmodule Rfchat.Ephemeral do
   end
 
   def get_rate_limit(key, now \\ System.system_time(:second)) when is_binary(key) do
+    key = namespaced(key)
+
     case Redis.pipeline([["GET", key], ["TTL", key]]) do
       {:ok, [nil, _ttl]} -> {:ok, 0, now}
       {:ok, [count, ttl]} -> {:ok, String.to_integer(count), now + max(ttl, 0)}
@@ -96,25 +105,29 @@ defmodule Rfchat.Ephemeral do
   end
 
   def clear_rate_limit(key) when is_binary(key) do
-    case Redis.command(["DEL", key]) do
+    case Redis.command(["DEL", namespaced(key)]) do
       {:ok, _deleted} -> :ok
       {:error, _reason} -> :error
     end
   end
 
   def clear_rate_limit_namespace(prefix) when is_binary(prefix) do
-    case Redis.command(["KEYS", prefix <> "*"]) do
-      {:ok, []} ->
-        :ok
+    delete_matching(namespaced(prefix) <> "*", "0")
+  end
 
-      {:ok, keys} ->
-        _ = Redis.command(["DEL" | keys])
-        :ok
-
-      {:error, _reason} ->
-        :error
+  # SCAN, not KEYS: the deployed Valkey user has no @dangerous commands.
+  defp delete_matching(pattern, cursor) do
+    with {:ok, [next_cursor, keys]} <-
+           Redis.command(["SCAN", cursor, "MATCH", pattern, "COUNT", "500"]),
+         {:ok, _deleted} <- delete_keys(keys) do
+      if next_cursor == "0", do: :ok, else: delete_matching(pattern, next_cursor)
+    else
+      {:error, _reason} -> :error
     end
   end
+
+  defp delete_keys([]), do: {:ok, 0}
+  defp delete_keys(keys), do: Redis.command(["DEL" | keys])
 
   defp parse_presence_timestamps(user_ids, {:ok, values}) do
     user_ids
@@ -130,6 +143,7 @@ defmodule Rfchat.Ephemeral do
 
   defp parse_presence_timestamps(_user_ids, {:error, _reason}), do: %{}
 
-  defp presence_key(user_id), do: @presence_prefix <> user_id
-  defp typing_key(channel_id), do: @typing_prefix <> channel_id
+  defp presence_key(user_id), do: namespaced(@presence_prefix <> user_id)
+  defp typing_key(channel_id), do: namespaced(@typing_prefix <> channel_id)
+  defp namespaced(key), do: @key_prefix <> key
 end

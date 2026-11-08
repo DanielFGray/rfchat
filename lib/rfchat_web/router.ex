@@ -37,6 +37,9 @@ defmodule RfchatWeb.Router do
     plug(:fetch_session)
   end
 
+  # The platform's health check: no session, no auth, no database.
+  get("/health", RfchatWeb.HealthController, :show)
+
   if Application.compile_env(:rfchat, :env) in [:dev, :test] do
     scope "/api/testing", RfchatWeb do
       pipe_through(:test_support)

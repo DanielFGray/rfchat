@@ -1,16 +1,25 @@
 defmodule Rfchat.Chat.MediaAssets do
-  @moduledoc false
+  @moduledoc """
+  Uploaded images. A `storage_key` is the file's path under `uploads_dir/0`, which the
+  endpoint serves at `/uploads`.
+  """
 
   alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.User
   alias Rfchat.Repo
 
-  @emoji_upload_dir "uploads/emojis"
-  @server_icon_upload_dir "uploads/server_icons"
+  @emoji_upload_dir "emojis"
+  @server_icon_upload_dir "server_icons"
   @allowed_upload_content_types ~w(image/png image/jpeg image/gif image/webp)
 
+  @doc """
+  The directory that holds uploaded files. A deploy mounts it on a volume, so files outlive
+  the release image.
+  """
+  def uploads_dir, do: Application.fetch_env!(:rfchat, :uploads_dir)
+
   def asset_url(%MediaAsset{storage_key: storage_key}) when is_binary(storage_key),
-    do: "/#{storage_key}"
+    do: "/uploads/#{storage_key}"
 
   def create_media_asset_from_upload(
         %{path: path, client_name: client_name, client_type: client_type},
@@ -83,9 +92,7 @@ defmodule Rfchat.Chat.MediaAssets do
   defp extension_for_content_type("image/webp"), do: ".webp"
   defp extension_for_content_type(_), do: ".bin"
 
-  defp asset_destination_path(storage_key) do
-    Application.app_dir(:rfchat, Path.join(["priv", "static", storage_key]))
-  end
+  defp asset_destination_path(storage_key), do: Path.join(uploads_dir(), storage_key)
 
   defp file_sha256(path) do
     case File.read(path) do

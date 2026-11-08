@@ -12,19 +12,25 @@ This repo currently contains the Phoenix bootstrap plus local infrastructure for
 
 ## Local bootstrap
 
-1. Copy env vars:
+Postgres comes from the platform (`server-ansible`), which reads `cartridge.json`. Valkey runs locally in Docker.
+
+1. Copy the env file, then add the database URLs to it:
 
    ```bash
    cp .env.example .env
+   ops dev db up
    ```
 
-2. Start local services:
+   `ops dev db up` creates `rfchat_dev` and `rfchat_dev_test` and writes `DATABASE_URL`, `TEST_DATABASE_URL` and `DATABASE_VISITOR` to `.env`.
+
+2. Start Valkey and load the env:
 
    ```bash
    docker compose up -d
+   set -a; source .env; set +a
    ```
 
-3. Install/setup the app:
+3. Install the app, run the migrations and add the seed data:
 
    ```bash
    mix setup
@@ -38,30 +44,21 @@ This repo currently contains the Phoenix bootstrap plus local infrastructure for
 
 Then visit [`localhost:4000`](http://localhost:4000).
 
+The dev logins cannot create or drop databases. To start again from an empty dev database, run `ops dev db reset rfchat_dev`.
+
 ## Environment
 
-Phoenix reads these env vars in dev/test with sensible defaults:
+In dev and test, Phoenix reads:
 
-- `DB_USERNAME`
-- `DB_PASSWORD`
-- `DB_HOST`
-- `DB_PORT`
-- `DB_NAME`
-- `POOL_SIZE`
-- `PORT`
-- `REDIS_PORT`
-- `REDIS_URL`
-- `RFCHAT_GUILD_NAME`
+- `DATABASE_URL`, `TEST_DATABASE_URL`, `DATABASE_VISITOR`: written by `ops dev db up`
+- `REDIS_URL`, `REDIS_PORT`: the local Valkey
+- `PORT`, `POOL_SIZE`, `RFCHAT_GUILD_NAME`
 
-If your machine already has Postgres or Valkey/Redis running, change `DB_PORT` and/or `REDIS_PORT` in `.env`, and keep `REDIS_URL` aligned with the Valkey/Redis host port you choose.
+A deploy gets its environment from `cartridge.json`: `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY_BASE`, `DATABASE_VISITOR`, `PHX_URL` (the service's route URL) and `UPLOADS_DIR` (a directory on the `rfchat-data` volume).
 
-The sample `.env` is shell-safe, so commands like `set -a; source .env; set +a` work as expected.
+## Deploy
 
-For production, Phoenix also expects:
-
-- `DATABASE_URL`
-- `SECRET_KEY_BASE`
-- `PHX_HOST`
+`ops release` builds the `Dockerfile` from the committed `HEAD` and deploys the image as `cartridge.json` declares. Its migrate step, `/app/bin/migrate`, runs the migrations and adds the seed data before the server starts. Before the first deploy, set the session secret once with `ops secret set secret_key_base` (generate the value with `mix phx.gen.secret`). `ops stage` refuses a cartridge whose service writes a host volume, so it refuses this one while uploads live on `rfchat-data`.
 
 ## Initial architecture direction
 
@@ -76,14 +73,16 @@ Current bootstrap assumption:
 ## Useful commands
 
 ```bash
-docker compose up -d
-docker compose down
-mix ecto.create
+ops dev db up                  # create the dev and test databases, write their URLs to .env
+ops dev db reset rfchat_dev    # empty the dev database
+docker compose up -d           # start Valkey
 mix ecto.migrate
 mix test
 npm run test:e2e
 mix phx.server
 mix precommit
+ops secret list                # each secret the cartridge reads: set or MISSING
+ops release                    # build and deploy the committed HEAD
 ```
 
 ## Playwright E2E
@@ -101,8 +100,7 @@ Run it with:
 npm run test:e2e
 ```
 
-The Playwright config boots Phoenix on port `4001` in `MIX_ENV=test`, uses an isolated `MIX_BUILD_PATH` for browser runs, resets the test database, builds assets, runs seeds through `mix ecto.reset`, and then executes the browser test.
-An additional `priv/repo/e2e_seeds.exs` script provisions a known browser-login user for the smoke test.
+The Playwright config boots Phoenix on port `4001` in `MIX_ENV=test` with an isolated `MIX_BUILD_PATH`. Before the server starts, it runs the migrations and `priv/repo/e2e_reset.exs`, which empties every table of the test database, adds the seed data and a known browser-login user, and then builds the assets. The ExUnit suite uses the same database and empties it in `test/test_helper.exs` before it runs, so the two suites do not depend on each other's cleanup.
 
 ## Current app shape
 
