@@ -163,6 +163,18 @@ defmodule RfchatWeb.SettingsLive do
     end
   end
 
+  # A live file upload reaches the server only from a form that binds phx-change: the client
+  # registers the chosen file with that event. The handler keeps what was typed.
+  @impl true
+  def handle_event("change_server_settings", %{"server_settings" => attrs}, socket) do
+    form =
+      socket.assigns.server_settings
+      |> Chat.change_server_settings(attrs)
+      |> to_form(as: :server_settings)
+
+    {:noreply, assign(socket, :server_settings_form, form)}
+  end
+
   @impl true
   def handle_event("save_server_settings", %{"server_settings" => attrs}, socket) do
     attrs = State.maybe_attach_server_icon_upload(socket, attrs)
@@ -375,6 +387,12 @@ defmodule RfchatWeb.SettingsLive do
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to manage channels.")}
     end
+  end
+
+  @impl true
+  def handle_event("change_emoji", %{"emoji" => emoji_params}, socket) do
+    form = to_form(Chat.change_emoji(%Chat.Emoji{}, emoji_params), as: :emoji)
+    {:noreply, assign(socket, :emoji_form, form)}
   end
 
   @impl true

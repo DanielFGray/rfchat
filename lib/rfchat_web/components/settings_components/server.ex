@@ -45,6 +45,7 @@ defmodule RfchatWeb.SettingsComponents.Server do
         <.form
           for={@server_settings_form}
           id="server-settings-form"
+          phx-change="change_server_settings"
           phx-submit="save_server_settings"
           class="mt-4 space-y-4"
         >

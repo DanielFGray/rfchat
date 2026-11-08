@@ -354,7 +354,13 @@ defmodule RfchatWeb.SettingsComponents.Managers do
               <h3 class="mt-1 text-base font-semibold text-base-content">Add custom emoji</h3>
             </div>
 
-            <.form for={@emoji_form} id="emoji-form" phx-submit="save_emoji" class="mt-4 space-y-4">
+            <.form
+              for={@emoji_form}
+              id="emoji-form"
+              phx-change="change_emoji"
+              phx-submit="save_emoji"
+              class="mt-4 space-y-4"
+            >
               <.input field={@emoji_form[:name]} type="text" label="Name" />
               <.input field={@emoji_form[:shortcode]} type="text" label="Shortcode" />
 

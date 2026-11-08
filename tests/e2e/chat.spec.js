@@ -158,6 +158,42 @@ test('server branding updates settings and shell surfaces', async ({ page }) => 
   await expect(page.locator('#mobile-channel-drawer')).toContainText('Orbit HQ')
 })
 
+// A 1x1 transparent PNG.
+const tinyPng = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+test('owner uploads a custom emoji from the browser and deletes it', async ({ page }) => {
+  await loginAsSeedUser(page)
+  await page.goto('/settings?tab=server')
+  // A click before the LiveView connects is lost, and the closed panel stays aria-hidden.
+  await expect(page.locator('[data-phx-main]')).toHaveClass(/phx-connected/)
+  await page.locator('#open-emoji-manager').click()
+  await expect(page.locator('#emoji-manager-panel')).toHaveAttribute('aria-hidden', 'false')
+
+  await page.locator('#emoji-form').getByLabel('Name', { exact: true }).fill('e2e wave')
+  await page.locator('#emoji-form').getByLabel('Shortcode').fill('e2ewave')
+  await page.locator('#emoji-form input[type=file]').setInputFiles({
+    name: 'wave.png',
+    mimeType: 'image/png',
+    buffer: tinyPng,
+  })
+  await page.getByRole('button', { name: 'Save emoji' }).click()
+
+  const image = page.locator('[id^="manage-emoji-"] img[src*="/uploads/"]')
+  await expect(image).toHaveCount(1)
+  const src = new URL(await image.getAttribute('src'), baseURL).toString()
+  const stored = await page.request.get(src)
+  expect(stored.status()).toBe(200)
+  expect(Buffer.compare(await stored.body(), tinyPng)).toBe(0)
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.locator('[id^="delete-emoji-"]').click()
+  await expect(image).toHaveCount(0)
+  expect((await page.request.get(src)).status()).toBe(404)
+})
+
 test('inactive channel mention triggers browser notification', async ({ browser }) => {
   const unique = `${Date.now()}`.slice(-6)
   const authorEmail = `test_notify_${unique}@example.com`
