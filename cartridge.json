@@ -33,10 +33,10 @@
             "urlEnv": "DATABASE_URL"
           },
           {
-            "_tag": "KvSecret",
-            "path": "secret/data/rfchat",
+            "_tag": "GeneratedSecret",
             "key": "secret_key_base",
-            "env": "SECRET_KEY_BASE"
+            "env": "SECRET_KEY_BASE",
+            "bytes": 64
           },
           {
             "_tag": "ObjectStoreCredentials",
@@ -57,10 +57,10 @@
         },
         { "_tag": "ValkeyCredentials", "urlEnv": "REDIS_URL" },
         {
-          "_tag": "KvSecret",
-          "path": "secret/data/rfchat",
+          "_tag": "GeneratedSecret",
           "key": "secret_key_base",
-          "env": "SECRET_KEY_BASE"
+          "env": "SECRET_KEY_BASE",
+          "bytes": 64
         },
         {
           "_tag": "ObjectStoreCredentials",
