@@ -13,6 +13,7 @@ defmodule Rfchat.Chat do
   alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.ServerConfig
   alias Rfchat.Chat.Threads
+  alias Rfchat.Chat.Topics
   alias Rfchat.Chat.Membership
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.MessageRoleMention
@@ -25,7 +26,6 @@ defmodule Rfchat.Chat do
   alias Rfchat.Ephemeral
   alias Rfchat.Repo
 
-  @channel_events_topic "chat:channels"
   @default_reaction_emojis ["👍", "🔥", "❤️"]
 
   def default_reaction_emojis, do: @default_reaction_emojis
@@ -123,13 +123,13 @@ defmodule Rfchat.Chat do
 
   def announce_typing(%Channel{} = channel, %User{} = user) do
     _ = Ephemeral.put_typing(channel.id, user.id)
-    broadcast({:typing_started, channel.id, user.id})
+    Topics.broadcast_channel(channel.id, {:typing_started, channel.id, user.id})
     :ok
   end
 
   def clear_typing(%Channel{} = channel, %User{} = user) do
     _ = Ephemeral.remove_typing(channel.id, user.id)
-    broadcast({:typing_stopped, channel.id, user.id})
+    Topics.broadcast_channel(channel.id, {:typing_stopped, channel.id, user.id})
     :ok
   end
 
@@ -218,7 +218,7 @@ defmodule Rfchat.Chat do
       end)
       |> case do
         {:ok, message} ->
-          broadcast({:message_created, message})
+          broadcast_message(:message_created, message)
           {:ok, message}
 
         {:error, changeset} ->
@@ -304,7 +304,7 @@ defmodule Rfchat.Chat do
         end)
         |> case do
           {:ok, updated_message} ->
-            broadcast({:message_updated, updated_message})
+            broadcast_message(:message_updated, updated_message)
             {:ok, updated_message}
 
           {:error, changeset} ->
@@ -333,7 +333,7 @@ defmodule Rfchat.Chat do
       |> case do
         {:ok, deleted_message} ->
           clear_message_mentions(deleted_message.id)
-          broadcast({:message_deleted, deleted_message})
+          broadcast_message(:message_deleted, deleted_message)
           {:ok, deleted_message}
 
         {:error, changeset} ->
@@ -378,7 +378,7 @@ defmodule Rfchat.Chat do
             |> case do
               {:ok, _reaction} ->
                 message = get_message!(message.id)
-                broadcast({:message_updated, message})
+                broadcast_message(:message_updated, message)
                 {:ok, message}
 
               {:error, changeset} ->
@@ -388,7 +388,7 @@ defmodule Rfchat.Chat do
           reaction ->
             Repo.delete!(reaction)
             message = get_message!(message.id)
-            broadcast({:message_updated, message})
+            broadcast_message(:message_updated, message)
             {:ok, message}
         end
       else
@@ -415,7 +415,7 @@ defmodule Rfchat.Chat do
           |> case do
             {:ok, _reaction} ->
               message = get_message!(message.id)
-              broadcast({:message_updated, message})
+              broadcast_message(:message_updated, message)
               {:ok, message}
 
             {:error, changeset} ->
@@ -425,7 +425,7 @@ defmodule Rfchat.Chat do
         reaction ->
           Repo.delete!(reaction)
           message = get_message!(message.id)
-          broadcast({:message_updated, message})
+          broadcast_message(:message_updated, message)
           {:ok, message}
       end
     else
@@ -436,14 +436,6 @@ defmodule Rfchat.Chat do
 
   defdelegate mark_channel_read(user, channel, message \\ nil), to: Notifications
 
-  def subscribe_to_channel_events do
-    Phoenix.PubSub.subscribe(Rfchat.PubSub, @channel_events_topic)
-  end
-
-  def unsubscribe_from_channel_events do
-    Phoenix.PubSub.unsubscribe(Rfchat.PubSub, @channel_events_topic)
-  end
-
   defdelegate can_send_messages?(channel, user), to: Permissions
   defdelegate can_view_channel?(channel, user), to: Permissions
   defdelegate can_create_public_threads?(channel, user), to: Permissions
@@ -453,6 +445,7 @@ defmodule Rfchat.Chat do
   defdelegate can_mention_everyone?(channel, user), to: Permissions
   defdelegate can_manage_emojis_and_stickers?(user), to: Permissions
   defdelegate timed_out?(user), to: Permissions
+  defdelegate thread_channel?(channel), to: Permissions
 
   def message_count(channel_id) do
     Message
@@ -815,8 +808,8 @@ defmodule Rfchat.Chat do
     metadata_mentions? or body_mentions?
   end
 
-  defp broadcast(message) do
-    Phoenix.PubSub.broadcast_from(Rfchat.PubSub, self(), @channel_events_topic, message)
+  defp broadcast_message(event, %Message{} = message) do
+    Topics.broadcast_channel(message.channel_id, {event, message})
   end
 
   defp maybe_preload_message_channel(%Channel{} = channel) do

@@ -5,6 +5,7 @@ defmodule RfchatWeb.API.BotController do
   alias Rfchat.Bots.BotScope
   alias Rfchat.Chat
   alias Rfchat.Chat.BotToken
+  alias Rfchat.Chat.Topics
   alias Rfchat.Repo
   alias RfchatWeb.API.ErrorHelpers
 
@@ -164,67 +165,71 @@ defmodule RfchatWeb.API.BotController do
       |> put_resp_header("x-accel-buffering", "no")
       |> send_chunked(200)
 
-    :ok = Phoenix.PubSub.subscribe(Rfchat.PubSub, "chat:channels")
+    :ok = Topics.subscribe_guild()
+    subscribed = sync_subscriptions(MapSet.new(), bot_user)
 
     initial =
       "event: ready\ndata: #{Jason.encode!(%{bot: Bots.serialize_bot_user(bot_user)})}\n\n"
 
     {:ok, conn} = chunk(conn, initial)
-    stream_events(conn, bot_user)
+    stream_events(conn, bot_user, subscribed)
   end
 
-  defp stream_events(conn, bot_user) do
+  # Message events arrive only from the channel topics in `subscribed`: the channels and threads
+  # the bot can view. A guild event re-syncs that set before anything is emitted, so a bot that
+  # has received `thread.created` is already subscribed to that thread.
+  defp stream_events(conn, bot_user, subscribed) do
     receive do
       {:message_created, message} ->
-        conn = maybe_chunk_event(conn, bot_user, "message.created", message)
-        stream_events(conn, bot_user)
+        conn = chunk_event(conn, "message.created", Bots.serialize_message(message))
+        stream_events(conn, bot_user, subscribed)
 
       {:message_updated, message} ->
-        conn = maybe_chunk_event(conn, bot_user, "message.updated", message)
-        stream_events(conn, bot_user)
+        conn = chunk_event(conn, "message.updated", Bots.serialize_message(message))
+        stream_events(conn, bot_user, subscribed)
 
       {:message_deleted, message} ->
-        conn = maybe_chunk_event(conn, bot_user, "message.deleted", message)
-        stream_events(conn, bot_user)
+        conn = chunk_event(conn, "message.deleted", Bots.serialize_message(message))
+        stream_events(conn, bot_user, subscribed)
 
       {:channel_created, channel} ->
-        conn = maybe_chunk_channel_event(conn, bot_user, "thread.created", channel)
-        stream_events(conn, bot_user)
+        subscribed = sync_subscriptions(subscribed, bot_user)
+
+        conn =
+          if channel.kind == :thread_public and MapSet.member?(subscribed, channel.id) do
+            chunk_event(conn, "thread.created", Bots.serialize_thread(channel))
+          else
+            conn
+          end
+
+        stream_events(conn, bot_user, subscribed)
+
+      {event, _channel} when event in [:channel_updated, :channel_deleted] ->
+        stream_events(conn, bot_user, sync_subscriptions(subscribed, bot_user))
 
       _other ->
-        stream_events(conn, bot_user)
+        stream_events(conn, bot_user, subscribed)
     after
       20_000 ->
         {:ok, conn} = chunk(conn, ": keepalive\n\n")
-        stream_events(conn, bot_user)
+        stream_events(conn, bot_user, subscribed)
     end
   end
 
-  defp maybe_chunk_event(conn, bot_user, event_name, message) do
-    channel = Chat.get_channel!(message.channel_id)
+  defp sync_subscriptions(subscribed, bot_user) do
+    wanted =
+      bot_user
+      |> Chat.list_visible_channels_for_user()
+      |> Enum.reject(&(&1.kind == :category))
+      |> MapSet.new(& &1.id)
 
-    if Chat.can_view_channel?(channel, bot_user) do
-      payload = Jason.encode!(Bots.serialize_message(message))
-
-      case chunk(conn, "event: #{event_name}\ndata: #{payload}\n\n") do
-        {:ok, conn} -> conn
-        {:error, _reason} -> conn
-      end
-    else
-      conn
-    end
+    Topics.sync_channel_subscriptions(subscribed, wanted)
   end
 
-  defp maybe_chunk_channel_event(conn, bot_user, event_name, channel) do
-    if channel.kind == :thread_public and Chat.can_view_channel?(channel, bot_user) do
-      payload = Jason.encode!(Bots.serialize_thread(channel))
-
-      case chunk(conn, "event: #{event_name}\ndata: #{payload}\n\n") do
-        {:ok, conn} -> conn
-        {:error, _reason} -> conn
-      end
-    else
-      conn
+  defp chunk_event(conn, event_name, payload) do
+    case chunk(conn, "event: #{event_name}\ndata: #{Jason.encode!(payload)}\n\n") do
+      {:ok, conn} -> conn
+      {:error, _reason} -> conn
     end
   end
 end

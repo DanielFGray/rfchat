@@ -7,10 +7,10 @@ defmodule Rfchat.Chat.Channels do
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.ChannelMembership
   alias Rfchat.Chat.Message
+  alias Rfchat.Chat.Permissions
+  alias Rfchat.Chat.Topics
   alias Rfchat.Chat.User
   alias Rfchat.Repo
-
-  @channel_events_topic "chat:channels"
 
   def list_channels do
     Channel
@@ -172,7 +172,7 @@ defmodule Rfchat.Chat.Channels do
     |> Repo.insert()
     |> case do
       {:ok, channel} ->
-        broadcast({:channel_created, channel})
+        Topics.broadcast_guild({:channel_created, channel})
         {:ok, channel}
 
       error ->
@@ -190,7 +190,7 @@ defmodule Rfchat.Chat.Channels do
     |> Repo.update()
     |> case do
       {:ok, updated_channel} ->
-        broadcast({:channel_updated, updated_channel})
+        Topics.broadcast_guild({:channel_updated, updated_channel})
         {:ok, updated_channel}
 
       error ->
@@ -202,7 +202,7 @@ defmodule Rfchat.Chat.Channels do
     Repo.delete(channel)
     |> case do
       {:ok, deleted_channel} ->
-        broadcast({:channel_deleted, deleted_channel})
+        Topics.broadcast_guild({:channel_deleted, deleted_channel})
         {:ok, deleted_channel}
 
       error ->
@@ -246,7 +246,7 @@ defmodule Rfchat.Chat.Channels do
     end)
     |> case do
       {:ok, _result} ->
-        broadcast(:channels_reordered)
+        Topics.broadcast_guild(:channels_reordered)
         {:ok, list_channels()}
 
       {:error, reason} ->
@@ -268,6 +268,18 @@ defmodule Rfchat.Chat.Channels do
     |> preload([:permission_overwrites])
     |> Repo.all()
     |> Enum.filter(&Authorization.can_view_channel?(user, &1, default_role))
+    |> reject_threads_of_hidden_parents()
+  end
+
+  # A thread is visible only when its parent channel is also visible
+  # (see Permissions.can_view_thread_channel?/3).
+  defp reject_threads_of_hidden_parents(channels) do
+    visible_ids = MapSet.new(channels, & &1.id)
+
+    Enum.reject(channels, fn channel ->
+      Permissions.thread_channel?(channel) and
+        not MapSet.member?(visible_ids, channel.parent_channel_id)
+    end)
   end
 
   defp latest_messages_by_channel([]), do: %{}
@@ -299,9 +311,5 @@ defmodule Rfchat.Chat.Channels do
   defp normalize_optional_binary_id(""), do: nil
   defp normalize_optional_binary_id(value), do: value
 
-  defp default_role, do: Rfchat.Chat.Permissions.default_role()
-
-  defp broadcast(message) do
-    Phoenix.PubSub.broadcast_from(Rfchat.PubSub, self(), @channel_events_topic, message)
-  end
+  defp default_role, do: Permissions.default_role()
 end

@@ -6,10 +6,9 @@ defmodule Rfchat.Chat.Threads do
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.Permissions
+  alias Rfchat.Chat.Topics
   alias Rfchat.Chat.User
   alias Rfchat.Repo
-
-  @channel_events_topic "chat:channels"
 
   def list_thread_messages(channel_or_id, opts \\ [])
 
@@ -127,7 +126,7 @@ defmodule Rfchat.Chat.Threads do
           end)
           |> case do
             {:ok, thread} ->
-              broadcast({:channel_created, thread})
+              Topics.broadcast_guild({:channel_created, thread})
               {:ok, thread}
 
             {:error, changeset} ->
@@ -225,9 +224,5 @@ defmodule Rfchat.Chat.Threads do
 
   def deleted_message?(%Message{} = message) do
     not is_nil(message.deleted_at) or Map.get(message.metadata || %{}, "deleted", false)
-  end
-
-  defp broadcast(message) do
-    Phoenix.PubSub.broadcast_from(Rfchat.PubSub, self(), @channel_events_topic, message)
   end
 end

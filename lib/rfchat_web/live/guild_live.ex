@@ -4,6 +4,7 @@ defmodule RfchatWeb.GuildLive do
   import Phoenix.LiveView, only: [connected?: 1, push_navigate: 2, put_flash: 3, stream: 4]
 
   alias Rfchat.Chat
+  alias Rfchat.Chat.Topics
   alias Rfchat.Chat.UserNotificationSetting
   alias RfchatWeb.GuildLive.Events
   alias RfchatWeb.GuildLive.State
@@ -43,7 +44,7 @@ defmodule RfchatWeb.GuildLive do
       end
 
     if connected?(socket) do
-      Chat.subscribe_to_channel_events()
+      Topics.subscribe_guild()
     end
 
     server_settings = Chat.get_server_settings()
@@ -56,6 +57,7 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:page_title, server_settings.name)
       |> assign(:current_user, current_user)
       |> assign(:channels, channels)
+      |> assign(:subscribed_channel_ids, MapSet.new())
       |> assign(:channel_sections, [])
       |> assign(:custom_emojis, custom_emojis)
       |> assign(:custom_emojis_json, emoji_entries_json_for_picker(current_user, custom_emojis))
