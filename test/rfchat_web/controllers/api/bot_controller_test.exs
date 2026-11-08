@@ -10,7 +10,7 @@ defmodule RfchatWeb.API.BotControllerTest do
   alias RfchatWeb.TestStreamAdapter
 
   test "authenticated admins can create bots", %{conn: conn} do
-    _owner = user_fixture(%{email: "api-bot-owner@example.com", username: "api_bot_owner"})
+    _owner = owner_fixture(%{email: "api-bot-owner@example.com", username: "api_bot_owner"})
 
     admin_role =
       role_fixture(%{
@@ -44,7 +44,7 @@ defmodule RfchatWeb.API.BotControllerTest do
   end
 
   test "bot token can send and list messages through API", _context do
-    actor = user_fixture(%{email: "bot-api-actor@example.com", username: "bot_api_actor"})
+    actor = owner_fixture(%{email: "bot-api-actor@example.com", username: "bot_api_actor"})
 
     role =
       role_fixture(%{
@@ -75,7 +75,7 @@ defmodule RfchatWeb.API.BotControllerTest do
 
   test "bot API returns validation errors for invalid metadata", _context do
     actor =
-      user_fixture(%{
+      owner_fixture(%{
         email: "bot-api-validation-actor@example.com",
         username: "bot_api_validation_actor"
       })
@@ -103,7 +103,7 @@ defmodule RfchatWeb.API.BotControllerTest do
 
   test "bot API returns rich message payloads", _context do
     actor =
-      user_fixture(%{email: "bot-api-rich-actor@example.com", username: "bot_api_rich_actor"})
+      owner_fixture(%{email: "bot-api-rich-actor@example.com", username: "bot_api_rich_actor"})
 
     role =
       role_fixture(%{
@@ -149,7 +149,10 @@ defmodule RfchatWeb.API.BotControllerTest do
 
   test "bot token can create and fetch public threads through API", _context do
     actor =
-      user_fixture(%{email: "bot-api-thread-actor@example.com", username: "bot_api_thread_actor"})
+      owner_fixture(%{
+        email: "bot-api-thread-actor@example.com",
+        username: "bot_api_thread_actor"
+      })
 
     role =
       role_fixture(%{
@@ -202,7 +205,7 @@ defmodule RfchatWeb.API.BotControllerTest do
 
   test "thread endpoint returns not found for missing starter thread", _context do
     actor =
-      user_fixture(%{email: "bot-api-thread-miss@example.com", username: "bot_api_thread_miss"})
+      owner_fixture(%{email: "bot-api-thread-miss@example.com", username: "bot_api_thread_miss"})
 
     role =
       role_fixture(%{
@@ -224,7 +227,9 @@ defmodule RfchatWeb.API.BotControllerTest do
   end
 
   test "events starts with enriched ready payload", _context do
-    actor = user_fixture(%{email: "bot-api-sse-ready@example.com", username: "bot_api_sse_ready"})
+    actor =
+      owner_fixture(%{email: "bot-api-sse-ready@example.com", username: "bot_api_sse_ready"})
+
     bot_user = bot_fixture(actor)
 
     {conn, ref} =
@@ -256,7 +261,7 @@ defmodule RfchatWeb.API.BotControllerTest do
 
   test "events stream rich message and thread payloads", _context do
     actor =
-      user_fixture(%{email: "bot-api-sse-events@example.com", username: "bot_api_sse_events"})
+      owner_fixture(%{email: "bot-api-sse-events@example.com", username: "bot_api_sse_events"})
 
     role =
       role_fixture(%{
@@ -337,7 +342,7 @@ defmodule RfchatWeb.API.BotControllerTest do
 
   test "events skip channels and threads the bot cannot view", _context do
     actor =
-      user_fixture(%{email: "bot-api-sse-hidden@example.com", username: "bot_api_sse_hidden"})
+      owner_fixture(%{email: "bot-api-sse-hidden@example.com", username: "bot_api_sse_hidden"})
 
     role =
       role_fixture(%{
@@ -396,7 +401,7 @@ defmodule RfchatWeb.API.BotControllerTest do
   end
 
   test "bot management endpoints do not treat human users as bots", %{conn: conn} do
-    _owner = user_fixture(%{email: "api-bot-owner-2@example.com", username: "api_bot_owner_2"})
+    _owner = owner_fixture(%{email: "api-bot-owner-2@example.com", username: "api_bot_owner_2"})
 
     admin_role =
       role_fixture(%{
