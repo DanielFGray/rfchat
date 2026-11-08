@@ -1,7 +1,6 @@
 defmodule RfchatWeb.ServerBrandingTest do
   use RfchatWeb.ConnCase, async: false
 
-  import Ecto.Query
   import Phoenix.LiveViewTest
   import Rfchat.ChatFixtures
   import RfchatWeb.GuildLiveFixtures
@@ -19,7 +18,7 @@ defmodule RfchatWeb.ServerBrandingTest do
 
   test "a member without manage_server sees no branding form and forged events change nothing",
        %{conn: conn} do
-    {:ok, _} = Chat.update_server_settings(%{"name" => "Original"}, owner())
+    {:ok, _} = Chat.update_server_settings(%{"name" => "Original"}, owner_fixture())
     conn = log_in_member_user(conn, "branding")
     {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
 
@@ -36,7 +35,7 @@ defmodule RfchatWeb.ServerBrandingTest do
   end
 
   test "a role with manage_server can rename the server", %{conn: conn} do
-    _owner = owner()
+    _owner = owner_fixture()
     conn = log_in_member_user(conn, "brand_manager")
     member = current_user_from_conn(conn)
     role = role_fixture(%{permissions: PermissionBits.combine([:manage_server])})
@@ -52,7 +51,7 @@ defmodule RfchatWeb.ServerBrandingTest do
   end
 
   test "a demoted owner's stale struct cannot change branding" do
-    owner = owner()
+    owner = owner_fixture()
     second_owner = user_fixture()
     {:ok, _} = Rfchat.Accounts.promote_to_owner(owner, second_owner)
     stale_second_owner = Rfchat.Accounts.get_user_with_membership!(second_owner.id)
@@ -62,11 +61,55 @@ defmodule RfchatWeb.ServerBrandingTest do
              Chat.update_server_settings(%{"name" => "Stale"}, stale_second_owner)
   end
 
-  # The first registered user becomes the owner.
-  defp owner do
-    case Repo.one(from(m in Rfchat.Chat.Membership, where: m.is_owner, limit: 1, preload: :user)) do
-      nil -> user_fixture()
-      membership -> Rfchat.Accounts.get_user_with_membership!(membership.user_id)
-    end
+  test "forged icon_asset_id in save_server_settings does not change the icon", %{conn: conn} do
+    owner = owner_fixture()
+    emoji = emoji_fixture(owner)
+    {:ok, _} = Chat.update_server_settings(%{"name" => "Brand HQ"}, owner)
+
+    conn = log_in_owner_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
+
+    render_hook(view, "save_server_settings", %{
+      "server_settings" => %{"name" => "Brand HQ", "icon_asset_id" => emoji.asset_id}
+    })
+
+    settings = Repo.one(ServerSettings)
+    assert settings.name == "Brand HQ"
+    assert is_nil(settings.icon_asset_id)
+    assert Repo.get(Rfchat.Chat.MediaAsset, emoji.asset_id)
+  end
+
+  test "remove_server_icon clears a real server icon through the LiveView", %{conn: conn} do
+    owner = owner_fixture()
+
+    path =
+      Path.join(System.tmp_dir!(), "rfchat-brand-icon-#{System.unique_integer([:positive])}.png")
+
+    File.write!(path, "fake png bytes")
+
+    assert {:ok, settings} =
+             Chat.update_server_settings(
+               %{
+                 "name" => "Brand HQ",
+                 "icon_upload" => %{
+                   path: path,
+                   client_name: "brand.png",
+                   client_type: "image/png"
+                 }
+               },
+               owner
+             )
+
+    File.rm(path)
+    icon_id = settings.icon_asset_id
+
+    conn = log_in_owner_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
+
+    view |> element("#remove-server-icon") |> render_click()
+
+    assert has_element?(view, "#flash-info", "Server icon removed.")
+    assert %ServerSettings{icon_asset_id: nil} = Repo.one(ServerSettings)
+    assert is_nil(Repo.get(Rfchat.Chat.MediaAsset, icon_id))
   end
 end

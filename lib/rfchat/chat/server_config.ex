@@ -1,6 +1,7 @@
 defmodule Rfchat.Chat.ServerConfig do
   @moduledoc false
 
+  import Ecto.Changeset, only: [put_change: 3]
   import Ecto.Query, warn: false
 
   @cache_key {__MODULE__, :server_settings}
@@ -30,61 +31,25 @@ defmodule Rfchat.Chat.ServerConfig do
   end
 
   @doc """
-  Changes the server name or icon. The actor must hold `manage_server` now, in the database;
-  the check runs before an uploaded icon is written to disk.
+  Changes the server name, and replaces the icon when attrs hold an `"icon_upload"`.
+  The actor must hold `manage_server` now, in the database; the check runs before an
+  uploaded icon is written to disk. An `"icon_asset_id"` in attrs is ignored.
   """
   def update_server_settings(attrs, %User{} = actor) when is_map(attrs) do
     actor
     |> Permissions.current_permissions()
     |> Authorization.has_permission?(:manage_server)
-    |> if(do: save_server_settings(attrs, actor), else: {:error, :forbidden})
+    |> if(do: persist_server_settings(attrs, actor), else: {:error, :forbidden})
   end
 
-  defp save_server_settings(attrs, actor) do
-    server_settings =
-      ServerSettings
-      |> preload([:icon_asset])
-      |> Repo.one()
-      |> case do
-        nil -> %ServerSettings{}
-        settings -> settings
-      end
-
-    attrs = Map.put_new(attrs, "name", default_server_name())
-
-    Repo.transaction(fn ->
-      previous_icon_asset = server_settings.icon_asset
-
-      with {:ok, icon_asset_id, _icon_asset} <- maybe_persist_server_icon(attrs, actor),
-           attrs <- persistable_server_settings_attrs(attrs, icon_asset_id),
-           {:ok, settings} <-
-             server_settings
-             |> ServerSettings.changeset(attrs)
-             |> Repo.insert_or_update() do
-        settings = Repo.preload(settings, [:icon_asset])
-
-        if not is_nil(previous_icon_asset) and icon_asset_id != :keep and
-             previous_icon_asset.id != icon_asset_id do
-          MediaAssets.delete_media_asset(previous_icon_asset)
-        end
-
-        settings
-      else
-        {:error, changeset} -> Repo.rollback(changeset)
-        {:error, reason, :upload} -> Repo.rollback({:upload, reason})
-      end
-    end)
-    |> case do
-      {:ok, settings} ->
-        :persistent_term.put(@cache_key, settings)
-        {:ok, settings}
-
-      {:error, {:upload, reason}} ->
-        {:error, reason}
-
-      {:error, changeset} ->
-        {:error, changeset}
-    end
+  @doc """
+  Clears the server icon. Deletes the previous asset only when its kind is `:server_icon`.
+  """
+  def remove_server_icon(%User{} = actor) do
+    actor
+    |> Permissions.current_permissions()
+    |> Authorization.has_permission?(:manage_server)
+    |> if(do: persist_remove_server_icon(), else: {:error, :forbidden})
   end
 
   def server_icon_url(%ServerSettings{icon_asset: %MediaAsset{} = asset}),
@@ -97,46 +62,112 @@ defmodule Rfchat.Chat.ServerConfig do
     Application.get_env(:rfchat, :guild_name, "RFChat")
   end
 
-  defp maybe_persist_server_icon(attrs, actor) do
+  defp persist_server_settings(attrs, actor) do
+    name_attrs = name_attrs(attrs)
+
+    Repo.transaction(fn ->
+      server_settings = lock_server_settings()
+      previous_icon_asset = server_settings.icon_asset
+
+      with {:ok, icon_change} <- resolve_icon_change(attrs, actor),
+           {:ok, settings} <-
+             server_settings
+             |> settings_changeset(name_attrs, icon_change)
+             |> Repo.insert_or_update() do
+        settings = Repo.preload(settings, [:icon_asset], force: true)
+
+        if icon_change != :keep do
+          maybe_delete_server_icon_asset(previous_icon_asset)
+        end
+
+        settings
+      else
+        {:error, changeset} -> Repo.rollback(changeset)
+        {:error, reason, :upload} -> Repo.rollback({:upload, reason})
+      end
+    end)
+    |> finalize_settings_write()
+  end
+
+  defp persist_remove_server_icon do
+    Repo.transaction(fn ->
+      server_settings = lock_server_settings()
+      previous_icon_asset = server_settings.icon_asset
+
+      with {:ok, settings} <-
+             server_settings
+             |> settings_changeset(name_attrs(%{"name" => server_settings.name}), {:replace, nil})
+             |> Repo.insert_or_update() do
+        maybe_delete_server_icon_asset(previous_icon_asset)
+        Repo.preload(settings, [:icon_asset], force: true)
+      else
+        {:error, changeset} -> Repo.rollback(changeset)
+      end
+    end)
+    |> finalize_settings_write()
+  end
+
+  defp finalize_settings_write(result) do
+    case result do
+      {:ok, settings} ->
+        :persistent_term.put(@cache_key, settings)
+        {:ok, settings}
+
+      {:error, {:upload, reason}} ->
+        {:error, reason}
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
+  end
+
+  defp resolve_icon_change(attrs, actor) do
     case Map.get(attrs, "icon_upload") do
       nil ->
-        if Map.has_key?(attrs, "icon_asset_id") do
-          {:ok, blank_to_nil(Map.get(attrs, "icon_asset_id")), nil}
-        else
-          {:ok, :keep, nil}
-        end
+        {:ok, :keep}
 
       upload ->
         with {:ok, asset} <- MediaAssets.create_server_icon_from_upload(actor, upload) do
-          {:ok, asset.id, asset}
+          {:ok, {:replace, asset.id}}
         end
     end
   end
 
-  defp persistable_server_settings_attrs(attrs, icon_asset_id) do
-    attrs =
-      attrs
-      |> Map.take(["name"])
-      |> Map.put("singleton", true)
+  defp settings_changeset(server_settings, name_attrs, :keep) do
+    server_settings
+    |> ServerSettings.changeset(name_attrs)
+    |> put_change(:singleton, true)
+  end
 
-    if icon_asset_id == :keep do
-      attrs
-    else
-      Map.put(attrs, "icon_asset_id", blank_to_nil(icon_asset_id))
+  defp settings_changeset(server_settings, name_attrs, {:replace, icon_asset_id}) do
+    server_settings
+    |> ServerSettings.changeset(name_attrs)
+    |> put_change(:singleton, true)
+    |> put_change(:icon_asset_id, icon_asset_id)
+  end
+
+  # Only a purpose-built server icon may be deleted when the icon changes; an emoji or other
+  # kind pointed here by an old write must stay so manage_emojis cannot be bypassed.
+  defp maybe_delete_server_icon_asset(%MediaAsset{kind: :server_icon} = asset) do
+    MediaAssets.delete_media_asset(asset)
+  end
+
+  defp maybe_delete_server_icon_asset(_asset), do: :ok
+
+  defp name_attrs(attrs) do
+    attrs
+    |> Map.take(["name"])
+    |> Map.put_new("name", default_server_name())
+  end
+
+  defp load_server_settings(query \\ ServerSettings) do
+    case Repo.one(query) do
+      nil -> %ServerSettings{name: default_server_name(), singleton: true, icon_asset: nil}
+      settings -> Repo.preload(settings, [:icon_asset])
     end
   end
 
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
-
-  defp load_server_settings do
-    ServerSettings
-    |> preload([:icon_asset])
-    |> Repo.one()
-    |> case do
-      nil -> %ServerSettings{name: default_server_name(), singleton: true}
-      settings -> settings
-    end
-  end
+  # Writers read the previous icon under this lock, so two concurrent icon
+  # changes never both delete the same old asset.
+  defp lock_server_settings, do: load_server_settings(lock(ServerSettings, "FOR UPDATE"))
 end

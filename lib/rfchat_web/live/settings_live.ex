@@ -140,12 +140,7 @@ defmodule RfchatWeb.SettingsLive do
 
   @impl true
   def handle_event("remove_server_icon", _params, socket) do
-    settings = socket.assigns.server_settings || Chat.get_server_settings()
-
-    case Chat.update_server_settings(
-           %{"name" => settings.name, "icon_asset_id" => ""},
-           socket.assigns.current_user
-         ) do
+    case Chat.remove_server_icon(socket.assigns.current_user) do
       {:ok, settings} ->
         {:noreply,
          socket

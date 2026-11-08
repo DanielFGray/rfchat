@@ -16,7 +16,7 @@ defmodule Rfchat.Chat.ServerSettings do
 
   def changeset(server_settings, attrs) do
     server_settings
-    |> cast(attrs, [:singleton, :name, :icon_asset_id])
+    |> cast(attrs, [:name])
     |> validate_required([:singleton, :name])
     |> validate_length(:name, min: 1, max: 100)
     |> unique_constraint(:singleton)
