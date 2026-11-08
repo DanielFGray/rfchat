@@ -17,6 +17,8 @@ defmodule Rfchat.Accounts do
   alias Rfchat.Repo
 
   @session_valid_days 30
+  # An arbitrary constant that names "server ownership" among Postgres advisory locks.
+  @ownership_lock_key 7_314_002_001
 
   def get_user_by_email(email) when is_binary(email) do
     Repo.get_by(User, email: email)
@@ -88,6 +90,7 @@ defmodule Rfchat.Accounts do
         |> User.registration_changeset(attrs)
         |> Repo.insert!()
 
+      lock_ownership!()
       owner_candidate? = not owner_exists?()
 
       membership =
@@ -235,43 +238,62 @@ defmodule Rfchat.Accounts do
   def hash_token(token) when is_binary(token), do: :crypto.hash(:sha256, token)
 
   @doc """
-  Promote a user to owner. The `actor` must already be an owner.
+  Promote a user to owner. The `actor` must be an active owner now, in the database.
   Returns `{:ok, membership}` or `{:error, reason}`.
   """
   def promote_to_owner(%User{} = actor, %User{} = subject) do
-    with :ok <- authorize_owner_change(actor, subject) do
-      subject.membership
-      |> Membership.changeset(%{is_owner: true})
-      |> Repo.update()
-    end
+    change_ownership(actor, subject, true)
   end
 
   @doc """
-  Demote a user from owner. The `actor` must be an owner and cannot demote themselves.
+  Demote a user from owner. The `actor` must be an active owner now, in the database, and
+  cannot demote themselves. So the actor is still an owner after every demotion, and the
+  server always keeps at least one owner.
   Returns `{:ok, membership}` or `{:error, reason}`.
   """
   def demote_from_owner(%User{} = actor, %User{} = subject) do
-    with :ok <- authorize_owner_change(actor, subject) do
-      unless subject.membership && subject.membership.is_owner do
-        raise "user is not an owner"
-      end
-
-      subject.membership
-      |> Membership.changeset(%{is_owner: false})
-      |> Repo.update()
-    end
+    change_ownership(actor, subject, false)
   end
 
   def owner?(%User{membership: %Membership{is_owner: true}}), do: true
   def owner?(_), do: false
 
-  defp authorize_owner_change(%User{} = actor, %User{} = subject) do
-    cond do
-      not owner?(actor) -> {:error, :forbidden}
-      actor.id == subject.id -> {:error, :self}
-      is_nil(subject.membership) -> {:error, :no_membership}
-      true -> :ok
-    end
+  # Every ownership decision runs under one lock and reads memberships after taking it.
+  # Without the lock, two owners who demote each other at the same time each see the
+  # other as an owner, and both demotions commit.
+  defp change_ownership(%User{id: actor_id}, %User{id: subject_id}, is_owner) do
+    Repo.transaction(fn ->
+      lock_ownership!()
+      actor_membership = current_membership(actor_id)
+      subject_membership = current_membership(subject_id)
+
+      cond do
+        not active_owner?(actor_membership) ->
+          Repo.rollback(:forbidden)
+
+        actor_id == subject_id ->
+          Repo.rollback(:self)
+
+        is_nil(subject_membership) ->
+          Repo.rollback(:no_membership)
+
+        subject_membership.is_owner == is_owner ->
+          subject_membership
+
+        true ->
+          subject_membership |> Membership.changeset(%{is_owner: is_owner}) |> Repo.update!()
+      end
+    end)
+  end
+
+  defp current_membership(user_id), do: Repo.get_by(Membership, user_id: user_id)
+
+  defp active_owner?(%Membership{is_owner: true, deactivated_at: nil}), do: true
+  defp active_owner?(_membership), do: false
+
+  # A transaction-scoped Postgres advisory lock: it is released at commit or rollback.
+  defp lock_ownership! do
+    Repo.query!("SELECT pg_advisory_xact_lock($1)", [@ownership_lock_key])
   end
 
   defp create_membership!(%User{} = user, now, owner_candidate?) do
