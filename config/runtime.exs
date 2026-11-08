@@ -25,7 +25,9 @@ config :rfchat,
   redis_url: System.get_env("REDIS_URL", "redis://localhost:6379/0"),
   # The platform gives each deploy its own prefix, colon included: `rfchat:` live,
   # `rfchat-staged:` in a staged copy. The Valkey login may touch only keys under it.
-  valkey_key_prefix: System.get_env("VALKEY_KEY_PREFIX", "rfchat:")
+  valkey_key_prefix: System.get_env("VALKEY_KEY_PREFIX", "rfchat:"),
+  # The platform sets the short commit of each deploy; a checkout has none.
+  git_commit: System.get_env("GIT_COMMIT")
 
 config :rfchat, RfchatWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]

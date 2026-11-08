@@ -3,7 +3,7 @@ import Config
 # config/runtime.exs sets the database URL from TEST_DATABASE_URL.
 config :rfchat, Rfchat.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
-  # `ops dev db` caps each dev login at 8 connections.
+  # Test modules run one at a time, so a small pool is enough; the dev login allows 32.
   pool_size: 8
 
 # We don't run a server during test. If one is required,
