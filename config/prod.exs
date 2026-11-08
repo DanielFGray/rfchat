@@ -7,19 +7,10 @@ import Config
 # before starting your production server.
 config :rfchat, RfchatWeb.Endpoint, cache_static_manifest: "priv/static/cache_manifest.json"
 
-# Force using SSL in production. This also sets the "strict-security-transport" header,
-# known as HSTS. If you have a health check endpoint, you may want to exclude it below.
-# Note `:force_ssl` is required to be set at compile-time.
-if System.get_env("PHX_FORCE_SSL", "true") != "false" do
-  config :rfchat, RfchatWeb.Endpoint,
-    force_ssl: [
-      rewrite_on: [:x_forwarded_proto],
-      exclude: [
-        # paths: ["/health"],
-        hosts: ["localhost", "127.0.0.1"]
-      ]
-    ]
-end
+# The app serves plain HTTP. TLS ends at the platform's Tailscale Serve, outside the app.
+# Traefik and the platform's health check reach the app over HTTP inside the cluster, and
+# Traefik sends `X-Forwarded-Proto: http`, so an HTTPS redirect here would answer every
+# request with a redirect to the URL it came from.
 
 # Do not print debug messages in production
 config :logger, level: :info
