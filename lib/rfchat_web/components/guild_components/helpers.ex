@@ -172,9 +172,7 @@ defmodule RfchatWeb.GuildComponents.Helpers do
 
   def own_message?(message, current_user), do: message.author_id == current_user.id
 
-  def deleted_message?(message) do
-    not is_nil(message.deleted_at) or Map.get(message.metadata || %{}, "deleted", false)
-  end
+  defdelegate deleted_message?(message), to: Rfchat.Chat.Message, as: :deleted?
 
   def edited_message?(message),
     do: not is_nil(message.edited_at) and not deleted_message?(message)

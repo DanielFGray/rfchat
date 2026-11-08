@@ -32,20 +32,25 @@ defmodule Rfchat.Chat.Message do
     timestamps(type: :utc_datetime_usec, updated_at: false)
   end
 
+  @doc """
+  A changeset for what an author writes: the body and the composer's metadata. The server sets
+  every other field itself (`kind`, `nonce`, `edited_at`, `deleted_at`, `pinned_at`), so a client
+  cannot forge a system message, a pin or a deletion.
+  """
   def changeset(message, attrs) do
     message
-    |> cast(attrs, [
-      :body,
-      :kind,
-      :reply_to_id,
-      :edited_at,
-      :deleted_at,
-      :pinned_at,
-      :nonce,
-      :metadata
-    ])
+    |> cast(attrs, [:body, :metadata])
     |> validate_required([:body])
     |> update_change(:body, &String.trim/1)
     |> validate_length(:body, min: 1, max: 4000)
   end
+
+  @doc "A changeset for a new message: what `changeset/2` takes, plus the message it replies to."
+  def create_changeset(message, attrs) do
+    message
+    |> cast(attrs, [:reply_to_id])
+    |> changeset(attrs)
+  end
+
+  def deleted?(%{deleted_at: deleted_at}), do: not is_nil(deleted_at)
 end

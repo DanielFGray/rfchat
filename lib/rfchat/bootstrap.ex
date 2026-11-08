@@ -136,11 +136,14 @@ defmodule Rfchat.Bootstrap do
   end
 
   defp ensure_welcome_message!(channel, user) do
-    %Message{channel_id: channel.id, author_id: user.id}
-    |> Message.changeset(%{
-      body: "Welcome to RFChat. Register the first account to become this server's owner.",
+    %Message{
+      channel_id: channel.id,
+      author_id: user.id,
       kind: :system,
       nonce: "bootstrap:welcome"
+    }
+    |> Message.changeset(%{
+      body: "Welcome to RFChat. Register the first account to become this server's owner."
     })
     |> Repo.insert!(
       on_conflict: :nothing,

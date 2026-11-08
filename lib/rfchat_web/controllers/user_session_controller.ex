@@ -7,7 +7,10 @@ defmodule RfchatWeb.UserSessionController do
 
   # The registration form signs the new account in by posting here with `_action=registered`, so
   # every password check goes through the login limiter.
-  def create(conn, %{"user" => %{"email" => email, "password" => password} = user_params} = params) do
+  def create(
+        conn,
+        %{"user" => %{"email" => email, "password" => password} = user_params} = params
+      ) do
     ip_address = conn.remote_ip |> :inet.ntoa() |> to_string()
 
     case LoginRateLimiter.allow_login_attempt(ip_address, email) do

@@ -196,7 +196,7 @@ defmodule Rfchat.Chat do
       Repo.transaction(fn ->
         with {:ok, message} <-
                %Message{channel_id: channel.id, author_id: author.id}
-               |> Message.changeset(attrs)
+               |> Message.create_changeset(attrs)
                |> Repo.insert() do
           if message_mentions?(attrs) do
             :ok = sync_message_mentions(message, attrs)
@@ -294,7 +294,8 @@ defmodule Rfchat.Chat do
         Repo.transaction(fn ->
           with {:ok, updated_message} <-
                  message
-                 |> Message.changeset(Map.put(attrs, "edited_at", DateTime.utc_now()))
+                 |> Message.changeset(attrs)
+                 |> Ecto.Changeset.put_change(:edited_at, DateTime.utc_now())
                  |> Repo.update() do
             :ok = sync_message_mentions(updated_message, attrs)
             Repo.preload(updated_message, [:author, :channel, reply_to: :author])
@@ -322,13 +323,10 @@ defmodule Rfchat.Chat do
     message = Repo.preload(message, channel: [:permission_overwrites])
 
     if message.author_id == actor.id or can_manage_messages?(message.channel, actor) do
+      now = DateTime.utc_now()
+
       message
-      |> Message.changeset(%{
-        body: "[message deleted]",
-        deleted_at: DateTime.utc_now(),
-        edited_at: DateTime.utc_now(),
-        metadata: Map.put(message.metadata || %{}, "deleted", true)
-      })
+      |> Ecto.Changeset.change(body: "[message deleted]", deleted_at: now, edited_at: now)
       |> Repo.update()
       |> case do
         {:ok, deleted_message} ->
@@ -480,12 +478,17 @@ defmodule Rfchat.Chat do
 
     case normalized_metadata do
       {:ok, decoded_metadata} ->
-        {:ok, Map.put(attrs, "metadata", decoded_metadata)}
+        {:ok, Map.put(attrs, "metadata", stored_metadata(decoded_metadata))}
 
       {:error, _reason} ->
         {:error, invalid_metadata_changeset(attrs)}
     end
   end
+
+  # The composer also sends its whole editor document, which nothing reads back. Only the
+  # mention entities are stored, so a client cannot fill a row with unbounded data.
+  defp stored_metadata(%{} = metadata), do: Map.take(metadata, ["entities"])
+  defp stored_metadata(_metadata), do: %{}
 
   defp invalid_metadata_changeset(attrs) do
     %Message{}

@@ -196,6 +196,36 @@ defmodule Rfchat.ChatTest do
       assert "can't be blank" in errors_on(changeset).body
     end
 
+    test "create_message/3 and update_message/3 ignore fields only the server sets" do
+      channel = channel_fixture()
+      author = user_fixture()
+      past = "2020-01-01T00:00:00Z"
+
+      server_fields = %{
+        "kind" => "system",
+        "nonce" => "forged",
+        "pinned_at" => past,
+        "edited_at" => past,
+        "deleted_at" => past,
+        "metadata" => %{"deleted" => true, "document" => %{"big" => "doc"}, "entities" => []}
+      }
+
+      assert {:ok, message} =
+               Chat.create_message(channel, author, Map.put(server_fields, "body", "hello"))
+
+      assert %{kind: :default, nonce: nil, pinned_at: nil, edited_at: nil, deleted_at: nil} =
+               message
+
+      assert message.metadata == %{"entities" => []}
+      refute Message.deleted?(message)
+
+      assert {:ok, edited} =
+               Chat.update_message(message, author, Map.put(server_fields, "body", "edited"))
+
+      assert %{kind: :default, pinned_at: nil, deleted_at: nil} = edited
+      assert DateTime.compare(edited.edited_at, ~U[2021-01-01 00:00:00Z]) == :gt
+    end
+
     test "create_message/3 rejects cross-channel reply targets" do
       channel = channel_fixture(%{slug: unique_slug()})
       other_channel = channel_fixture(%{slug: unique_slug()})

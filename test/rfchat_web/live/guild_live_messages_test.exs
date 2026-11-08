@@ -26,7 +26,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     refute render(view) =~ "value=\"hello from liveview\""
   end
 
-  test "stores composer metadata with mention and slash command entities", %{conn: conn} do
+  test "stores the mention and slash command entities from composer metadata", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
     {:ok, view, _html} = live(conn, ~p"/")
@@ -51,7 +51,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
       |> Chat.list_messages()
       |> Enum.find(&(&1.body == "hey @member_default /shrug"))
 
-    assert %{"composer" => "tiptap", "entities" => entities} = message.metadata
+    assert %{"entities" => entities} = message.metadata
     assert Enum.any?(entities, &(&1["type"] == "mention"))
     assert Enum.any?(entities, &(&1["type"] == "slash_command"))
   end
