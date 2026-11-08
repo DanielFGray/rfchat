@@ -98,16 +98,9 @@ if config_env() == :prod do
       after_connect: {Postgrex, :query!, ["SET ROLE #{quoted_role}", []]}
   end
 
-  check_origin =
-    case System.get_env("PHX_CHECK_ORIGIN") do
-      nil -> :check_origin
-      "false" -> false
-      "" -> :check_origin
-      origins -> String.split(origins, ",", trim: true)
-    end
-
   config :rfchat, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  # Phoenix's default `check_origin: true` accepts a socket only from a page on this url's host.
   config :rfchat, RfchatWeb.Endpoint,
     url: [host: public_url.host, port: public_url.port, scheme: public_url.scheme],
     http: [
@@ -117,6 +110,5 @@ if config_env() == :prod do
       # for details about using IPv6 vs IPv4 and loopback vs public addresses.
       ip: {0, 0, 0, 0, 0, 0, 0, 0}
     ],
-    check_origin: check_origin,
     secret_key_base: secret_key_base
 end

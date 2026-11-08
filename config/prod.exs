@@ -7,10 +7,9 @@ import Config
 # before starting your production server.
 config :rfchat, RfchatWeb.Endpoint, cache_static_manifest: "priv/static/cache_manifest.json"
 
-# The app serves plain HTTP. TLS ends at the platform's Tailscale Serve, outside the app.
-# Traefik and the platform's health check reach the app over HTTP inside the cluster, and
-# Traefik sends `X-Forwarded-Proto: http`, so an HTTPS redirect here would answer every
-# request with a redirect to the URL it came from.
+# The app serves plain HTTP. TLS ends outside it, at Traefik for a public route and at
+# Tailscale Serve for a tailnet route, and the platform's health check calls the app over
+# plain HTTP, so an HTTPS redirect here keeps the deploy from ever becoming healthy.
 
 # Do not print debug messages in production
 config :logger, level: :info
