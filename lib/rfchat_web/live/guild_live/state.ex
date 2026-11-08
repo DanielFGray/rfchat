@@ -369,9 +369,36 @@ defmodule RfchatWeb.GuildLive.State do
     |> assign(:delete_confirmation_message_id, nil)
   end
 
+  @doc """
+  The message a client event names, when it belongs to the channel or thread the user has open.
+  The client can send any id, and the open conversation is one the user can view, so a message
+  event acts only on a message found here.
+  """
+  def fetch_open_message(socket, message_id) do
+    open_ids =
+      [socket.assigns.active_channel, socket.assigns[:active_thread]]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.id)
+
+    case Chat.get_message_in_channels(message_id, open_ids) do
+      %Message{} = message -> {:ok, message}
+      nil -> :error
+    end
+  end
+
+  # The :messages stream lists the open channel, so only its messages are inserted.
   def rerender_messages(socket, message_ids) do
-    Enum.reduce(Enum.reject(message_ids, &is_nil/1), socket, fn message_id, acc ->
-      stream_insert(acc, :messages, Chat.get_message!(message_id))
+    channel_ids =
+      if socket.assigns.active_channel, do: [socket.assigns.active_channel.id], else: []
+
+    message_ids
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.reduce(socket, fn message_id, acc ->
+      case Chat.get_message_in_channels(message_id, channel_ids) do
+        %Message{} = message -> stream_insert(acc, :messages, message)
+        nil -> acc
+      end
     end)
   end
 

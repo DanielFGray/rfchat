@@ -348,6 +348,18 @@ defmodule Rfchat.Chat do
     |> Repo.get!(id)
   end
 
+  @doc "The message with `id` in one of `channel_ids`, preloaded as `get_message!/1` does, or nil."
+  def get_message_in_channels(id, channel_ids) when is_list(channel_ids) do
+    with {:ok, id} <- Ecto.UUID.cast(id) do
+      Message
+      |> where([message], message.id == ^id and message.channel_id in ^channel_ids)
+      |> preload([:author, :channel, reactions: [emoji: :asset], reply_to: :author])
+      |> Repo.one()
+    else
+      :error -> nil
+    end
+  end
+
   defdelegate message_mentions_user?(message_id, user), to: Notifications
   defdelegate mention_notifications_enabled?(user, channel), to: Notifications
 

@@ -5,23 +5,24 @@ defmodule RfchatWeb.GuildLive.Events.Threads do
   import Phoenix.LiveView, only: [put_flash: 3, push_event: 3]
 
   alias Rfchat.Chat
-  alias RfchatWeb.GuildLive.Events.Helpers
   alias RfchatWeb.GuildLive.State
 
   def handle_event("create_thread", %{"id" => message_id}, socket) do
-    message = Chat.get_message!(Helpers.normalize_message_id(message_id))
-
-    case Chat.create_public_thread(
-           socket.assigns.active_channel,
-           message,
-           socket.assigns.current_user
-         ) do
-      {:ok, thread} ->
-        {:noreply,
-         socket
-         |> State.close_message_ui()
-         |> State.refresh_thread_summaries_for_active_channel()
-         |> State.open_thread(thread)}
+    with {:ok, message} <- State.fetch_open_message(socket, message_id),
+         {:ok, thread} <-
+           Chat.create_public_thread(
+             socket.assigns.active_channel,
+             message,
+             socket.assigns.current_user
+           ) do
+      {:noreply,
+       socket
+       |> State.close_message_ui()
+       |> State.refresh_thread_summaries_for_active_channel()
+       |> State.open_thread(thread)}
+    else
+      :error ->
+        {:noreply, socket}
 
       {:error, :forbidden} ->
         {:noreply,
@@ -45,12 +46,16 @@ defmodule RfchatWeb.GuildLive.Events.Threads do
   end
 
   def handle_event("reply_in_thread", %{"id" => message_id}, socket) do
-    message_id = Helpers.normalize_message_id(message_id)
+    case State.fetch_open_message(socket, message_id) do
+      {:ok, message} ->
+        {:noreply,
+         socket
+         |> assign(:thread_reply_to_message, message)
+         |> State.rerender_active_thread_panel()}
 
-    {:noreply,
-     socket
-     |> assign(:thread_reply_to_message, Chat.get_message!(message_id))
-     |> State.rerender_active_thread_panel()}
+      :error ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("cancel_thread_reply", _params, socket) do

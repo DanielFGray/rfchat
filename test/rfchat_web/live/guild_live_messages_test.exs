@@ -11,6 +11,31 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
   alias Rfchat.Chat.MessageUserMention
   alias Rfchat.Chat.PermissionBits
 
+  test "message events ignore a message outside the open conversation", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    author = user_fixture()
+    hidden = channel_fixture(%{name: "Ops", slug: unique_slug(), position: 20})
+    secret = message_fixture(hidden, author, %{body: "secret ops plan"})
+
+    channel_permission_overwrite_fixture(hidden, %{
+      role_id: Chat.default_role().id,
+      deny_permissions: PermissionBits.combine([:view_channel, :send_messages])
+    })
+
+    conn = log_in_member_user(conn)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    for event <-
+          ~w(toggle_message_controls toggle_message_action_menu confirm_delete_message reply_message
+             edit_message toggle_reaction_picker reply_in_thread create_thread),
+        id <- [secret.id, "not-a-uuid"] do
+      render_hook(view, event, %{"id" => id})
+    end
+
+    refute render(view) =~ "secret ops plan"
+    refute Chat.get_thread_for_starter_message(secret.id)
+  end
+
   test "posts a message into the active channel", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)

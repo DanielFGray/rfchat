@@ -46,14 +46,15 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
 
   def handle_event("toggle_message_controls", %{"id" => message_id}, socket) do
     message_id = Helpers.normalize_message_id(message_id)
-    message = Chat.get_message!(message_id)
 
-    if Helpers.can_open_message_controls?(
-         message,
-         socket.assigns.current_user,
-         socket.assigns.can_send_messages?,
-         socket.assigns.can_manage_messages?
-       ) do
+    with {:ok, message} <- State.fetch_open_message(socket, message_id),
+         true <-
+           Helpers.can_open_message_controls?(
+             message,
+             socket.assigns.current_user,
+             socket.assigns.can_send_messages?,
+             socket.assigns.can_manage_messages?
+           ) do
       previous_controls_id = socket.assigns.active_message_controls_id
       previous_menu_id = socket.assigns.message_action_menu_id
       previous_delete_id = socket.assigns.delete_confirmation_message_id
@@ -81,7 +82,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
          next_message_id
        ])}
     else
-      {:noreply, socket}
+      _closed -> {:noreply, socket}
     end
   end
 
@@ -248,16 +249,22 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
     previous_menu_id = socket.assigns.message_action_menu_id
     previous_delete_id = socket.assigns.delete_confirmation_message_id
 
-    {:noreply,
-     socket
-     |> assign(:reply_to_message, Chat.get_message!(message_id))
-     |> State.close_message_ui()
-     |> State.rerender_messages([
-       message_id,
-       previous_controls_id,
-       previous_menu_id,
-       previous_delete_id
-     ])}
+    case State.fetch_open_message(socket, message_id) do
+      {:ok, message} ->
+        {:noreply,
+         socket
+         |> assign(:reply_to_message, message)
+         |> State.close_message_ui()
+         |> State.rerender_messages([
+           message_id,
+           previous_controls_id,
+           previous_menu_id,
+           previous_delete_id
+         ])}
+
+      :error ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("cancel_reply", _params, socket) do
@@ -266,9 +273,9 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
 
   def handle_event("edit_message", %{"id" => message_id}, socket) do
     message_id = Helpers.normalize_message_id(message_id)
-    message = Chat.get_message!(message_id)
 
-    if message.author_id == socket.assigns.current_user.id do
+    with {:ok, message} <- State.fetch_open_message(socket, message_id),
+         true <- message.author_id == socket.assigns.current_user.id do
       form = message |> Chat.change_message(%{body: message.body}) |> to_form(as: :message)
       previous_controls_id = socket.assigns.active_message_controls_id
       previous_menu_id = socket.assigns.message_action_menu_id
@@ -287,7 +294,8 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
        ])
        |> stream_insert(:messages, message)}
     else
-      {:noreply, put_flash(socket, :error, "You can only edit your own messages.")}
+      :error -> {:noreply, socket}
+      false -> {:noreply, put_flash(socket, :error, "You can only edit your own messages.")}
     end
   end
 
@@ -299,15 +307,17 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
   end
 
   def handle_event("save_edit", %{"message" => %{"id" => message_id, "body" => body}}, socket) do
-    message = Chat.get_message!(message_id)
-
-    case Chat.update_message(message, socket.assigns.current_user, %{body: body}) do
-      {:ok, updated_message} ->
-        {:noreply,
-         socket
-         |> assign(:editing_message_id, nil)
-         |> assign(:editing_form, nil)
-         |> stream_insert(:messages, updated_message)}
+    with {:ok, message} <- State.fetch_open_message(socket, message_id),
+         {:ok, updated_message} <-
+           Chat.update_message(message, socket.assigns.current_user, %{body: body}) do
+      {:noreply,
+       socket
+       |> assign(:editing_message_id, nil)
+       |> assign(:editing_form, nil)
+       |> stream_insert(:messages, updated_message)}
+    else
+      :error ->
+        {:noreply, socket}
 
       {:error, :forbidden} ->
         {:noreply, put_flash(socket, :error, "You do not have permission to edit that message.")}
@@ -319,25 +329,27 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
 
   def handle_event("delete_message", %{"id" => message_id}, socket) do
     message_id = Helpers.normalize_message_id(message_id)
-    message = Chat.get_message!(message_id)
     previous_controls_id = socket.assigns.active_message_controls_id
     previous_menu_id = socket.assigns.message_action_menu_id
     previous_delete_id = socket.assigns.delete_confirmation_message_id
 
-    case Chat.delete_message(message, socket.assigns.current_user) do
-      {:ok, deleted_message} ->
-        {:noreply,
-         socket
-         |> State.close_message_ui()
-         |> assign(:editing_message_id, nil)
-         |> assign(:editing_form, nil)
-         |> State.rerender_messages([
-           message_id,
-           previous_controls_id,
-           previous_menu_id,
-           previous_delete_id
-         ])
-         |> stream_insert(:messages, deleted_message)}
+    with {:ok, message} <- State.fetch_open_message(socket, message_id),
+         {:ok, deleted_message} <- Chat.delete_message(message, socket.assigns.current_user) do
+      {:noreply,
+       socket
+       |> State.close_message_ui()
+       |> assign(:editing_message_id, nil)
+       |> assign(:editing_form, nil)
+       |> State.rerender_messages([
+         message_id,
+         previous_controls_id,
+         previous_menu_id,
+         previous_delete_id
+       ])
+       |> stream_insert(:messages, deleted_message)}
+    else
+      :error ->
+        {:noreply, socket}
 
       {:error, :forbidden} ->
         {:noreply,

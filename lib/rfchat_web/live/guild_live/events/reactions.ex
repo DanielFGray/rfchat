@@ -9,15 +9,17 @@ defmodule RfchatWeb.GuildLive.Events.Reactions do
   alias RfchatWeb.GuildLive.State
 
   def handle_event("toggle_reaction", %{"id" => message_id, "emoji" => emoji_unicode}, socket) do
-    message = Chat.get_message!(message_id)
-
-    case Chat.toggle_reaction(message, socket.assigns.current_user, emoji_unicode) do
-      {:ok, updated_message} ->
-        {:noreply,
-         socket
-         |> assign(:reaction_picker_message_id, nil)
-         |> State.rerender_messages([message.id])
-         |> stream_insert(:messages, updated_message)}
+    with {:ok, message} <- State.fetch_open_message(socket, message_id),
+         {:ok, updated_message} <-
+           Chat.toggle_reaction(message, socket.assigns.current_user, emoji_unicode) do
+      {:noreply,
+       socket
+       |> assign(:reaction_picker_message_id, nil)
+       |> State.rerender_messages([message.id])
+       |> stream_insert(:messages, updated_message)}
+    else
+      :error ->
+        {:noreply, socket}
 
       {:error, :invalid_emoji} ->
         {:noreply, put_flash(socket, :error, "Choose a valid reaction.")}
@@ -35,15 +37,17 @@ defmodule RfchatWeb.GuildLive.Events.Reactions do
         %{"id" => message_id, "emoji_id" => emoji_id},
         socket
       ) do
-    message = Chat.get_message!(message_id)
-
-    case Chat.toggle_reaction(message, socket.assigns.current_user, %{"emoji_id" => emoji_id}) do
-      {:ok, updated_message} ->
-        {:noreply,
-         socket
-         |> assign(:reaction_picker_message_id, nil)
-         |> State.rerender_messages([message.id])
-         |> stream_insert(:messages, updated_message)}
+    with {:ok, message} <- State.fetch_open_message(socket, message_id),
+         {:ok, updated_message} <-
+           Chat.toggle_reaction(message, socket.assigns.current_user, %{"emoji_id" => emoji_id}) do
+      {:noreply,
+       socket
+       |> assign(:reaction_picker_message_id, nil)
+       |> State.rerender_messages([message.id])
+       |> stream_insert(:messages, updated_message)}
+    else
+      :error ->
+        {:noreply, socket}
 
       {:error, :invalid_emoji} ->
         {:noreply, put_flash(socket, :error, "Choose a valid custom emoji.")}
