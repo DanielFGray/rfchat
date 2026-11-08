@@ -7,17 +7,19 @@ defmodule RfchatWeb.API.UserMessageController do
 
   use RfchatWeb, :controller
 
+  alias Rfchat.Bots.Params
   alias Rfchat.Chat
   alias RfchatWeb.API.ErrorHelpers
 
-  def create(conn, %{"channel_id" => channel_id, "message" => message_params}) do
+  def create(conn, %{"channel_id" => channel_id, "message" => message_params})
+      when is_map(message_params) do
     user = conn.assigns.current_user
 
-    case Chat.get_channel(channel_id) do
-      nil ->
+    case Params.fetch_channel(channel_id) do
+      {:error, _} ->
         ErrorHelpers.render_error(conn, :not_found, "not_found", "Channel not found.")
 
-      channel ->
+      {:ok, channel} ->
         case Chat.create_message(channel, user, message_params, preload: false) do
           {:ok, message} ->
             conn
@@ -50,4 +52,6 @@ defmodule RfchatWeb.API.UserMessageController do
         end
     end
   end
+
+  def create(conn, _params), do: ErrorHelpers.render_invalid_body(conn)
 end

@@ -47,7 +47,7 @@ defmodule RfchatWeb.SettingsLive.State do
       SharedHelpers.channel_sections_for_manager(can_manage_channels?)
     )
     |> assign(:custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
-    |> assign(:bot_users, if(can_manage_bots?, do: Bots.list_bot_users(), else: []))
+    |> assign(:bot_users, Bots.list_controllable_bot_users(current_user))
     |> assign(:manageable_roles, Bots.grantable_roles(current_user))
     |> assign(:bot_form, to_form(bot_form_defaults(), as: :bot))
     |> assign(:bot_token_forms, %{})
@@ -197,7 +197,7 @@ defmodule RfchatWeb.SettingsLive.State do
 
   def refresh_bot_assigns(socket) do
     if socket.assigns.can_manage_bots? do
-      bot_users = Bots.list_bot_users()
+      bot_users = Bots.list_controllable_bot_users(socket.assigns.current_user)
 
       bot_token_forms =
         Enum.reduce(bot_users, %{}, fn bot_user, acc ->

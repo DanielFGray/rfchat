@@ -3,12 +3,14 @@ defmodule Rfchat.BotsTest do
 
   import Rfchat.ChatFixtures
 
+  alias Rfchat.Bootstrap
   alias Rfchat.Bots
+  alias Rfchat.Chat
   alias Rfchat.Chat.PermissionBits
 
   describe "bot tokens and command registry" do
     test "creates bot users with roles and one-time tokens" do
-      actor = user_fixture(%{email: "bot-owner@example.com", username: "bot_owner"})
+      actor = owner_fixture(%{email: "bot-owner@example.com", username: "bot_owner"})
 
       role =
         role_fixture(%{
@@ -36,7 +38,7 @@ defmodule Rfchat.BotsTest do
     end
 
     test "executes registered message command" do
-      actor = user_fixture(%{email: "bot-cmd-owner@example.com", username: "bot_cmd_owner"})
+      actor = owner_fixture(%{email: "bot-cmd-owner@example.com", username: "bot_cmd_owner"})
 
       role =
         role_fixture(%{
@@ -70,7 +72,7 @@ defmodule Rfchat.BotsTest do
 
     test "send_message returns invalid_params for malformed channel ids" do
       actor =
-        user_fixture(%{email: "bot-bad-channel-owner@example.com", username: "bot_bad_owner"})
+        owner_fixture(%{email: "bot-bad-channel-owner@example.com", username: "bot_bad_owner"})
 
       bot_user = bot_fixture(actor)
 
@@ -84,7 +86,7 @@ defmodule Rfchat.BotsTest do
 
   describe "bot authority" do
     setup do
-      owner = user_fixture()
+      owner = owner_fixture()
       %{owner: owner}
     end
 
@@ -95,7 +97,7 @@ defmodule Rfchat.BotsTest do
       assert {:error, :forbidden} =
                Bots.create_bot(bot_attrs(%{"role_ids" => [admin_role.id]}), bot_manager)
 
-      assert Bots.list_bot_users() == []
+      assert Bots.list_controllable_bot_users(bot_manager) == []
     end
 
     test "a manage_bots-only member cannot give a bot any role" do
@@ -153,6 +155,56 @@ defmodule Rfchat.BotsTest do
       assert updated.display_name == "Renamed"
       assert Enum.map(updated.member_roles, & &1.role_id) == [role.id]
     end
+
+    test "a manager cannot grant or control a role that unlocks a private channel", %{
+      owner: owner
+    } do
+      manager = member_with([:manage_bots, :manage_roles], position: 50)
+      {private, insider} = private_channel_insider_role()
+
+      assert {:error, :forbidden} =
+               Bots.create_bot(bot_attrs(%{"role_ids" => [insider.id]}), manager)
+
+      refute Enum.any?(Bots.grantable_roles(manager), &(&1.id == insider.id))
+
+      bot = bot_fixture(owner, %{"role_ids" => [insider.id]})
+      assert {:error, :forbidden} = Bots.create_bot_token(bot, %{}, manager)
+
+      assert {:ok, _bot} = Bots.create_bot(bot_attrs(%{"role_ids" => [insider.id]}), owner)
+
+      channel_permission_overwrite_fixture(private, %{
+        user_id: manager.id,
+        allow_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      assert {:ok, granted} = Bots.create_bot(bot_attrs(%{"role_ids" => [insider.id]}), manager)
+      assert Enum.any?(granted.member_roles, &(&1.role_id == insider.id))
+      assert Enum.any?(Bots.grantable_roles(manager), &(&1.id == insider.id))
+    end
+  end
+
+  defp private_channel_insider_role do
+    Bootstrap.ensure_seed_data!()
+    private = channel_fixture(%{name: "Private", slug: unique_slug()})
+
+    channel_permission_overwrite_fixture(private, %{
+      role_id: Chat.default_role().id,
+      deny_permissions: PermissionBits.combine([:view_channel])
+    })
+
+    insider =
+      role_fixture(%{
+        name: "Insider #{System.unique_integer([:positive])}",
+        permissions: 0,
+        position: 10
+      })
+
+    channel_permission_overwrite_fixture(private, %{
+      role_id: insider.id,
+      allow_permissions: PermissionBits.combine([:view_channel])
+    })
+
+    {private, insider}
   end
 
   defp member_with(permissions, opts \\ []) do

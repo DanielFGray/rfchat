@@ -4,20 +4,19 @@ defmodule RfchatWeb.API.BotController do
   alias Rfchat.Bots
   alias Rfchat.Bots.BotScope
   alias Rfchat.Chat
-  alias Rfchat.Chat.BotToken
   alias Rfchat.Chat.Topics
-  alias Rfchat.Repo
   alias RfchatWeb.API.ErrorHelpers
 
   def index(conn, _params) do
     if Bots.can_manage_bots?(conn.assigns.current_scope) do
-      json(conn, RfchatWeb.API.BotJSON.index(%{bots: Bots.list_bot_users()}))
+      bots = Bots.list_controllable_bot_users(conn.assigns.current_user)
+      json(conn, RfchatWeb.API.BotJSON.index(%{bots: bots}))
     else
       ErrorHelpers.render_error(conn, :forbidden, "forbidden", "You cannot manage bots.")
     end
   end
 
-  def create(conn, %{"bot" => bot_params}) do
+  def create(conn, %{"bot" => bot_params}) when is_map(bot_params) do
     actor = conn.assigns.current_user
 
     if Bots.can_manage_bots?(conn.assigns.current_scope) do
@@ -43,7 +42,9 @@ defmodule RfchatWeb.API.BotController do
     end
   end
 
-  def update(conn, %{"id" => id, "bot" => bot_params}) do
+  def create(conn, _params), do: ErrorHelpers.render_invalid_body(conn)
+
+  def update(conn, %{"id" => id, "bot" => bot_params}) when is_map(bot_params) do
     actor = conn.assigns.current_user
 
     if Bots.can_manage_bots?(conn.assigns.current_scope) do
@@ -72,6 +73,8 @@ defmodule RfchatWeb.API.BotController do
       ErrorHelpers.render_error(conn, :forbidden, "forbidden", "You cannot manage bots.")
     end
   end
+
+  def update(conn, _params), do: ErrorHelpers.render_invalid_body(conn)
 
   def delete(conn, %{"id" => id}) do
     actor = conn.assigns.current_user
@@ -103,7 +106,7 @@ defmodule RfchatWeb.API.BotController do
     end
   end
 
-  def create_token(conn, %{"id" => id, "token" => token_params}) do
+  def create_token(conn, %{"id" => id, "token" => token_params}) when is_map(token_params) do
     actor = conn.assigns.current_user
 
     if Bots.can_manage_bots?(conn.assigns.current_scope) do
@@ -135,14 +138,16 @@ defmodule RfchatWeb.API.BotController do
     end
   end
 
+  def create_token(conn, _params), do: ErrorHelpers.render_invalid_body(conn)
+
   def list_tokens(conn, %{"id" => id}) do
     if Bots.can_manage_bots?(conn.assigns.current_scope) do
-      case Bots.get_bot_user(id) do
-        nil ->
-          ErrorHelpers.render_error(conn, :not_found, "not_found", "Bot not found.")
+      case Bots.list_controllable_bot_tokens(id, conn.assigns.current_user) do
+        {:ok, tokens} ->
+          json(conn, RfchatWeb.API.BotJSON.tokens(%{tokens: tokens}))
 
-        bot ->
-          json(conn, RfchatWeb.API.BotJSON.tokens(%{tokens: Bots.list_bot_tokens(bot)}))
+        {:error, :not_found} ->
+          ErrorHelpers.render_error(conn, :not_found, "not_found", "Bot not found.")
       end
     else
       ErrorHelpers.render_error(conn, :forbidden, "forbidden", "You cannot manage bots.")
@@ -153,7 +158,7 @@ defmodule RfchatWeb.API.BotController do
     actor = conn.assigns.current_user
 
     if Bots.can_manage_bots?(conn.assigns.current_scope) do
-      token = Repo.get(BotToken, id)
+      token = Bots.get_bot_token(id)
 
       case token && Bots.revoke_bot_token(token, actor) do
         {:ok, revoked_token} ->

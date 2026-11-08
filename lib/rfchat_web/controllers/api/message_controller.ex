@@ -27,7 +27,8 @@ defmodule RfchatWeb.API.MessageController do
     end
   end
 
-  def create(conn, %{"channel_id" => channel_id, "message" => message_params}) do
+  def create(conn, %{"channel_id" => channel_id, "message" => message_params})
+      when is_map(message_params) do
     params = Map.put(message_params, "channel_id", channel_id)
 
     case Bots.command_send_message(conn.assigns.current_bot_scope, params) do
@@ -64,6 +65,8 @@ defmodule RfchatWeb.API.MessageController do
         )
     end
   end
+
+  def create(conn, _params), do: ErrorHelpers.render_invalid_body(conn)
 
   def thread(conn, %{"message_id" => message_id}) do
     case Bots.get_thread_for_starter_message(conn.assigns.current_bot_scope, message_id) do

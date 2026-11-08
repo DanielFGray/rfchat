@@ -9,7 +9,7 @@ defmodule RfchatWeb.API.BotAuthorityTest do
   test "a manage_bots-only member cannot create an administrator bot over the API", %{
     conn: conn
   } do
-    _owner = user_fixture()
+    _owner = owner_fixture()
     admin_role = role_fixture(%{permissions: PermissionBits.combine([:administrator])})
     manager_role = role_fixture(%{permissions: PermissionBits.combine([:manage_bots])})
     manager = user_fixture()
@@ -29,6 +29,6 @@ defmodule RfchatWeb.API.BotAuthorityTest do
       })
 
     assert %{"error" => %{"code" => "forbidden"}} = json_response(conn, 403)
-    assert Bots.list_bot_users() == []
+    assert Bots.list_controllable_bot_users(manager) == []
   end
 end

@@ -5,6 +5,7 @@ defmodule RfchatWeb.SettingsLiveTest do
 
   alias Rfchat.Accounts
   alias Rfchat.Bootstrap
+  alias Rfchat.Chat.PermissionBits
   import Rfchat.ChatFixtures
 
   describe "owner promote/demote" do
@@ -91,9 +92,36 @@ defmodule RfchatWeb.SettingsLiveTest do
     end
   end
 
+  describe "bot registry visibility" do
+    test "a manager sees only the bots it can control", %{conn: conn} do
+      Bootstrap.ensure_seed_data!()
+      owner = owner_fixture(%{email: "bot-reg-owner@example.com", username: "bot_reg_owner"})
+      high_role = role_fixture(%{permissions: 0, position: 10})
+      high_bot = bot_fixture(owner, %{"role_ids" => [high_role.id]})
+      low_bot = bot_fixture(owner, %{})
+
+      manager_role =
+        role_fixture(%{permissions: PermissionBits.combine([:manage_bots]), position: 5})
+
+      manager = user_fixture(%{email: "bot-reg-manager@example.com", username: "bot_reg_manager"})
+      member_role_fixture(manager, manager_role)
+
+      conn =
+        conn
+        |> Phoenix.ConnTest.init_test_session(%{})
+        |> Plug.Conn.put_session(:user_token, Accounts.generate_user_session_token(manager))
+        |> Plug.Conn.put_session(:live_socket_id, "users_sessions:bot-reg-manager")
+
+      {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
+
+      assert has_element?(view, "#bot-card-#{low_bot.id}")
+      refute has_element?(view, "#bot-card-#{high_bot.id}")
+    end
+  end
+
   defp log_in_owner_with_member(conn) do
     owner =
-      user_fixture(%{
+      owner_fixture(%{
         email: "settings-owner@example.com",
         username: "settings_owner",
         display_name: "Settings Owner"
@@ -119,7 +147,7 @@ defmodule RfchatWeb.SettingsLiveTest do
 
   defp log_in_member_with_owner(conn) do
     owner =
-      user_fixture(%{
+      owner_fixture(%{
         email: "settings-owner2@example.com",
         username: "settings_owner2",
         display_name: "Settings Owner2"

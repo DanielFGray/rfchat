@@ -28,12 +28,20 @@ defmodule Rfchat.Bots do
 
   def command_registry, do: Commands.command_registry()
 
-  def list_bot_users do
-    User
-    |> where([user], user.bot == true and is_nil(user.deleted_at))
-    |> order_by([user], asc: user.display_name, asc: user.username)
-    |> preload([:membership, :bot_tokens, member_roles: :role])
-    |> Repo.all()
+  @doc "The bots the actor may control. Empty when the actor may not manage bots."
+  def list_controllable_bot_users(%User{} = actor) do
+    case Authority.manage_bots(actor) do
+      {:ok, authority} ->
+        User
+        |> where([user], user.bot == true and is_nil(user.deleted_at))
+        |> order_by([user], asc: user.display_name, asc: user.username)
+        |> preload([:membership, :bot_tokens, member_roles: :role])
+        |> Repo.all()
+        |> Enum.filter(&(Authority.control_bot(authority, &1) == :ok))
+
+      {:error, :forbidden} ->
+        []
+    end
   end
 
   def get_bot_user!(id) do
@@ -43,11 +51,18 @@ defmodule Rfchat.Bots do
     |> Repo.get!(id)
   end
 
+  @doc "The bot with `id`, or nil. A value that is not a UUID is not found, not an error."
   def get_bot_user(id) do
-    User
-    |> where([user], user.bot == true and is_nil(user.deleted_at))
-    |> preload([:membership, :bot_tokens, member_roles: :role])
-    |> Repo.get(id)
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        User
+        |> where([user], user.bot == true and is_nil(user.deleted_at))
+        |> preload([:membership, :bot_tokens, member_roles: :role])
+        |> Repo.get(uuid)
+
+      :error ->
+        nil
+    end
   end
 
   @doc """
@@ -191,6 +206,28 @@ defmodule Rfchat.Bots do
     |> Repo.all()
   end
 
+  @doc """
+  The tokens of the bot `bot_id`, when the actor may control that bot. A missing bot and a bot
+  the actor cannot control both return `{:error, :not_found}`, so the caller cannot tell them apart.
+  """
+  def list_controllable_bot_tokens(bot_id, %User{} = actor) do
+    with %User{} = bot_user <- get_bot_user(bot_id),
+         {:ok, authority} <- Authority.manage_bots(actor),
+         :ok <- Authority.control_bot(authority, bot_user) do
+      {:ok, list_bot_tokens(bot_user)}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  @doc "The token with `id`, or nil. A value that is not a UUID is not found, not an error."
+  def get_bot_token(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> Repo.get(BotToken, uuid)
+      :error -> nil
+    end
+  end
+
   @doc "Mints a token for the bot. The actor must have authority over the bot's roles."
   def create_bot_token(%User{} = bot_user, attrs, %User{} = actor) when is_map(attrs) do
     with {:ok, authority} <- Authority.manage_bots(actor),
@@ -203,48 +240,39 @@ defmodule Rfchat.Bots do
     token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
     now = DateTime.utc_now()
 
-    expires_at =
-      case parse_optional_days(
-             Map.get(attrs, "expires_in_days") || Map.get(attrs, :expires_in_days)
-           ) do
-        {:ok, days} -> DateTime.add(now, days * 86_400, :second)
-        :none -> nil
-        :error -> nil
-      end
-
-    case %BotToken{}
-         |> BotToken.changeset(%{
-           user_id: bot_user.id,
-           token_hash: Accounts.hash_token(token),
-           label: Map.get(attrs, "label") || Map.get(attrs, :label),
-           last_used_at: nil,
-           expires_at: expires_at
-         })
-         |> Repo.insert() do
-      {:ok, bot_token} ->
-        record_bot_audit_log!(actor, bot_user, "bot_token_created", %{"token_id" => bot_token.id})
-        {:ok, %{token: token, bot_token: bot_token}}
-
-      {:error, changeset} ->
-        {:error, changeset}
+    with {:ok, expires_at} <- expires_at_from_attrs(attrs, now),
+         {:ok, bot_token} <-
+           %BotToken{}
+           |> BotToken.changeset(%{
+             user_id: bot_user.id,
+             token_hash: Accounts.hash_token(token),
+             label: Map.get(attrs, "label") || Map.get(attrs, :label),
+             last_used_at: nil,
+             expires_at: expires_at
+           })
+           |> Repo.insert() do
+      record_bot_audit_log!(actor, bot_user, "bot_token_created", %{"token_id" => bot_token.id})
+      {:ok, %{token: token, bot_token: bot_token}}
     end
   end
 
+  @doc "Revokes `bot_token`. A token whose bot was deleted is `{:error, :not_found}`."
   def revoke_bot_token(%BotToken{} = bot_token, %User{} = actor) do
     with {:ok, authority} <- Authority.manage_bots(actor),
-         :ok <- Authority.control_bot(authority, get_bot_user!(bot_token.user_id)) do
-      mark_token_revoked(bot_token, actor)
+         {:ok, bot_user} <- fetch_bot_user(bot_token.user_id),
+         :ok <- Authority.control_bot(authority, bot_user) do
+      mark_token_revoked(bot_token, bot_user, actor)
     end
   end
 
-  defp mark_token_revoked(bot_token, actor) do
+  defp mark_token_revoked(bot_token, bot_user, actor) do
     now = DateTime.utc_now()
 
     case bot_token
          |> BotToken.changeset(%{revoked_at: now})
          |> Repo.update() do
       {:ok, revoked_token} ->
-        record_bot_audit_log!(actor, get_bot_user!(revoked_token.user_id), "bot_token_revoked", %{
+        record_bot_audit_log!(actor, bot_user, "bot_token_revoked", %{
           "token_id" => revoked_token.id
         })
 
@@ -313,16 +341,14 @@ defmodule Rfchat.Bots do
   def command_list_messages(_, _), do: {:error, :invalid_params}
 
   def get_thread_for_starter_message(%BotScope{bot_user: bot_user}, starter_message_id) do
-    case Chat.get_thread_for_starter_message(starter_message_id) do
-      nil ->
-        {:error, :not_found}
+    case Ecto.UUID.cast(starter_message_id) do
+      {:ok, starter_id} ->
+        starter_id
+        |> Chat.get_thread_for_starter_message()
+        |> viewable_thread_result(bot_user)
 
-      thread ->
-        if Chat.can_view_channel?(thread, bot_user) do
-          {:ok, %{thread: Serializer.serialize_thread(thread)}}
-        else
-          {:error, :forbidden}
-        end
+      :error ->
+        {:error, :not_found}
     end
   end
 
@@ -330,7 +356,8 @@ defmodule Rfchat.Bots do
 
   def create_public_thread(scope, starter_message_id, attrs \\ %{})
 
-  def create_public_thread(%BotScope{bot_user: bot_user}, starter_message_id, attrs) do
+  def create_public_thread(%BotScope{bot_user: bot_user}, starter_message_id, attrs)
+      when is_map(attrs) do
     with {:ok, starter_message} <- fetch_message(starter_message_id),
          {:ok, parent_channel} <- fetch_channel(starter_message.channel_id) do
       case Chat.create_public_thread(parent_channel, starter_message, bot_user, attrs) do
@@ -360,6 +387,13 @@ defmodule Rfchat.Bots do
   def serialize_message(message), do: Serializer.serialize_message(message)
 
   def serialize_thread(thread), do: Serializer.serialize_thread(thread)
+
+  defp fetch_bot_user(user_id) do
+    case get_bot_user(user_id) do
+      nil -> {:error, :not_found}
+      bot_user -> {:ok, bot_user}
+    end
+  end
 
   defp fetch_channel(channel_id) do
     case Chat.get_channel(channel_id) do
@@ -432,15 +466,37 @@ defmodule Rfchat.Bots do
     |> Repo.insert!()
   end
 
-  defp parse_optional_days(nil), do: :none
-  defp parse_optional_days(value) when is_integer(value) and value > 0, do: {:ok, value}
+  defp viewable_thread_result(nil, _bot_user), do: {:error, :not_found}
 
-  defp parse_optional_days(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {parsed, ""} when parsed > 0 -> {:ok, parsed}
-      _ -> :error
+  defp viewable_thread_result(thread, bot_user) do
+    if Chat.can_view_channel?(thread, bot_user) do
+      {:ok, %{thread: Serializer.serialize_thread(thread)}}
+    else
+      {:error, :forbidden}
     end
   end
 
-  defp parse_optional_days(_), do: :error
+  # Only the `expires_in_days` key is read. Absent or blank means the token never expires.
+  # Ecto's integer cast accepts a JSON integer and a form string such as "30"; the settings
+  # form posts "" when the field is left blank. Any other value is a changeset error, so a
+  # bad value can never mint a token that does not expire.
+  defp expires_at_from_attrs(attrs, now) do
+    {%{}, %{expires_in_days: :integer}}
+    |> Ecto.Changeset.cast(Map.take(attrs, ["expires_in_days"]), [:expires_in_days])
+    |> Ecto.Changeset.validate_number(:expires_in_days,
+      greater_than_or_equal_to: 1,
+      less_than_or_equal_to: 365
+    )
+    |> Ecto.Changeset.apply_action(:insert)
+    |> case do
+      {:ok, data} ->
+        case Map.get(data, :expires_in_days) do
+          nil -> {:ok, nil}
+          days -> {:ok, DateTime.add(now, days * 86_400, :second)}
+        end
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
+  end
 end

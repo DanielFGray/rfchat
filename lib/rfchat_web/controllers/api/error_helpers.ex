@@ -11,6 +11,16 @@ defmodule RfchatWeb.API.ErrorHelpers do
     |> json(%{error: %{code: code, message: message}})
   end
 
+  @doc "422 for a request whose body is missing its expected key or is not a JSON object."
+  def render_invalid_body(conn) do
+    render_error(
+      conn,
+      :unprocessable_entity,
+      "invalid_params",
+      "Request body is missing the expected object."
+    )
+  end
+
   def render_changeset_error(conn, status, code, changeset, message \\ "Validation failed.") do
     conn
     |> put_status(status)
