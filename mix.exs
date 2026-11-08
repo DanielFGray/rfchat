@@ -77,10 +77,10 @@ defmodule Rfchat.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
+      # `ops dev db` creates and drops the databases; the logins here cannot.
       setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
-      "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
-      "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
+      "ecto.setup": ["ecto.migrate", "run priv/repo/seeds.exs"],
+      test: ["ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["compile", "tailwind rfchat", "esbuild rfchat"],
       "assets.deploy": [

@@ -27,19 +27,23 @@ config :rfchat,
 config :rfchat, RfchatWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
-if config_env() == :prod do
-  database_url =
-    System.get_env("DATABASE_URL") ||
-      raise """
-      environment variable DATABASE_URL is missing.
-      For example: ecto://USER:PASS@HOST/DATABASE
-      """
+# A checkout gets both URLs from `ops dev db up`, which writes them to .env. A deploy
+# gets DATABASE_URL from the cartridge's PostgresCredentials secret.
+database_url_env = if config_env() == :test, do: "TEST_DATABASE_URL", else: "DATABASE_URL"
 
+config :rfchat, Rfchat.Repo,
+  url:
+    System.get_env(database_url_env) ||
+      raise("""
+      environment variable #{database_url_env} is missing.
+      In a checkout, run `ops dev db up`, then `set -a; source .env; set +a`.
+      """)
+
+if config_env() == :prod do
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
   config :rfchat, Rfchat.Repo,
     # ssl: true,
-    url: database_url,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     # For machines with several cores, consider starting multiple pools of `pool_size`
     # pool_count: 4,

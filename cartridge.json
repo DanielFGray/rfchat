@@ -1,0 +1,53 @@
+{
+  "apiVersion": "server-ansible/v2",
+  "name": "rfchat",
+  "postgres": [{ "database": "rfchat", "extensions": ["citext"], "shadow": false }],
+  "valkey": {},
+  "services": [
+    {
+      "name": "rfchat",
+      "image": "registry.cluster:5000/rfchat",
+      "hostPort": "dynamic",
+      "containerPort": 4000,
+      "healthCheck": { "type": "http", "path": "/health" },
+      "cpu": 500,
+      "memoryMB": 512,
+      "networkMode": "bridge",
+      "storage": { "volume": "rfchat-data", "mountPath": "/data" },
+      "routes": [{ "access": "tailnet" }],
+      "environment": [
+        { "name": "PHX_SERVER", "value": "true" },
+        { "name": "PORT", "value": "4000" },
+        { "name": "UPLOADS_DIR", "value": "/data/uploads" },
+        { "name": "DATABASE_VISITOR", "database": "rfchat", "role": "visitor" }
+      ],
+      "connections": [],
+      "migrate": {
+        "command": "/app/bin/migrate",
+        "secrets": [
+          {
+            "_tag": "PostgresCredentials",
+            "database": "rfchat",
+            "login": "migration",
+            "urlEnv": "DATABASE_URL"
+          }
+        ]
+      },
+      "secrets": [
+        {
+          "_tag": "PostgresCredentials",
+          "database": "rfchat",
+          "login": "api",
+          "urlEnv": "DATABASE_URL"
+        },
+        { "_tag": "ValkeyCredentials", "urlEnv": "REDIS_URL" },
+        {
+          "_tag": "KvSecret",
+          "path": "secret/data/rfchat",
+          "key": "secret_key_base",
+          "env": "SECRET_KEY_BASE"
+        }
+      ]
+    }
+  ]
+}

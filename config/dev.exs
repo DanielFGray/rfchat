@@ -1,23 +1,11 @@
 import Config
 
-db_username = System.get_env("DB_USERNAME", "postgres")
-db_password = System.get_env("DB_PASSWORD", "postgres")
-db_host = System.get_env("DB_HOST", "localhost")
-db_port = String.to_integer(System.get_env("DB_PORT", "5432"))
-db_name = System.get_env("DB_NAME", "rfchat_dev")
-pool_size = String.to_integer(System.get_env("POOL_SIZE", "10"))
 port = String.to_integer(System.get_env("PORT", "4000"))
 
-# Configure your database
+# config/runtime.exs sets the database URL.
 config :rfchat, Rfchat.Repo,
-  username: db_username,
-  password: db_password,
-  hostname: db_host,
-  port: db_port,
-  database: db_name,
   stacktrace: true,
-  show_sensitive_data_on_connection_error: true,
-  pool_size: pool_size
+  show_sensitive_data_on_connection_error: true
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

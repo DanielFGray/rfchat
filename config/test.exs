@@ -1,24 +1,10 @@
 import Config
 
-db_username = System.get_env("DB_USERNAME", "postgres")
-db_password = System.get_env("DB_PASSWORD", "postgres")
-db_host = System.get_env("DB_HOST", "localhost")
-db_port = String.to_integer(System.get_env("DB_PORT", "5432"))
-db_name = "rfchat_test#{System.get_env("MIX_TEST_PARTITION")}"
-
-# Configure your database
-#
-# The MIX_TEST_PARTITION environment variable can be used
-# to provide built-in test partitioning in CI environment.
-# Run `mix help test` for more information.
+# config/runtime.exs sets the database URL from TEST_DATABASE_URL.
 config :rfchat, Rfchat.Repo,
-  username: db_username,
-  password: db_password,
-  hostname: db_host,
-  port: db_port,
-  database: db_name,
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  # `ops dev db` caps each dev login at 8 connections.
+  pool_size: 8
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
