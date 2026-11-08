@@ -3,7 +3,9 @@ defmodule Rfchat.ObjectStore do
   The S3 bucket that holds uploaded files.
 
   Requests use path-style addressing (`endpoint/bucket/key`) and AWS Signature Version 4.
-  The platform gives each deploy, and each staged copy, its own bucket and key, so the
+  The platform's store has no public route, so the app serves objects through its own
+  `/uploads` route. A staged copy uses the live bucket with its own key, and its database
+  rows name live objects: a delete in a staged copy removes the live object. The
   configuration comes from the environment. See `config/runtime.exs`.
 
   Configuration under `config :rfchat, Rfchat.ObjectStore`:

@@ -73,7 +73,8 @@ if config_env() == :prod do
         raise("environment variable PHX_URL is missing, for example https://chat.example.com")
     )
 
-  # The platform gives each deploy, and each staged copy, its own bucket and key.
+  # The cartridge's ObjectStoreCredentials secret sets these, in the server and in the
+  # migrate step, because both load this file. A staged copy gets its own key on the live bucket.
   fetch_s3_env! = fn name ->
     System.get_env(name) || raise("environment variable #{name} is missing")
   end

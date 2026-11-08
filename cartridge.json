@@ -3,6 +3,7 @@
   "name": "rfchat",
   "postgres": [{ "database": "rfchat", "extensions": ["citext"], "shadow": false }],
   "valkey": {},
+  "objectStore": {},
   "services": [
     {
       "name": "rfchat",
@@ -36,6 +37,14 @@
             "path": "secret/data/rfchat",
             "key": "secret_key_base",
             "env": "SECRET_KEY_BASE"
+          },
+          {
+            "_tag": "ObjectStoreCredentials",
+            "endpointEnv": "S3_ENDPOINT",
+            "regionEnv": "S3_REGION",
+            "bucketEnv": "S3_BUCKET",
+            "accessKeyIdEnv": "S3_ACCESS_KEY_ID",
+            "secretAccessKeyEnv": "S3_SECRET_ACCESS_KEY"
           }
         ]
       },
@@ -52,6 +61,14 @@
           "path": "secret/data/rfchat",
           "key": "secret_key_base",
           "env": "SECRET_KEY_BASE"
+        },
+        {
+          "_tag": "ObjectStoreCredentials",
+          "endpointEnv": "S3_ENDPOINT",
+          "regionEnv": "S3_REGION",
+          "bucketEnv": "S3_BUCKET",
+          "accessKeyIdEnv": "S3_ACCESS_KEY_ID",
+          "secretAccessKeyEnv": "S3_SECRET_ACCESS_KEY"
         }
       ]
     }

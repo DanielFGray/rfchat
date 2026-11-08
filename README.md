@@ -59,7 +59,7 @@ A deploy gets its environment from `cartridge.json`: `DATABASE_URL`, `REDIS_URL`
 
 ## Deploy
 
-`ops release` builds the `Dockerfile` from the committed `HEAD` and deploys the image as `cartridge.json` declares. Its migrate step, `/app/bin/migrate`, runs the migrations and adds the seed data before the server starts. Before the first deploy, set the session secret once with `ops secret set secret_key_base` (generate the value with `mix phx.gen.secret`). The platform has no S3 service yet, so `cartridge.json` does not map the bucket variables, and the app cannot be deployed or staged until it does.
+`ops release` builds the `Dockerfile` from the committed `HEAD` and deploys the image as `cartridge.json` declares. Its migrate step, `/app/bin/migrate`, runs the migrations and adds the seed data before the server starts. Before the first deploy, set the session secret once with `ops secret set secret_key_base` (generate the value with `mix phx.gen.secret`). The bucket comes from the platform's object store (`"objectStore": {}` in `cartridge.json`). The migrate step also gets the bucket key, because it loads `config/runtime.exs`, which requires the bucket variables in prod. A staged copy uses the live bucket with its own key, so deleting an upload in a staged copy deletes the live file.
 
 ## Initial architecture direction
 
