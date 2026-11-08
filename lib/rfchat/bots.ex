@@ -5,6 +5,7 @@ defmodule Rfchat.Bots do
 
   alias Rfchat.Accounts
   alias Rfchat.Accounts.Scope
+  alias Rfchat.Bots.Authority
   alias Rfchat.Bots.Commands
   alias Rfchat.Bots.Serializer
   alias Rfchat.Chat
@@ -13,6 +14,7 @@ defmodule Rfchat.Bots do
   alias Rfchat.Chat.BotToken
   alias Rfchat.Chat.MemberRole
   alias Rfchat.Chat.Membership
+  alias Rfchat.Chat.Role
   alias Rfchat.Chat.User
   alias Rfchat.Repo
 
@@ -48,7 +50,20 @@ defmodule Rfchat.Bots do
     |> Repo.get(id)
   end
 
+  @doc """
+  Creates a bot with the roles in `role_ids`. The actor must manage bots, and needs
+  manage_roles plus authority over each role (see `Rfchat.Bots.Authority`).
+  """
   def create_bot(attrs, %User{} = actor) when is_map(attrs) do
+    role_ids = Map.get(attrs, "role_ids") || Map.get(attrs, :role_ids) || []
+
+    with {:ok, authority} <- Authority.manage_bots(actor),
+         {:ok, roles} <- Authority.grant_roles(authority, role_ids) do
+      insert_bot(attrs, roles, actor)
+    end
+  end
+
+  defp insert_bot(attrs, roles, actor) do
     Repo.transaction(fn ->
       now = DateTime.utc_now()
 
@@ -67,10 +82,9 @@ defmodule Rfchat.Bots do
         |> Membership.changeset(%{joined_at: now, is_owner: false})
         |> Repo.insert!()
 
-      role_ids = Map.get(attrs, "role_ids") || Map.get(attrs, :role_ids) || []
-      assign_roles!(bot_user, role_ids, actor)
+      assign_roles!(bot_user, roles, actor)
 
-      record_bot_audit_log!(actor, bot_user, "bot_created", %{"role_ids" => role_ids})
+      record_bot_audit_log!(actor, bot_user, "bot_created", %{"role_ids" => role_ids(roles)})
 
       bot_user
       |> Repo.preload([:membership, :bot_tokens, member_roles: :role])
@@ -84,7 +98,28 @@ defmodule Rfchat.Bots do
     end
   end
 
+  @doc """
+  Updates a bot's profile. When `attrs` carries `role_ids`, they replace the bot's roles under
+  the same rules as `create_bot/2`; without it, the roles stay as they are.
+  """
   def update_bot(%User{} = bot_user, attrs, %User{} = actor) when is_map(attrs) do
+    with {:ok, authority} <- Authority.manage_bots(actor),
+         :ok <- Authority.control_bot(authority, bot_user),
+         {:ok, roles} <- roles_for_update(authority, attrs) do
+      save_bot(bot_user, attrs, roles, actor)
+    end
+  end
+
+  defp roles_for_update(authority, attrs) do
+    with :error <- Map.fetch(attrs, "role_ids"),
+         :error <- Map.fetch(attrs, :role_ids) do
+      {:ok, :keep}
+    else
+      {:ok, ids} -> Authority.grant_roles(authority, ids || [])
+    end
+  end
+
+  defp save_bot(bot_user, attrs, roles, actor) do
     Repo.transaction(fn ->
       updated_bot =
         bot_user
@@ -96,10 +131,15 @@ defmodule Rfchat.Bots do
         })
         |> Repo.update!()
 
-      role_ids = Map.get(attrs, "role_ids") || Map.get(attrs, :role_ids) || []
-      replace_roles!(updated_bot, role_ids, actor)
+      metadata =
+        if roles == :keep do
+          %{}
+        else
+          replace_roles!(updated_bot, roles, actor)
+          %{"role_ids" => role_ids(roles)}
+        end
 
-      record_bot_audit_log!(actor, updated_bot, "bot_updated", %{"role_ids" => role_ids})
+      record_bot_audit_log!(actor, updated_bot, "bot_updated", metadata)
       Repo.preload(updated_bot, [:membership, :bot_tokens, member_roles: :role])
     end)
     |> case do
@@ -111,6 +151,13 @@ defmodule Rfchat.Bots do
   end
 
   def revoke_bot(%User{} = bot_user, %User{} = actor) do
+    with {:ok, authority} <- Authority.manage_bots(actor),
+         :ok <- Authority.control_bot(authority, bot_user) do
+      deactivate_bot(bot_user, actor)
+    end
+  end
+
+  defp deactivate_bot(bot_user, actor) do
     now = DateTime.utc_now()
 
     Repo.transaction(fn ->
@@ -144,7 +191,15 @@ defmodule Rfchat.Bots do
     |> Repo.all()
   end
 
+  @doc "Mints a token for the bot. The actor must have authority over the bot's roles."
   def create_bot_token(%User{} = bot_user, attrs, %User{} = actor) when is_map(attrs) do
+    with {:ok, authority} <- Authority.manage_bots(actor),
+         :ok <- Authority.control_bot(authority, bot_user) do
+      insert_bot_token(bot_user, attrs, actor)
+    end
+  end
+
+  defp insert_bot_token(bot_user, attrs, actor) do
     token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
     now = DateTime.utc_now()
 
@@ -176,6 +231,13 @@ defmodule Rfchat.Bots do
   end
 
   def revoke_bot_token(%BotToken{} = bot_token, %User{} = actor) do
+    with {:ok, authority} <- Authority.manage_bots(actor),
+         :ok <- Authority.control_bot(authority, get_bot_user!(bot_token.user_id)) do
+      mark_token_revoked(bot_token, actor)
+    end
+  end
+
+  defp mark_token_revoked(bot_token, actor) do
     now = DateTime.utc_now()
 
     case bot_token
@@ -318,11 +380,16 @@ defmodule Rfchat.Bots do
     Ecto.NoResultsError -> {:error, :not_found}
   end
 
-  defp assign_roles!(%User{} = bot_user, role_ids, %User{} = actor) do
-    role_ids
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-    |> Enum.each(fn role_id ->
+  @doc "Every role the actor may give a bot; empty when the actor may not manage bots."
+  def grantable_roles(%User{} = actor) do
+    case Authority.manage_bots(actor) do
+      {:ok, authority} -> Authority.grantable_roles(authority)
+      {:error, :forbidden} -> []
+    end
+  end
+
+  defp assign_roles!(%User{} = bot_user, roles, %User{} = actor) do
+    Enum.each(roles, fn %Role{id: role_id} ->
       %MemberRole{}
       |> MemberRole.changeset(%{
         user_id: bot_user.id,
@@ -333,12 +400,14 @@ defmodule Rfchat.Bots do
     end)
   end
 
-  defp replace_roles!(%User{} = bot_user, role_ids, %User{} = actor) do
+  defp replace_roles!(%User{} = bot_user, roles, %User{} = actor) do
     from(member_role in MemberRole, where: member_role.user_id == ^bot_user.id)
     |> Repo.delete_all()
 
-    assign_roles!(bot_user, role_ids, actor)
+    assign_roles!(bot_user, roles, actor)
   end
+
+  defp role_ids(roles), do: Enum.map(roles, & &1.id)
 
   defp touch_bot_token(%BotToken{id: id}) do
     threshold = DateTime.add(DateTime.utc_now(), -@touch_threshold_seconds, :second)

@@ -11,6 +11,26 @@ defmodule Rfchat.Chat.Permissions do
 
   @default_role_cache_key {__MODULE__, :default_role}
 
+  @doc """
+  The member as the database holds them now, with membership and roles, or nil when the user
+  is deleted. Authorization for a write reads this, because a session's user struct can be
+  stale after a role change, a demotion or a deactivation.
+  """
+  def current_member(user_id) do
+    User
+    |> where([user], user.id == ^user_id and is_nil(user.deleted_at))
+    |> preload([:membership, member_roles: :role])
+    |> Repo.one()
+  end
+
+  @doc "The member's server-wide permissions as the database holds them now."
+  def current_permissions(%User{id: user_id}) do
+    case current_member(user_id) do
+      nil -> 0
+      member -> Authorization.base_permissions(member, default_role())
+    end
+  end
+
   def can_send_messages?(%Channel{} = channel, %User{} = user) do
     can_send_messages?(channel, user, default_role())
   end

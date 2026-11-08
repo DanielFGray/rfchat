@@ -16,7 +16,11 @@ defmodule RfchatWeb.SettingsComponents.Server do
       </p>
       <h2 class="mt-1 text-xl font-semibold text-base-content">Channels, emoji, moderation</h2>
 
-      <div class="mt-5 rounded-xl border border-base-300 bg-base-200 p-4">
+      <div
+        :if={@can_manage_server?}
+        id="server-branding"
+        class="mt-5 rounded-xl border border-base-300 bg-base-200 p-4"
+      >
         <div class="flex items-start justify-between gap-4">
           <div>
             <p class="text-[11px] font-bold uppercase tracking-[0.18em] text-base-content/50">

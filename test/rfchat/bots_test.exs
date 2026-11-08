@@ -81,4 +81,102 @@ defmodule Rfchat.BotsTest do
                )
     end
   end
+
+  describe "bot authority" do
+    setup do
+      owner = user_fixture()
+      %{owner: owner}
+    end
+
+    test "a manage_bots-only member cannot give a bot an administrator role" do
+      bot_manager = member_with([:manage_bots])
+      admin_role = role_fixture(%{permissions: PermissionBits.combine([:administrator])})
+
+      assert {:error, :forbidden} =
+               Bots.create_bot(bot_attrs(%{"role_ids" => [admin_role.id]}), bot_manager)
+
+      assert Bots.list_bot_users() == []
+    end
+
+    test "a manage_bots-only member cannot give a bot any role" do
+      bot_manager = member_with([:manage_bots])
+      speaker = role_fixture(%{permissions: 0, position: 0})
+
+      assert {:error, :forbidden} =
+               Bots.create_bot(bot_attrs(%{"role_ids" => [speaker.id]}), bot_manager)
+    end
+
+    test "a role manager can grant only lower roles whose permissions they hold" do
+      manager = member_with([:manage_bots, :manage_roles, :send_messages], position: 50)
+      lower = role_fixture(%{permissions: PermissionBits.combine([:send_messages]), position: 10})
+      higher = role_fixture(%{permissions: 0, position: 60})
+      stronger = role_fixture(%{permissions: PermissionBits.combine([:ban_members]), position: 5})
+
+      assert {:ok, bot} = Bots.create_bot(bot_attrs(%{"role_ids" => [lower.id]}), manager)
+      assert [%{role_id: role_id}] = bot.member_roles
+      assert role_id == lower.id
+
+      for role <- [higher, stronger] do
+        assert {:error, :forbidden} =
+                 Bots.create_bot(bot_attrs(%{"role_ids" => [role.id]}), manager)
+      end
+
+      assert Enum.map(Bots.grantable_roles(manager), & &1.id) == [lower.id]
+    end
+
+    test "a bot manager cannot mint a token for a bot that outranks them", %{owner: owner} do
+      admin_role = role_fixture(%{permissions: PermissionBits.combine([:administrator])})
+      admin_bot = bot_fixture(owner, %{"role_ids" => [admin_role.id]})
+      bot_manager = member_with([:manage_bots])
+
+      assert {:error, :forbidden} = Bots.create_bot_token(admin_bot, %{}, bot_manager)
+      assert {:error, :forbidden} = Bots.revoke_bot(admin_bot, bot_manager)
+      assert Bots.list_bot_tokens(admin_bot) == []
+    end
+
+    test "authority is read from the database, not from the actor struct" do
+      manager_role = role_fixture(%{permissions: PermissionBits.combine([:manage_bots])})
+      manager = user_fixture()
+      member_role = member_role_fixture(manager, manager_role)
+      stale_manager = Rfchat.Repo.preload(manager, [:membership, member_roles: :role])
+
+      Rfchat.Repo.delete!(member_role)
+
+      assert {:error, :forbidden} = Bots.create_bot(bot_attrs(), stale_manager)
+    end
+
+    test "updating a bot without role_ids keeps its roles", %{owner: owner} do
+      role = role_fixture()
+      bot = bot_fixture(owner, %{"role_ids" => [role.id]})
+
+      assert {:ok, updated} = Bots.update_bot(bot, %{"display_name" => "Renamed"}, owner)
+      assert updated.display_name == "Renamed"
+      assert Enum.map(updated.member_roles, & &1.role_id) == [role.id]
+    end
+  end
+
+  defp member_with(permissions, opts \\ []) do
+    role =
+      role_fixture(%{
+        permissions: PermissionBits.combine(permissions),
+        position: Keyword.get(opts, :position, 1)
+      })
+
+    member = user_fixture()
+    member_role_fixture(member, role)
+    member
+  end
+
+  defp bot_attrs(attrs \\ %{}) do
+    id = System.unique_integer([:positive])
+
+    Map.merge(
+      %{
+        "display_name" => "Bot #{id}",
+        "username" => "bot_#{id}",
+        "email" => "bot_#{id}@example.com"
+      },
+      attrs
+    )
+  end
 end

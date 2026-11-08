@@ -155,6 +155,9 @@ defmodule RfchatWeb.SettingsLive do
          |> assign(:server_settings_form, State.server_settings_form(settings))
          |> put_flash(:info, "Server icon removed.")}
 
+      {:error, :forbidden} ->
+        {:noreply, put_flash(socket, :error, "You cannot change server branding.")}
+
       {:error, _reason} ->
         {:noreply, put_flash(socket, :error, "Could not remove the server icon.")}
     end
@@ -173,6 +176,9 @@ defmodule RfchatWeb.SettingsLive do
          |> assign(:page_title, settings.name)
          |> assign(:server_settings_form, State.server_settings_form(settings))
          |> put_flash(:info, "Server settings updated.")}
+
+      {:error, :forbidden} ->
+        {:noreply, put_flash(socket, :error, "You cannot change server branding.")}
 
       {:error, :invalid_upload_type} ->
         {:noreply, put_flash(socket, :error, "Server icon must be png, jpg, gif, or webp.")}
@@ -223,8 +229,8 @@ defmodule RfchatWeb.SettingsLive do
         {:error, %Ecto.Changeset{} = changeset} ->
           {:noreply, assign(socket, :bot_form, to_form(changeset, as: :bot))}
 
-        {:error, reason} ->
-          {:noreply, put_flash(socket, :error, "Could not create bot: #{inspect(reason)}")}
+        {:error, :forbidden} ->
+          {:noreply, put_flash(socket, :error, "You cannot give a bot those roles.")}
       end
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to manage bots.")}
@@ -246,6 +252,9 @@ defmodule RfchatWeb.SettingsLive do
              Map.put(socket.assigns.revealed_bot_tokens, bot_id, token_info.token)
            )
            |> put_flash(:info, "Bot token created. Copy it now; it will not be shown again.")}
+
+        {:error, :forbidden} ->
+          {:noreply, put_flash(socket, :error, "You cannot mint tokens for this bot.")}
 
         {:error, changeset} ->
           token_forms =

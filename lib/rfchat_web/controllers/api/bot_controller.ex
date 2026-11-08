@@ -26,6 +26,9 @@ defmodule RfchatWeb.API.BotController do
           |> put_status(:created)
           |> json(RfchatWeb.API.BotJSON.show(%{bot: bot}))
 
+        {:error, :forbidden} ->
+          forbidden(conn)
+
         {:error, changeset} ->
           ErrorHelpers.render_changeset_error(
             conn,
@@ -51,6 +54,9 @@ defmodule RfchatWeb.API.BotController do
           case Bots.update_bot(bot, bot_params, actor) do
             {:ok, updated_bot} ->
               json(conn, RfchatWeb.API.BotJSON.show(%{bot: updated_bot}))
+
+            {:error, :forbidden} ->
+              forbidden(conn)
 
             {:error, changeset} ->
               ErrorHelpers.render_changeset_error(
@@ -78,6 +84,9 @@ defmodule RfchatWeb.API.BotController do
           case Bots.revoke_bot(bot, actor) do
             {:ok, revoked_bot} ->
               json(conn, RfchatWeb.API.BotJSON.show(%{bot: revoked_bot}))
+
+            {:error, :forbidden} ->
+              forbidden(conn)
 
             {:error, _reason} ->
               ErrorHelpers.render_error(
@@ -107,6 +116,9 @@ defmodule RfchatWeb.API.BotController do
               conn
               |> put_status(:created)
               |> json(RfchatWeb.API.BotJSON.token(%{bot: bot, token: token_info}))
+
+            {:error, :forbidden} ->
+              forbidden(conn)
 
             {:error, changeset} ->
               ErrorHelpers.render_changeset_error(
@@ -145,6 +157,9 @@ defmodule RfchatWeb.API.BotController do
       case token && Bots.revoke_bot_token(token, actor) do
         {:ok, revoked_token} ->
           json(conn, %{data: %{id: revoked_token.id, revoked_at: revoked_token.revoked_at}})
+
+        {:error, :forbidden} ->
+          forbidden(conn)
 
         _ ->
           ErrorHelpers.render_error(conn, :not_found, "not_found", "Bot token not found.")
@@ -227,4 +242,7 @@ defmodule RfchatWeb.API.BotController do
       conn
     end
   end
+
+  defp forbidden(conn),
+    do: ErrorHelpers.render_error(conn, :forbidden, "forbidden", "You cannot manage this bot.")
 end

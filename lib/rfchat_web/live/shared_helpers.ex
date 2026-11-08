@@ -25,6 +25,15 @@ defmodule RfchatWeb.Live.SharedHelpers do
       Authorization.has_permission?(permissions, :administrator)
   end
 
+  def can_manage_server?(nil), do: false
+
+  def can_manage_server?(scope) do
+    permissions = scope_permissions(scope)
+
+    Authorization.has_permission?(permissions, :manage_server) or
+      Authorization.has_permission?(permissions, :administrator)
+  end
+
   def can_moderate_members?(nil), do: false
 
   def can_moderate_members?(scope) do

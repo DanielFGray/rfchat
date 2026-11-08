@@ -33,6 +33,10 @@ defmodule RfchatWeb.SettingsLive.State do
     |> assign(:can_manage_channels?, can_manage_channels?)
     |> assign(:can_manage_emojis?, can_manage_emojis?)
     |> assign(:can_moderate_members?, can_moderate_members?)
+    |> assign(
+      :can_manage_server?,
+      SharedHelpers.can_manage_server?(socket.assigns.current_scope)
+    )
     |> assign(:can_manage_bots?, can_manage_bots?)
     |> assign(:notification_setting, Chat.get_user_notification_setting(current_user))
     |> assign(:channels, channels)
@@ -44,7 +48,7 @@ defmodule RfchatWeb.SettingsLive.State do
     )
     |> assign(:custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
     |> assign(:bot_users, if(can_manage_bots?, do: Bots.list_bot_users(), else: []))
-    |> assign(:manageable_roles, if(can_manage_bots?, do: manageable_roles(), else: []))
+    |> assign(:manageable_roles, Bots.grantable_roles(current_user))
     |> assign(:bot_form, to_form(bot_form_defaults(), as: :bot))
     |> assign(:bot_token_forms, %{})
     |> assign(:revealed_bot_tokens, %{})
@@ -206,7 +210,7 @@ defmodule RfchatWeb.SettingsLive.State do
 
       socket
       |> assign(:bot_users, bot_users)
-      |> assign(:manageable_roles, manageable_roles())
+      |> assign(:manageable_roles, Bots.grantable_roles(socket.assigns.current_user))
       |> assign(
         :bot_token_forms,
         Map.merge(bot_token_forms, socket.assigns.bot_token_forms || %{})
@@ -218,11 +222,6 @@ defmodule RfchatWeb.SettingsLive.State do
 
   def bot_form_defaults do
     %{"display_name" => "", "username" => "", "email" => "", "bio" => "", "role_ids" => []}
-  end
-
-  def manageable_roles do
-    Chat.list_roles()
-    |> Enum.reject(& &1.is_default)
   end
 
   def truthy?(value) when value in [true, "true", "on", "1", 1], do: true

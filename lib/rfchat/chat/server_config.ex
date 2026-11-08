@@ -5,8 +5,10 @@ defmodule Rfchat.Chat.ServerConfig do
 
   @cache_key {__MODULE__, :server_settings}
 
+  alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.MediaAssets
+  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.ServerSettings
   alias Rfchat.Chat.User
   alias Rfchat.Repo
@@ -27,7 +29,18 @@ defmodule Rfchat.Chat.ServerConfig do
     ServerSettings.changeset(server_settings, attrs)
   end
 
+  @doc """
+  Changes the server name or icon. The actor must hold `manage_server` now, in the database;
+  the check runs before an uploaded icon is written to disk.
+  """
   def update_server_settings(attrs, %User{} = actor) when is_map(attrs) do
+    actor
+    |> Permissions.current_permissions()
+    |> Authorization.has_permission?(:manage_server)
+    |> if(do: save_server_settings(attrs, actor), else: {:error, :forbidden})
+  end
+
+  defp save_server_settings(attrs, actor) do
     server_settings =
       ServerSettings
       |> preload([:icon_asset])
