@@ -7,6 +7,8 @@ defmodule RfchatWeb.API.BotController do
   alias Rfchat.Chat.Topics
   alias RfchatWeb.API.ErrorHelpers
 
+  @reauthorize_interval 20_000
+
   def index(conn, _params) do
     if Bots.can_manage_bots?(conn.assigns.current_scope) do
       bots = Bots.list_controllable_bot_users(conn.assigns.current_user)
@@ -191,50 +193,93 @@ defmodule RfchatWeb.API.BotController do
     initial =
       "event: ready\ndata: #{Jason.encode!(%{bot: Bots.serialize_bot_user(bot_user)})}\n\n"
 
-    {:ok, conn} = chunk(conn, initial)
-    stream_events(conn, bot_user, subscribed)
-  end
+    case chunk(conn, initial) do
+      {:ok, conn} ->
+        schedule_reauthorize()
 
-  # Message events arrive only from the channel topics in `subscribed`: the channels and threads
-  # the bot can view. A guild event re-syncs that set before anything is emitted, so a bot that
-  # has received `thread.created` is already subscribed to that thread.
-  defp stream_events(conn, bot_user, subscribed) do
-    receive do
-      {:message_created, message} ->
-        conn = chunk_event(conn, "message.created", Bots.serialize_message(message))
-        stream_events(conn, bot_user, subscribed)
+        stream_events(conn, %{
+          token: bearer_token(conn),
+          bot_user: bot_user,
+          subscribed: subscribed
+        })
 
-      {:message_updated, message} ->
-        conn = chunk_event(conn, "message.updated", Bots.serialize_message(message))
-        stream_events(conn, bot_user, subscribed)
-
-      {:message_deleted, message} ->
-        conn = chunk_event(conn, "message.deleted", Bots.serialize_message(message))
-        stream_events(conn, bot_user, subscribed)
-
-      {:channel_created, channel} ->
-        subscribed = sync_subscriptions(subscribed, bot_user)
-
-        conn =
-          if channel.kind == :thread_public and MapSet.member?(subscribed, channel.id) do
-            chunk_event(conn, "thread.created", Bots.serialize_thread(channel))
-          else
-            conn
-          end
-
-        stream_events(conn, bot_user, subscribed)
-
-      {event, _channel} when event in [:channel_updated, :channel_deleted] ->
-        stream_events(conn, bot_user, sync_subscriptions(subscribed, bot_user))
-
-      _other ->
-        stream_events(conn, bot_user, subscribed)
-    after
-      20_000 ->
-        {:ok, conn} = chunk(conn, ": keepalive\n\n")
-        stream_events(conn, bot_user, subscribed)
+      {:error, _reason} ->
+        conn
     end
   end
+
+  # Message events arrive only from the channel topics in `state.subscribed`: the channels and
+  # threads the bot can view. A guild event re-syncs that set before anything is emitted, so a bot
+  # that has received `thread.created` is already subscribed to that thread.
+  #
+  # A `:reauthorize` message, sent every `@reauthorize_interval`, re-checks the bearer token and
+  # re-syncs subscriptions from the fresh bot user. It sits in the mailbox like any event, so the
+  # check runs under steady traffic too. The loop ends when the token no longer authenticates the
+  # same bot or when a write to the client fails.
+  defp stream_events(conn, state) do
+    receive do
+      {:message_created, message} ->
+        emit(conn, "message.created", Bots.serialize_message(message), state)
+
+      {:message_updated, message} ->
+        emit(conn, "message.updated", Bots.serialize_message(message), state)
+
+      {:message_deleted, message} ->
+        emit(conn, "message.deleted", Bots.serialize_message(message), state)
+
+      {:channel_created, channel} ->
+        state = resync(state)
+
+        if channel.kind == :thread_public and MapSet.member?(state.subscribed, channel.id) do
+          emit(conn, "thread.created", Bots.serialize_thread(channel), state)
+        else
+          stream_events(conn, state)
+        end
+
+      {event, _channel} when event in [:channel_updated, :channel_deleted] ->
+        stream_events(conn, resync(state))
+
+      :reauthorize ->
+        reauthorize(conn, state)
+
+      _other ->
+        stream_events(conn, state)
+    end
+  end
+
+  defp reauthorize(conn, state) do
+    case fetch_scope(state.token) do
+      {:ok, %BotScope{bot_user: %{id: id} = bot_user}} when id == state.bot_user.id ->
+        state = resync(%{state | bot_user: bot_user})
+
+        case chunk(conn, ": keepalive\n\n") do
+          {:ok, conn} ->
+            schedule_reauthorize()
+            stream_events(conn, state)
+
+          {:error, _reason} ->
+            conn
+        end
+
+      _revoked ->
+        case chunk(conn, "event: closed\ndata: {\"reason\":\"token_revoked\"}\n\n") do
+          {:ok, conn} -> conn
+          {:error, _reason} -> conn
+        end
+    end
+  end
+
+  defp emit(conn, event_name, payload, state) do
+    case chunk(conn, "event: #{event_name}\ndata: #{Jason.encode!(payload)}\n\n") do
+      {:ok, conn} -> stream_events(conn, state)
+      {:error, _reason} -> conn
+    end
+  end
+
+  defp schedule_reauthorize, do: Process.send_after(self(), :reauthorize, @reauthorize_interval)
+
+  defp resync(state),
+    do: %{state | subscribed: sync_subscriptions(state.subscribed, state.bot_user)}
 
   defp sync_subscriptions(subscribed, bot_user) do
     wanted =
@@ -246,12 +291,15 @@ defmodule RfchatWeb.API.BotController do
     Topics.sync_channel_subscriptions(subscribed, wanted)
   end
 
-  defp chunk_event(conn, event_name, payload) do
-    case chunk(conn, "event: #{event_name}\ndata: #{Jason.encode!(payload)}\n\n") do
-      {:ok, conn} -> conn
-      {:error, _reason} -> conn
+  defp bearer_token(conn) do
+    case get_req_header(conn, "authorization") do
+      ["Bearer " <> token] -> token
+      _ -> nil
     end
   end
+
+  defp fetch_scope(nil), do: {:error, :unauthorized}
+  defp fetch_scope(token), do: Bots.get_bot_scope_by_token(token)
 
   defp forbidden(conn),
     do: ErrorHelpers.render_error(conn, :forbidden, "forbidden", "You cannot manage this bot.")

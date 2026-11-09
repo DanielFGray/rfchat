@@ -400,6 +400,93 @@ defmodule RfchatWeb.API.BotControllerTest do
     assert next_chunk =~ ~s("id":"#{visible_message.id}")
   end
 
+  describe "events reauthorization" do
+    setup do
+      actor =
+        owner_fixture(%{email: "bot-api-reauth@example.com", username: "bot_api_reauth"})
+
+      role =
+        role_fixture(%{
+          name: "Bot Reauth Role",
+          permissions: PermissionBits.combine([:view_channel, :send_messages])
+        })
+
+      _actor_role = member_role_fixture(actor, role)
+      bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
+      {:ok, %{token: token}} = Bots.create_bot_token(bot_user, %{"label" => "sse"}, actor)
+
+      %{actor: actor, role: role, bot_user: bot_user, token: token}
+    end
+
+    test "a revoked token closes the stream", %{actor: actor, token: token} do
+      {task, ref} = start_stream(token)
+      assert_receive {^ref, :chunk, "event: ready" <> _}
+
+      {:ok, %Bots.BotScope{token: bot_token}} = Bots.get_bot_scope_by_token(token)
+      {:ok, _revoked} = Bots.revoke_bot_token(bot_token, actor)
+
+      send(task.pid, :reauthorize)
+
+      assert_receive {^ref, :chunk, closed_chunk}
+      assert closed_chunk =~ "event: closed\n"
+      assert closed_chunk =~ ~s("reason":"token_revoked")
+      assert %Plug.Conn{} = Task.await(task)
+    end
+
+    test "a valid token keeps the stream open with a keepalive", %{token: token} do
+      {task, ref} = start_stream(token)
+      assert_receive {^ref, :chunk, "event: ready" <> _}
+
+      send(task.pid, :reauthorize)
+      assert_receive {^ref, :chunk, ": keepalive\n\n"}
+
+      assert Task.yield(task, 0) == nil
+      Task.shutdown(task, :brutal_kill)
+    end
+
+    test "a channel the bot lost view of is unsubscribed on reauthorization", %{
+      actor: actor,
+      bot_user: bot_user,
+      token: token
+    } do
+      channel = channel_fixture(%{name: "Reauth Channel", slug: unique_slug()})
+
+      {task, ref} = start_stream(token)
+      assert_receive {^ref, :chunk, "event: ready" <> _}
+
+      channel_permission_overwrite_fixture(channel, %{
+        user_id: bot_user.id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      send(task.pid, :reauthorize)
+      assert_receive {^ref, :chunk, ": keepalive\n\n"}
+
+      _hidden = message_fixture(channel, actor, %{body: "no longer visible"})
+      sentinel_channel = channel_fixture(%{name: "Reauth Visible", slug: unique_slug()})
+      sentinel = message_fixture(sentinel_channel, actor, %{body: "still visible"})
+
+      assert_receive {^ref, :chunk, next_chunk}
+      Task.shutdown(task, :brutal_kill)
+
+      assert next_chunk =~ ~s("id":"#{sentinel.id}")
+    end
+
+    defp start_stream(token) do
+      {conn, ref} =
+        Phoenix.ConnTest.build_conn()
+        |> put_req_header("authorization", "Bearer #{token}")
+        |> TestStreamAdapter.wrap()
+
+      {:ok, scope} = Bots.get_bot_scope_by_token(token)
+      conn = assign(conn, :current_bot_scope, scope)
+
+      task = Task.async(fn -> BotController.events(conn, %{}) end)
+      assert_receive {:plug_conn, :sent}
+      {task, ref}
+    end
+  end
+
   test "bot management endpoints do not treat human users as bots", %{conn: conn} do
     _owner = owner_fixture(%{email: "api-bot-owner-2@example.com", username: "api_bot_owner_2"})
 
