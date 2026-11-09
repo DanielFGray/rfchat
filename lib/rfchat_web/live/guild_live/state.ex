@@ -107,7 +107,12 @@ defmodule RfchatWeb.GuildLive.State do
   end
 
   def load_channel(socket, channel, opts \\ []) do
-    messages = Chat.list_messages(channel.id)
+    messages =
+      case Chat.list_messages(socket.assigns.current_scope, channel.id) do
+        {:ok, messages} -> messages
+        {:error, :not_found} -> []
+      end
+
     last_message = List.last(messages)
     Chat.mark_channel_read(socket.assigns.current_user, channel, last_message)
     thread_summaries = Chat.thread_summaries_for_channel(channel.id)
@@ -152,7 +157,7 @@ defmodule RfchatWeb.GuildLive.State do
     |> assign(:thread_summaries, thread_summaries)
     |> assign(
       :typing_users,
-      Chat.list_typing_users(refreshed_active_channel, socket.assigns.current_user)
+      Chat.list_typing_users(socket.assigns.current_scope, refreshed_active_channel.id)
     )
     |> assign(:channel_ready?, true)
     |> assign(
@@ -175,7 +180,10 @@ defmodule RfchatWeb.GuildLive.State do
       :can_create_public_threads?,
       Chat.can_create_public_threads?(refreshed_active_channel, socket.assigns.current_user)
     )
-    |> assign(:message_count, Chat.message_count(refreshed_active_channel.id))
+    |> assign(
+      :message_count,
+      Chat.message_count(socket.assigns.current_scope, refreshed_active_channel.id)
+    )
     |> assign(:messages_empty?, messages == [])
     |> assign(:unread_counts, unread_counts)
     |> assign(:unread_mentions, unread_mentions)
@@ -360,9 +368,11 @@ defmodule RfchatWeb.GuildLive.State do
       |> Enum.reject(&is_nil/1)
       |> Enum.map(& &1.id)
 
-    case Chat.get_message_in_channels(message_id, open_ids) do
-      %Message{} = message -> {:ok, message}
-      nil -> :error
+    with %Message{} = message <- Chat.get_message(socket.assigns.current_scope, message_id),
+         true <- message.channel_id in open_ids do
+      {:ok, message}
+    else
+      _ -> :error
     end
   end
 
@@ -371,14 +381,10 @@ defmodule RfchatWeb.GuildLive.State do
     channel_ids =
       if socket.assigns.active_channel, do: [socket.assigns.active_channel.id], else: []
 
-    message_ids
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-    |> Enum.reduce(socket, fn message_id, acc ->
-      case Chat.get_message_in_channels(message_id, channel_ids) do
-        %Message{} = message -> stream_insert(acc, :messages, message)
-        nil -> acc
-      end
+    socket.assigns.current_scope
+    |> Chat.get_messages(message_ids)
+    |> Enum.reduce(socket, fn %Message{channel_id: channel_id} = message, acc ->
+      if channel_id in channel_ids, do: stream_insert(acc, :messages, message), else: acc
     end)
   end
 
@@ -455,13 +461,16 @@ defmodule RfchatWeb.GuildLive.State do
 
     socket
     |> assign(:thread_focus?, focus?)
-    |> assign(:thread_typing_users, Chat.list_typing_users(thread, socket.assigns.current_user))
+    |> assign(
+      :thread_typing_users,
+      Chat.list_typing_users(socket.assigns.current_scope, thread.id)
+    )
     |> assign(:thread_reply_to_message, nil)
     |> assign(
       :can_send_thread_messages?,
       Chat.can_send_messages_in_threads?(thread, socket.assigns.current_user)
     )
-    |> assign(:thread_message_count, Chat.message_count(thread.id))
+    |> assign(:thread_message_count, Chat.message_count(socket.assigns.current_scope, thread.id))
     |> assign(:thread_messages_empty?, thread_messages == [])
     |> assign_thread_message_form()
     |> stream(:thread_messages, thread_messages, reset: true)
@@ -473,7 +482,7 @@ defmodule RfchatWeb.GuildLive.State do
 
     case socket.assigns.active_thread do
       %{} = thread ->
-        Chat.clear_typing(thread, socket.assigns.current_user)
+        Chat.clear_typing(socket.assigns.current_scope, thread.id)
 
       nil ->
         :ok
@@ -549,7 +558,7 @@ defmodule RfchatWeb.GuildLive.State do
         assign(
           socket,
           :typing_users,
-          Chat.list_typing_users(channel, socket.assigns.current_user)
+          Chat.list_typing_users(socket.assigns.current_scope, channel.id)
         )
 
       nil ->
@@ -563,7 +572,7 @@ defmodule RfchatWeb.GuildLive.State do
         assign(
           socket,
           :thread_typing_users,
-          Chat.list_typing_users(thread, socket.assigns.current_user)
+          Chat.list_typing_users(socket.assigns.current_scope, thread.id)
         )
 
       nil ->

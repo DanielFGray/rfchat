@@ -108,9 +108,9 @@ Serializers become pure functions of already-loaded data. The `Repo.preload` cal
   - a write that changes the actor's own membership (profile, nickname, leaving): the actor's row, `FOR UPDATE`;
   - moderation (timeout, kick, ban) and ownership changes: the actor's and the subject's rows, `FOR UPDATE`, in id order.
   A ban is then atomic with respect to the banned member's own writes: no write by them commits after the ban commits. Taking each row once, in id order, prevents lock upgrades and opposite-order deadlocks.
-- After the membership rows, a write locks channel rows (parent before child, then by id), then the message row; the event head comes last (event-log.md, "Deleted channels").
+- After the membership rows, a write locks channel rows (parent before child, then by id), then the message row; the event head comes last (event-log.md, "Deleted channels"). A message write locks its message row `FOR UPDATE` and reads it only while `deleted_at` is null. A deleted message takes no action: edit, delete and reaction answer `{:error, :not_found}`.
 - A role or overwrite change does not lock every member. A write whose one-statement load ran before such a change committed may still commit after it. It then acts on one coherent earlier decision. That overlap lasts at most one transaction. This is a proposed policy, pending owner question 4.
-- A read sees one snapshot: the target and its permission inputs load in one statement, or in one transaction at REPEATABLE READ when they need more than one.
+- A read decides from one statement (the permission inputs, and the target when it names one), then loads the rows it returns. A read therefore returns only rows the scope could see at the moment of its decision, which is what a read one statement earlier would return. A decision never mixes inputs from two snapshots, because Visibility loads them in one statement. REPEATABLE READ adds nothing for these reads. The event reader still needs it: its snapshot and cursor must come from one moment (event-log.md, "Reading").
 - Live delivery is covered by the event log design. Each page an event reader pulls is authorized from current data, like any read.
 
 ## Context API shape
@@ -120,6 +120,7 @@ Serializers become pure functions of already-loaded data. The `Repo.preload` cal
 | `Chat.get_message!(id)` | `Chat.get_message(scope, id)` returns a message or `nil` |
 | `Chat.get_message_in_channels(id, ids)` | removed; `Chat.get_message(scope, id)` |
 | `Chat.list_messages(channel_id, opts)` | `Chat.list_messages(scope, channel_id, opts)` returns `{:ok, page}` or `{:error, :not_found}` |
+| `Chat.get_message!(id)` (several ids) | `Chat.get_messages(scope, ids)` returns the visible messages among `ids`, in order |
 | `Chat.get_channel!(id)`, `get_channel/1` | `Chat.get_channel(scope, id)` |
 | `Chat.get_channel_by_slug_for_user(slug, user)` | `Chat.get_channel_by_slug(scope, slug)` |
 | `Chat.list_visible_channels_for_user(user)` | `Chat.list_channels(scope)` |

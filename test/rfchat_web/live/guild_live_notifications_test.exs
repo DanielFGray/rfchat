@@ -26,7 +26,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
     channel_id = engineering.id
 
     {:ok, _message} =
-      Chat.create_message(engineering, sender, %{
+      Chat.create_message(scope_for(sender), engineering.id, %{
         body: "hello @#{current_user.username}",
         metadata: %{
           "entities" => [
@@ -86,7 +86,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
     engineering = Chat.get_channel_by_slug!("engineering")
 
     {:ok, _message} =
-      Chat.create_message(engineering, sender, %{
+      Chat.create_message(scope_for(sender), engineering.id, %{
         body: "hello @#{current_user.username}",
         metadata: %{
           "entities" => [
@@ -123,17 +123,17 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
     general = Chat.get_channel_by_slug!("general")
     engineering = Chat.get_channel_by_slug!("engineering")
 
-    :ok = Chat.announce_typing(general, typer)
+    :ok = Chat.announce_typing(scope_for(typer), general.id)
     _ = :sys.get_state(view.pid)
 
     assert has_element?(view, "#channel-typing-indicator", "#{typer.display_name} is typing...")
 
-    :ok = Chat.announce_typing(engineering, typer)
+    :ok = Chat.announce_typing(scope_for(typer), engineering.id)
     _ = :sys.get_state(view.pid)
 
     assert has_element?(view, "#channel-typing-indicator", "#{typer.display_name} is typing...")
 
-    :ok = Chat.clear_typing(general, typer)
+    :ok = Chat.clear_typing(scope_for(typer), general.id)
     _ = :sys.get_state(view.pid)
 
     refute has_element?(view, "#channel-typing-indicator", "#{typer.display_name} is typing...")

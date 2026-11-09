@@ -44,7 +44,8 @@ defmodule Rfchat.ChatTest do
       counts_before = Chat.unread_counts_for_user(user, channels)
       assert counts_before[engineering.id] == 0
 
-      {:ok, message} = Chat.create_message(engineering, sender, %{body: "fresh update"})
+      {:ok, message} =
+        Chat.create_message(scope_for(sender), engineering.id, %{body: "fresh update"})
 
       counts_after = Chat.unread_counts_for_user(user, channels)
       assert counts_after[engineering.id] == 1
@@ -63,7 +64,7 @@ defmodule Rfchat.ChatTest do
       assert :ok = Chat.ensure_channel_memberships_for_user(user, channels)
 
       assert {:ok, first_message} =
-               Chat.create_message(engineering, sender, %{
+               Chat.create_message(scope_for(sender), engineering.id, %{
                  body: "hello @mention_target",
                  metadata: %{
                    "entities" => [
@@ -97,7 +98,7 @@ defmodule Rfchat.ChatTest do
       assert :ok = Chat.ensure_channel_memberships_for_user(user, channels)
 
       assert {:ok, _message} =
-               Chat.create_message(engineering, sender, %{
+               Chat.create_message(scope_for(sender), engineering.id, %{
                  body: "ping @ops",
                  metadata: %{
                    "entities" => [
@@ -125,7 +126,7 @@ defmodule Rfchat.ChatTest do
       _member_role = member_role_fixture(user, role)
 
       {:ok, direct_message} =
-        Chat.create_message(channel, author, %{
+        Chat.create_message(scope_for(author), channel.id, %{
           body: "hello @mention_query_user",
           metadata: %{
             "entities" => [
@@ -135,7 +136,7 @@ defmodule Rfchat.ChatTest do
         })
 
       {:ok, role_message} =
-        Chat.create_message(channel, author, %{
+        Chat.create_message(scope_for(author), channel.id, %{
           body: "hello @qa",
           metadata: %{
             "entities" => [
@@ -157,7 +158,7 @@ defmodule Rfchat.ChatTest do
       user = user_fixture(%{username: "metadata_only_target"})
 
       assert {:ok, message} =
-               Chat.create_message(channel, author, %{
+               Chat.create_message(scope_for(author), channel.id, %{
                  body: "plain text",
                  metadata: %{
                    "entities" => [%{"type" => "mention", "id" => user.id}]
@@ -180,14 +181,18 @@ defmodule Rfchat.ChatTest do
       receiver = user_fixture()
 
       for token <- ["@here", "@everyone"] do
-        assert {:error, changeset} = Chat.create_message(channel, author, %{body: token})
+        assert {:error, changeset} =
+                 Chat.create_message(scope_for(author), channel.id, %{body: token})
+
         assert "You do not have permission to mention that role." in errors_on(changeset).body
       end
 
       allowed_author = owner_fixture()
 
       for token <- ["@here", "@everyone"] do
-        assert {:ok, message} = Chat.create_message(channel, allowed_author, %{body: token})
+        assert {:ok, message} =
+                 Chat.create_message(scope_for(allowed_author), channel.id, %{body: token})
+
         assert Chat.message_mentions_user?(message, Repo.preload(receiver, :member_roles))
 
         assert Repo.get_by(MessageRoleMention,
@@ -208,7 +213,7 @@ defmodule Rfchat.ChatTest do
       Chat.default_role() |> Ecto.Changeset.change(name: "Members") |> Repo.update!()
       impostor = role_fixture(%{name: "@everyone", mentionable: true})
 
-      assert {:ok, message} = Chat.create_message(channel, owner, %{body: "@here"})
+      assert {:ok, message} = Chat.create_message(scope_for(owner), channel.id, %{body: "@here"})
       assert [%{mentioned_role_id: role_id}] = message.role_mentions
       assert role_id == Chat.default_role().id
       refute role_id == impostor.id
@@ -249,7 +254,7 @@ defmodule Rfchat.ChatTest do
       from(message in Message, where: message.id == ^second.id)
       |> Repo.update_all(set: [inserted_at: second_timestamp])
 
-      messages = Chat.list_messages(channel.id)
+      assert {:ok, messages} = Chat.list_messages(scope_for(author), channel.id)
 
       assert Enum.map(messages, & &1.body) == ["first", "second"]
       assert Enum.all?(messages, &match?(%Message{author: %{id: _}}, &1))
@@ -259,10 +264,14 @@ defmodule Rfchat.ChatTest do
       channel = channel_fixture()
       author = owner_fixture()
 
-      assert {:ok, message} = Chat.create_message(channel, author, %{body: "  hey there  "})
+      assert {:ok, message} =
+               Chat.create_message(scope_for(author), channel.id, %{body: "  hey there  "})
+
       assert message.body == "hey there"
 
-      assert {:error, changeset} = Chat.create_message(channel, author, %{body: "   "})
+      assert {:error, changeset} =
+               Chat.create_message(scope_for(author), channel.id, %{body: "   "})
+
       assert "can't be blank" in errors_on(changeset).body
     end
 
@@ -281,7 +290,11 @@ defmodule Rfchat.ChatTest do
       }
 
       assert {:ok, message} =
-               Chat.create_message(channel, author, Map.put(server_fields, "body", "hello"))
+               Chat.create_message(
+                 scope_for(author),
+                 channel.id,
+                 Map.put(server_fields, "body", "hello")
+               )
 
       assert %{kind: :default, nonce: nil, pinned_at: nil, edited_at: nil, deleted_at: nil} =
                message
@@ -290,7 +303,11 @@ defmodule Rfchat.ChatTest do
       refute Message.deleted?(message)
 
       assert {:ok, edited} =
-               Chat.update_message(message, author, Map.put(server_fields, "body", "edited"))
+               Chat.update_message(
+                 scope_for(author),
+                 message.id,
+                 Map.put(server_fields, "body", "edited")
+               )
 
       assert %{kind: :default, pinned_at: nil, deleted_at: nil} = edited
       assert DateTime.compare(edited.edited_at, ~U[2021-01-01 00:00:00Z]) == :gt
@@ -303,7 +320,7 @@ defmodule Rfchat.ChatTest do
       other_message = message_fixture(other_channel, author, %{body: "elsewhere"})
 
       assert {:error, changeset} =
-               Chat.create_message(channel, author, %{
+               Chat.create_message(scope_for(author), channel.id, %{
                  body: "bad reply",
                  reply_to_id: other_message.id
                })
@@ -417,7 +434,7 @@ defmodule Rfchat.ChatTest do
       author = user_fixture()
 
       assert {:error, changeset} =
-               Chat.create_message(channel, author, %{body: "hello", metadata: "{"})
+               Chat.create_message(scope_for(author), channel.id, %{body: "hello", metadata: "{"})
 
       assert "must be valid JSON" in errors_on(changeset).metadata
     end
@@ -437,7 +454,7 @@ defmodule Rfchat.ChatTest do
       }
 
       assert {:ok, message} =
-               Chat.create_message(channel, author, %{
+               Chat.create_message(scope_for(author), channel.id, %{
                  body: "hello @mentioned_user and @ops",
                  metadata: metadata
                })
@@ -464,7 +481,7 @@ defmodule Rfchat.ChatTest do
         user_fixture(%{email: "second-mentioned@example.com", username: "second_mentioned"})
 
       assert {:ok, message} =
-               Chat.create_message(channel, author, %{
+               Chat.create_message(scope_for(author), channel.id, %{
                  body: "hello @first_mentioned",
                  metadata: %{
                    "entities" => [
@@ -479,7 +496,7 @@ defmodule Rfchat.ChatTest do
              )
 
       assert {:ok, updated_message} =
-               Chat.update_message(message, author, %{
+               Chat.update_message(scope_for(author), message.id, %{
                  body: "hello @second_mentioned",
                  metadata: %{
                    "entities" => [
@@ -512,8 +529,10 @@ defmodule Rfchat.ChatTest do
 
       assert {:ok, _timed_out, _case} = Chat.timeout_member(owner, author, 10)
 
-      assert {:error, :forbidden} = Chat.update_message(message, author, %{body: "after"})
-      assert Chat.get_message!(message.id).body == "before"
+      assert {:error, :forbidden} =
+               Chat.update_message(scope_for(author), message.id, %{body: "after"})
+
+      assert Repo.get!(Message, message.id).body == "before"
     end
 
     test "update_message/3 refuses an author who cannot view the channel" do
@@ -528,8 +547,10 @@ defmodule Rfchat.ChatTest do
         deny_permissions: PermissionBits.combine([:view_channel])
       })
 
-      assert {:error, :forbidden} = Chat.update_message(message, author, %{body: "after"})
-      assert Chat.get_message!(message.id).body == "before"
+      assert {:error, :not_found} =
+               Chat.update_message(scope_for(author), message.id, %{body: "after"})
+
+      assert Repo.get!(Message, message.id).body == "before"
     end
 
     test "update_message/3 uses current overwrites when given a message loaded before a deny" do
@@ -539,15 +560,18 @@ defmodule Rfchat.ChatTest do
       author = user_fixture()
       message = message_fixture(channel, author, %{body: "before"})
 
-      assert {:ok, edited} = Chat.update_message(message, author, %{body: "first edit"})
+      assert {:ok, edited} =
+               Chat.update_message(scope_for(author), message.id, %{body: "first edit"})
 
       channel_permission_overwrite_fixture(channel, %{
         role_id: Chat.default_role().id,
         deny_permissions: PermissionBits.combine([:view_channel])
       })
 
-      assert {:error, :forbidden} = Chat.update_message(edited, author, %{body: "second edit"})
-      assert Chat.get_message!(message.id).body == "first edit"
+      assert {:error, :not_found} =
+               Chat.update_message(scope_for(author), edited.id, %{body: "second edit"})
+
+      assert Repo.get!(Message, message.id).body == "first edit"
     end
 
     test "update_message/3 refuses a thread reply when the parent channel is hidden" do
@@ -564,8 +588,10 @@ defmodule Rfchat.ChatTest do
         deny_permissions: PermissionBits.combine([:view_channel])
       })
 
-      assert {:error, :forbidden} = Chat.update_message(reply, author, %{body: "after"})
-      assert Chat.get_message!(reply.id).body == "before"
+      assert {:error, :not_found} =
+               Chat.update_message(scope_for(author), reply.id, %{body: "after"})
+
+      assert Repo.get!(Message, reply.id).body == "before"
     end
 
     test "create_message/3 rejects locked role mentions without mention_everyone" do
@@ -576,7 +602,7 @@ defmodule Rfchat.ChatTest do
       locked_role = role_fixture(%{name: "@staff", mentionable: false})
 
       assert {:error, changeset} =
-               Chat.create_message(channel, author, %{
+               Chat.create_message(scope_for(author), channel.id, %{
                  body: "hello @staff",
                  metadata: %{
                    "entities" => [
@@ -600,7 +626,7 @@ defmodule Rfchat.ChatTest do
         deny_permissions: PermissionBits.combine([:add_reactions])
       })
 
-      assert {:error, :forbidden} = Chat.toggle_reaction(message, user, "👍")
+      assert {:error, :forbidden} = Chat.toggle_reaction(scope_for(user), message.id, "👍")
       refute Chat.can_add_reactions?(channel, user)
     end
 
@@ -616,12 +642,12 @@ defmodule Rfchat.ChatTest do
       emoji = emoji_fixture(author, %{name: "blobwave", shortcode: ":blobwave:"})
 
       assert {:ok, updated_message} =
-               Chat.toggle_reaction(message, user, %{"emoji_id" => emoji.id})
+               Chat.toggle_reaction(scope_for(user), message.id, %{"emoji_id" => emoji.id})
 
       assert Enum.any?(updated_message.reactions, &(&1.emoji_id == emoji.id))
 
       assert {:ok, updated_message} =
-               Chat.toggle_reaction(message, user, %{"emoji_id" => emoji.id})
+               Chat.toggle_reaction(scope_for(user), message.id, %{"emoji_id" => emoji.id})
 
       refute Enum.any?(updated_message.reactions, &(&1.emoji_id == emoji.id))
     end
@@ -650,7 +676,7 @@ defmodule Rfchat.ChatTest do
       moderator = Repo.preload(moderator, [:membership, member_roles: :role], force: true)
       message = message_fixture(channel, author, %{body: "please moderate"})
 
-      assert {:ok, deleted_message} = Chat.delete_message(message, moderator)
+      assert {:ok, deleted_message} = Chat.delete_message(scope_for(moderator), message.id)
       assert deleted_message.body == "[message deleted]"
     end
   end
@@ -713,7 +739,12 @@ defmodule Rfchat.ChatTest do
                  :add_reactions
                ])
 
-      assert Chat.message_count(Enum.find(first.channels, &(&1.slug == "general")).id) == 1
+      reader = user_fixture()
+
+      assert Chat.message_count(
+               scope_for(reader),
+               Enum.find(first.channels, &(&1.slug == "general")).id
+             ) == 1
     end
 
     test "default role governs channel visibility and posting" do

@@ -5,7 +5,6 @@ defmodule Rfchat.Bots.Serializer do
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.User
-  alias Rfchat.Repo
 
   def serialize_bot_user(%User{} = bot_user) do
     serialize_user(bot_user)
@@ -27,14 +26,9 @@ defmodule Rfchat.Bots.Serializer do
     }
   end
 
+  # Reads nothing. The message must come from a scoped read that preloads its author, channel
+  # tree and reply target, which is what `Rfchat.Chat` returns.
   def serialize_message(%Message{} = message) do
-    message =
-      Repo.preload(message, [
-        :author,
-        channel: [:parent_channel, starter_message: :author],
-        reply_to: :author
-      ])
-
     %{
       id: message.id,
       channel_id: message.channel_id,
@@ -53,8 +47,6 @@ defmodule Rfchat.Bots.Serializer do
   end
 
   def serialize_thread(%Channel{} = thread) do
-    thread = Repo.preload(thread, [:parent_channel, starter_message: :author])
-
     serialize_channel_summary(thread)
     |> Map.merge(%{
       parent_channel: serialize_channel_summary(thread.parent_channel),
@@ -89,8 +81,6 @@ defmodule Rfchat.Bots.Serializer do
   defp serialize_channel_summary(nil), do: nil
 
   defp serialize_message_reference(%Message{} = message) do
-    message = Repo.preload(message, [:author])
-
     %{
       id: message.id,
       channel_id: message.channel_id,

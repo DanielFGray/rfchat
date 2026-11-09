@@ -336,7 +336,7 @@ defmodule Rfchat.Bots do
 
   def create_public_thread(%Scope{} = scope, starter_message_id, attrs) when is_map(attrs) do
     with {:ok, bot_user} <- acting_member(scope),
-         {:ok, starter_message} <- fetch_message(starter_message_id),
+         {:ok, starter_message} <- fetch_message(scope, starter_message_id),
          {:ok, parent_channel} <- fetch_channel(starter_message.channel_id) do
       case Chat.create_public_thread(parent_channel, starter_message, bot_user, attrs) do
         {:ok, thread} -> {:ok, %{thread: Serializer.serialize_thread(thread)}}
@@ -391,16 +391,17 @@ defmodule Rfchat.Bots do
     end
   end
 
-  defp fetch_message(message_id) do
+  defp fetch_message(scope, message_id) do
     case Ecto.UUID.cast(message_id) do
       {:ok, _id} ->
-        {:ok, Chat.get_message!(message_id)}
+        case Chat.get_message(scope, message_id) do
+          nil -> {:error, :not_found}
+          message -> {:ok, message}
+        end
 
       :error ->
         {:error, :invalid_params}
     end
-  rescue
-    Ecto.NoResultsError -> {:error, :not_found}
   end
 
   @doc "Every role the actor may give a bot; empty when the actor may not manage bots."

@@ -73,7 +73,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
 
     message =
       Chat.get_channel_by_slug!("general").id
-      |> Chat.list_messages()
+      |> messages_in()
       |> Enum.find(&(&1.body == "hey @member_default /shrug"))
 
     assert %{"entities" => entities} = message.metadata
@@ -106,7 +106,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
 
     message =
       Chat.get_channel_by_slug!("general").id
-      |> Chat.list_messages()
+      |> messages_in()
       |> Enum.find(&(&1.body == "hey @lv_mentioned and @design"))
 
     assert Rfchat.Repo.get_by(MessageUserMention,
@@ -143,7 +143,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     conn = log_in_member_user(conn)
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
-    original = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
+    original = messages_in(Chat.get_channel_by_slug!("general").id) |> List.first()
 
     view |> element("#quick-reply-message-#{original.id}") |> render_click()
 
@@ -166,7 +166,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
 
     message =
       Chat.get_channel_by_slug!("general").id
-      |> Chat.list_messages()
+      |> messages_in()
       |> Enum.find(&(&1.body == "editable body"))
 
     view |> element("#open-message-actions-#{message.id}") |> render_click()
@@ -190,7 +190,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
 
     message =
       Chat.get_channel_by_slug!("general").id
-      |> Chat.list_messages()
+      |> messages_in()
       |> Enum.find(&(&1.body == "delete me"))
 
     view |> element("#open-message-actions-#{message.id}") |> render_click()

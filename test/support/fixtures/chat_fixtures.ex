@@ -65,12 +65,20 @@ defmodule Rfchat.ChatFixtures do
     channel
   end
 
+  @doc "The messages in a channel, oldest first, as stored. Tests read rows here, not through the access check."
+  def messages_in(channel_id) do
+    Rfchat.Chat.Message
+    |> Ecto.Query.where([message], message.channel_id == ^channel_id)
+    |> Ecto.Query.order_by([message], asc: message.inserted_at, asc: message.id)
+    |> Rfchat.Repo.all()
+  end
+
+  @doc "The scope that acts as `user`, for the scoped Chat functions."
+  def scope_for(user), do: %Rfchat.Accounts.Scope{user_id: user.id}
+
   def message_fixture(channel, author, attrs \\ %{}) do
     attrs = Enum.into(attrs, %{body: "hello world"})
-    # Force-reload associations so roles assigned after user_fixture are visible
-    # to the permission check inside Chat.create_message.
-    author = Rfchat.Repo.preload(author, [:membership, member_roles: :role], force: true)
-    {:ok, message} = Chat.create_message(channel, author, attrs)
+    {:ok, message} = Chat.create_message(scope_for(author), channel.id, attrs)
     message
   end
 

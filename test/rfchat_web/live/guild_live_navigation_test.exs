@@ -90,7 +90,9 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     sender = user_fixture(%{email: "badge-sender@example.com", username: "badge_sender"})
 
     engineering = Chat.get_channel_by_slug!("engineering")
-    {:ok, _message} = Chat.create_message(engineering, sender, %{body: "new engineering update"})
+
+    {:ok, _message} =
+      Chat.create_message(scope_for(sender), engineering.id, %{body: "new engineering update"})
 
     _ = :sys.get_state(view.pid)
 
@@ -119,7 +121,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     engineering = Chat.get_channel_by_slug!("engineering")
 
     {:ok, message} =
-      Chat.create_message(engineering, sender, %{
+      Chat.create_message(scope_for(sender), engineering.id, %{
         body: "hello @#{current_user.username}",
         metadata: %{
           "entities" => [
@@ -151,7 +153,8 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     engineering = Chat.get_channel_by_slug!("engineering")
     denied_sender = user_fixture(%{username: "mention_denied_sender"})
 
-    assert {:error, changeset} = Chat.create_message(engineering, denied_sender, %{body: "@here"})
+    assert {:error, changeset} =
+             Chat.create_message(scope_for(denied_sender), engineering.id, %{body: "@here"})
 
     assert Enum.any?(changeset.errors, fn
              {:body, {message, _opts}} ->
@@ -164,7 +167,10 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     refute has_element?(receiver_view, "#channel-mention-engineering")
 
     allowed_sender = owner_fixture(%{username: "mention_allowed_sender"})
-    {:ok, _message} = Chat.create_message(engineering, allowed_sender, %{body: "@here"})
+
+    {:ok, _message} =
+      Chat.create_message(scope_for(allowed_sender), engineering.id, %{body: "@here"})
+
     _ = :sys.get_state(receiver_view.pid)
 
     expected_body = "@here"
@@ -200,7 +206,10 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
 
     sender = user_fixture(%{email: "nav-once-sender@example.com", username: "nav_once_sender"})
     engineering = Chat.get_channel_by_slug!("engineering")
-    {:ok, _message} = Chat.create_message(engineering, sender, %{body: "counted once"})
+
+    {:ok, _message} =
+      Chat.create_message(scope_for(sender), engineering.id, %{body: "counted once"})
+
     _ = :sys.get_state(view.pid)
 
     assert has_element?(view, "#channel-unread-engineering", ~r/^\s*1\s*$/)
@@ -226,7 +235,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     assert has_element?(view, "#channel-link-#{channel.slug}")
 
     sender = user_fixture(%{email: "reveal-sender@example.com", username: "reveal_sender"})
-    {:ok, _message} = Chat.create_message(channel, sender, %{body: "after reveal"})
+    {:ok, _message} = Chat.create_message(scope_for(sender), channel.id, %{body: "after reveal"})
     _ = :sys.get_state(view.pid)
 
     assert has_element?(view, "#channel-unread-#{channel.slug}", ~r/^\s*1\s*$/)
@@ -242,7 +251,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     assert has_element?(view, "#channel-link-#{channel.slug}")
 
     sender = user_fixture(%{email: "fresh-sender@example.com", username: "fresh_sender"})
-    {:ok, _message} = Chat.create_message(channel, sender, %{body: "first post"})
+    {:ok, _message} = Chat.create_message(scope_for(sender), channel.id, %{body: "first post"})
     _ = :sys.get_state(view.pid)
 
     assert has_element?(view, "#channel-unread-#{channel.slug}", ~r/^\s*1\s*$/)

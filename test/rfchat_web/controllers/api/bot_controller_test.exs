@@ -466,6 +466,10 @@ defmodule RfchatWeb.API.BotControllerTest do
       {task, ref} = start_stream(token)
       assert_receive {^ref, :chunk, "event: ready" <> _}
 
+      # The sentinel channel must exist before reauthorization: the resync subscribes only the
+      # channels visible at that moment, so a channel created afterwards would never stream.
+      sentinel_channel = channel_fixture(%{name: "Reauth Visible", slug: unique_slug()})
+
       channel_permission_overwrite_fixture(channel, %{
         user_id: bot_user.id,
         deny_permissions: PermissionBits.combine([:view_channel])
@@ -475,7 +479,6 @@ defmodule RfchatWeb.API.BotControllerTest do
       assert_receive {^ref, :chunk, ": keepalive\n\n"}
 
       _hidden = message_fixture(channel, actor, %{body: "no longer visible"})
-      sentinel_channel = channel_fixture(%{name: "Reauth Visible", slug: unique_slug()})
       sentinel = message_fixture(sentinel_channel, actor, %{body: "still visible"})
 
       assert_receive {^ref, :chunk, next_chunk}

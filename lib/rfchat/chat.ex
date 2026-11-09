@@ -29,6 +29,21 @@ defmodule Rfchat.Chat do
 
   @default_reaction_emojis ["👍", "🔥", "❤️"]
 
+  # What a message read needs to render and serialize. The channel is not here: a read sets it from
+  # the decision that allowed the read, so it costs no query.
+  @read_preloads [:author, reactions: [emoji: :asset], reply_to: :author]
+
+  # What a write returns and broadcasts. The mention lists are here because the receiver's
+  # notification check reads them from the broadcast; reads do not need them.
+  @message_preloads [
+    :author,
+    :channel,
+    :user_mentions,
+    role_mentions: :mentioned_role,
+    reactions: [emoji: :asset],
+    reply_to: :author
+  ]
+
   def default_reaction_emojis, do: @default_reaction_emojis
   defdelegate create_server_icon_from_upload(creator, upload), to: MediaAssets
   defdelegate asset_url(asset), to: MediaAssets
@@ -123,46 +138,82 @@ defmodule Rfchat.Chat do
   defdelegate unread_counts_for_user(user, channels), to: Notifications
   defdelegate unread_mentions_for_user(user, channels), to: Notifications
 
-  def announce_typing(%Channel{} = channel, %User{} = user) do
-    _ = Ephemeral.put_typing(channel.id, user.id)
-    Topics.broadcast_channel(channel.id, {:typing_started, channel.id, user.id})
-    :ok
-  end
-
-  def clear_typing(%Channel{} = channel, %User{} = user) do
-    _ = Ephemeral.remove_typing(channel.id, user.id)
-    Topics.broadcast_channel(channel.id, {:typing_stopped, channel.id, user.id})
-    :ok
-  end
-
-  def list_typing_users(%Channel{} = channel, %User{} = current_user) do
-    user_ids =
-      channel.id
-      |> Ephemeral.list_typing_user_ids()
-      |> Enum.reject(&(&1 == current_user.id))
-
-    if user_ids == [] do
-      []
-    else
-      User
-      |> where([user], user.id in ^user_ids)
-      |> where([user], is_nil(user.deleted_at))
-      |> order_by([user], asc: user.display_name, asc: user.username)
-      |> Repo.all()
+  @doc """
+  Records that the scope's member is typing in a channel or thread. Typing is ephemeral, so
+  it takes no membership lock: a decision made now is the decision the announcement uses.
+  Needs `:send_messages`. A channel the scope may not view is `{:error, :not_found}`.
+  """
+  def announce_typing(%Scope{} = scope, channel_id) do
+    with {:ok, channel_id} <- cast_id(channel_id) do
+      if Visibility.can?(scope, :send_messages, %Channel{id: channel_id}) do
+        _ = Ephemeral.put_typing(channel_id, scope.user_id)
+        Topics.broadcast_channel(channel_id, {:typing_started, channel_id, scope.user_id})
+        :ok
+      else
+        refusal(scope, %Channel{id: channel_id})
+      end
     end
   end
 
-  def list_messages(channel_id, opts \\ []) do
-    limit = Keyword.get(opts, :limit, 50)
+  def clear_typing(%Scope{} = scope, channel_id) do
+    with {:ok, channel_id} <- cast_id(channel_id) do
+      if Visibility.can?(scope, :view_channel, %Channel{id: channel_id}) do
+        _ = Ephemeral.remove_typing(channel_id, scope.user_id)
+        Topics.broadcast_channel(channel_id, {:typing_stopped, channel_id, scope.user_id})
+        :ok
+      else
+        refusal(scope, %Channel{id: channel_id})
+      end
+    end
+  end
 
-    Message
-    |> where([message], message.channel_id == ^channel_id)
-    |> where([message], is_nil(message.deleted_at))
-    |> order_by([message], desc: message.inserted_at, desc: message.id)
-    |> limit(^limit)
-    |> preload([:author, reactions: [emoji: :asset], reply_to: :author])
+  @doc "Users other than the scope's own who are typing in a channel the scope may view."
+  def list_typing_users(%Scope{} = scope, channel_id) do
+    with {:ok, channel_id} <- cast_id(channel_id),
+         true <- Visibility.can?(scope, :view_channel, %Channel{id: channel_id}) do
+      channel_id
+      |> Ephemeral.list_typing_user_ids()
+      |> Enum.reject(&(&1 == scope.user_id))
+      |> typing_users()
+    else
+      _ -> []
+    end
+  end
+
+  defp typing_users([]), do: []
+
+  defp typing_users(user_ids) do
+    User
+    |> where([user], user.id in ^user_ids)
+    |> where([user], is_nil(user.deleted_at))
+    |> order_by([user], asc: user.display_name, asc: user.username)
     |> Repo.all()
-    |> Enum.reverse()
+  end
+
+  @doc """
+  The newest `:limit` messages (default 50) in a channel the scope may view, oldest first, as
+  `{:ok, messages}`. A missing channel and a hidden one are both `{:error, :not_found}`.
+  """
+  def list_messages(%Scope{} = scope, channel_id, opts \\ []) do
+    with {:ok, channel_id} <- cast_id(channel_id),
+         %Channel{} = channel <- Visibility.visible_channel(scope, channel_id) do
+      limit = Keyword.get(opts, :limit, 50)
+
+      messages =
+        Message
+        |> where([message], message.channel_id == ^channel_id)
+        |> where([message], is_nil(message.deleted_at))
+        |> order_by([message], desc: message.inserted_at, desc: message.id)
+        |> limit(^limit)
+        |> preload(^@read_preloads)
+        |> Repo.all()
+        |> Enum.reverse()
+        |> Enum.map(&%{&1 | channel: channel})
+
+      {:ok, messages}
+    else
+      _ -> {:error, :not_found}
+    end
   end
 
   defdelegate list_thread_messages(channel_or_id, opts \\ []), to: Threads
@@ -189,51 +240,28 @@ defmodule Rfchat.Chat do
     |> Ecto.Changeset.cast(attrs, [:reason, :duration_minutes, :action])
   end
 
-  def create_message(channel, author, attrs, opts \\ []) do
-    channel = maybe_preload_message_channel(channel)
-    author = maybe_preload_message_author(author)
-
-    with {:ok, attrs} <- normalize_message_attrs(attrs),
-         :ok <- authorize_message_create(channel, author, attrs) do
-      Repo.transaction(fn ->
-        with {:ok, message} <-
-               %Message{channel_id: channel.id, author_id: author.id}
+  @doc """
+  Creates a message in a channel or thread the scope may send to, and broadcasts it. The message
+  comes back with `@message_preloads`, the same shape the broadcast carries. A channel the scope
+  may not view is `{:error, :not_found}`; a visible one it may not send to is `{:error,
+  :forbidden}`.
+  """
+  def create_message(%Scope{} = scope, channel_id, attrs) do
+    with {:ok, channel_id} <- cast_id(channel_id),
+         {:ok, attrs} <- normalize_message_attrs(attrs) do
+      write(fn ->
+        with :ok <- authorize_write(scope, :send_messages, %Channel{id: channel_id}),
+             :ok <- validate_reply_target(channel_id, attrs),
+             :ok <- authorize_message_mentions(scope, channel_id, attrs),
+             {:ok, message} <-
+               %Message{channel_id: channel_id, author_id: scope.user_id}
                |> Message.create_changeset(attrs)
-               |> Repo.insert() do
-          # Receivers decide whether a broadcast message mentions them from these rows.
-          message =
-            if message_mentions?(attrs) do
-              :ok = sync_message_mentions(message)
-              Repo.preload(message, [:user_mentions, role_mentions: :mentioned_role])
-            else
-              %{message | user_mentions: [], role_mentions: []}
-            end
-
-          if Keyword.get(opts, :preload, true) do
-            Repo.preload(message, [
-              :author,
-              :channel,
-              reactions: [emoji: :asset],
-              reply_to: :author
-            ])
-          else
-            message
-          end
-        else
-          {:error, changeset} -> Repo.rollback(changeset)
+               |> Repo.insert(),
+             :ok <- sync_message_mentions(message) do
+          {:ok, reload_message(message.id)}
         end
       end)
-      |> case do
-        {:ok, message} ->
-          broadcast_message(:message_created, message)
-          {:ok, message}
-
-        {:error, changeset} ->
-          {:error, changeset}
-      end
-    else
-      {:error, reason} -> {:error, reason}
-      {:error, changeset, :changeset} -> {:error, changeset}
+      |> broadcast_written(:message_created)
     end
   end
 
@@ -292,162 +320,166 @@ defmodule Rfchat.Chat do
     end
   end
 
-  def update_message(%Message{} = message, %User{} = actor, attrs) do
-    message = with_channel(message)
-
-    if Visibility.can?(user_scope(actor), :edit_message, message) do
-      with {:ok, attrs} <- normalize_message_attrs(attrs),
-           :ok <- authorize_message_mentions(message.channel, actor, attrs) do
-        Repo.transaction(fn ->
-          with {:ok, updated_message} <-
-                 message
-                 |> Message.changeset(attrs)
-                 |> Ecto.Changeset.put_change(:edited_at, DateTime.utc_now())
-                 |> Repo.update() do
-            :ok = sync_message_mentions(updated_message)
-            Repo.preload(updated_message, [:author, :channel, reply_to: :author])
-          else
-            {:error, changeset} -> Repo.rollback(changeset)
-          end
-        end)
-        |> case do
-          {:ok, updated_message} ->
-            broadcast_message(:message_updated, updated_message)
-            {:ok, updated_message}
-
-          {:error, changeset} ->
-            {:error, changeset}
+  @doc """
+  Edits a message the scope authored, and broadcasts it. A message the scope may not view is
+  `{:error, :not_found}`. A visible message it may not edit (another author, or a timeout) is
+  `{:error, :forbidden}`.
+  """
+  def update_message(%Scope{} = scope, message_id, attrs) do
+    with {:ok, message_id} <- cast_id(message_id),
+         {:ok, attrs} <- normalize_message_attrs(attrs) do
+      write(fn ->
+        with {:ok, message} <- authorize_message_write(scope, :edit_message, message_id),
+             :ok <- authorize_message_mentions(scope, message.channel_id, attrs),
+             {:ok, updated_message} <-
+               message
+               |> Message.changeset(attrs)
+               |> Ecto.Changeset.put_change(:edited_at, DateTime.utc_now())
+               |> Repo.update(),
+             :ok <- sync_message_mentions(updated_message) do
+          {:ok, reload_message(updated_message.id)}
         end
-      else
-        {:error, changeset, :changeset} -> {:error, changeset}
-      end
-    else
-      {:error, :forbidden}
+      end)
+      |> broadcast_written(:message_updated)
     end
   end
 
-  def delete_message(%Message{} = message, %User{} = actor) do
-    message = with_channel(message)
-
-    if message.author_id == actor.id or can_manage_messages?(message.channel, actor) do
-      now = DateTime.utc_now()
-
-      message
-      |> Ecto.Changeset.change(body: "[message deleted]", deleted_at: now, edited_at: now)
-      |> Repo.update()
-      |> case do
-        {:ok, deleted_message} ->
-          clear_message_mentions(deleted_message.id)
-          broadcast_message(:message_deleted, deleted_message)
-          {:ok, deleted_message}
-
-        {:error, changeset} ->
-          {:error, changeset}
-      end
-    else
-      {:error, :forbidden}
+  @doc """
+  Deletes a message's content, keeping the row, and broadcasts the deletion. The author may
+  delete their own message; `manage_messages` lets anyone else with view delete it. Refusals
+  follow `update_message/3`.
+  """
+  def delete_message(%Scope{} = scope, message_id) do
+    with {:ok, message_id} <- cast_id(message_id) do
+      write(fn ->
+        with {:ok, message} <- authorize_message_write(scope, :delete_message, message_id),
+             now = DateTime.utc_now(),
+             {:ok, deleted_message} <-
+               message
+               |> Ecto.Changeset.change(
+                 body: "[message deleted]",
+                 deleted_at: now,
+                 edited_at: now
+               )
+               |> Repo.update(),
+             :ok <- clear_message_mentions(deleted_message.id) do
+          {:ok, reload_message(deleted_message.id)}
+        end
+      end)
+      |> broadcast_written(:message_deleted)
     end
   end
 
-  def get_message!(id) do
-    Message
-    |> preload([:author, :channel, reactions: [emoji: :asset], reply_to: :author])
-    |> Repo.get!(id)
+  @doc """
+  The message with `message_id`, when the scope may view its channel, or nil. A hidden message and
+  a missing one both give nil.
+  """
+  def get_message(%Scope{} = scope, message_id) do
+    with {:ok, message_id} <- cast_id(message_id),
+         %Message{} = message <- Visibility.visible_message(scope, message_id) do
+      Repo.preload(message, @read_preloads)
+    else
+      _ -> nil
+    end
   end
 
-  @doc "The message with `id` in one of `channel_ids`, preloaded as `get_message!/1` does, or nil."
-  def get_message_in_channels(id, channel_ids) when is_list(channel_ids) do
-    with {:ok, id} <- Ecto.UUID.cast(id) do
-      Message
-      |> where([message], message.id == ^id and message.channel_id in ^channel_ids)
-      |> preload([:author, :channel, reactions: [emoji: :asset], reply_to: :author])
-      |> Repo.one()
-    else
-      :error -> nil
+  @doc """
+  The messages among `message_ids` that the scope may view, in the order given. Hidden, missing and
+  malformed ids are left out. Each distinct channel is decided once, and the preloads run once for
+  the whole list.
+  """
+  def get_messages(%Scope{} = scope, message_ids) do
+    ids =
+      message_ids
+      |> Enum.flat_map(fn id ->
+        case cast_id(id) do
+          {:ok, id} -> [id]
+          {:error, _} -> []
+        end
+      end)
+      |> Enum.uniq()
+
+    # An `in` over an empty list still runs a query, and callers often pass only nil ids.
+    case ids do
+      [] -> []
+      ids -> visible_messages(scope, ids)
     end
+  end
+
+  defp visible_messages(scope, ids) do
+    messages = Message |> where([message], message.id in ^ids) |> Repo.all()
+
+    channels =
+      messages
+      |> Enum.map(& &1.channel_id)
+      |> Enum.uniq()
+      |> Map.new(&{&1, Visibility.visible_channel(scope, &1)})
+
+    visible_by_id =
+      Enum.flat_map(messages, fn message ->
+        case Map.get(channels, message.channel_id) do
+          nil -> []
+          channel -> [{message.id, %{message | channel: channel}}]
+        end
+      end)
+      |> Map.new()
+
+    ids
+    |> Enum.flat_map(fn id -> List.wrap(Map.get(visible_by_id, id)) end)
+    |> Repo.preload(@read_preloads)
   end
 
   defdelegate message_mentions_user?(message, user), to: Notifications
   defdelegate mention_notifications_enabled?(user, channel), to: Notifications
 
-  def toggle_reaction(%Message{} = message, %User{} = user, emoji_unicode)
+  @doc """
+  Adds the scope's reaction with this unicode emoji to a message, or removes it when present.
+  Refusals follow `update_message/3`. An empty emoji is `{:error, :invalid_emoji}`.
+  """
+  def toggle_reaction(%Scope{} = scope, message_id, emoji_unicode)
       when is_binary(emoji_unicode) do
-    message = with_channel(message)
-    emoji_unicode = String.trim(emoji_unicode)
+    case String.trim(emoji_unicode) do
+      "" ->
+        {:error, :invalid_emoji}
 
-    if emoji_unicode == "" do
-      {:error, :invalid_emoji}
-    else
-      if can_add_reactions?(message.channel, user) do
-        case Repo.get_by(Reaction,
-               message_id: message.id,
-               user_id: user.id,
-               emoji_unicode: emoji_unicode
-             ) do
-          nil ->
-            %Reaction{}
-            |> Reaction.changeset(%{
-              message_id: message.id,
-              user_id: user.id,
-              emoji_unicode: emoji_unicode
-            })
-            |> Repo.insert()
-            |> case do
-              {:ok, _reaction} ->
-                message = get_message!(message.id)
-                broadcast_message(:message_updated, message)
-                {:ok, message}
-
-              {:error, changeset} ->
-                {:error, changeset}
-            end
-
-          reaction ->
-            Repo.delete!(reaction)
-            message = get_message!(message.id)
-            broadcast_message(:message_updated, message)
-            {:ok, message}
-        end
-      else
-        {:error, :forbidden}
-      end
+      emoji_unicode ->
+        toggle_reaction_on(scope, message_id, fn _member ->
+          {:ok, %{emoji_unicode: emoji_unicode}}
+        end)
     end
   end
 
-  def toggle_reaction(%Message{} = message, %User{} = user, %{"emoji_id" => emoji_id})
+  # Toggles a reaction with a custom emoji the scope's member may use, by emoji id.
+  def toggle_reaction(%Scope{} = scope, message_id, %{"emoji_id" => emoji_id})
       when is_binary(emoji_id) do
-    message = with_channel(message)
-
-    with {:ok, emoji} <- Emojis.fetch_available_emoji_for_user(emoji_id, user),
-         true <- can_add_reactions?(message.channel, user) do
-      case Repo.get_by(Reaction, message_id: message.id, user_id: user.id, emoji_id: emoji.id) do
-        nil ->
-          %Reaction{}
-          |> Reaction.changeset(%{
-            message_id: message.id,
-            user_id: user.id,
-            emoji_id: emoji.id
-          })
-          |> Repo.insert()
-          |> case do
-            {:ok, _reaction} ->
-              message = get_message!(message.id)
-              broadcast_message(:message_updated, message)
-              {:ok, message}
-
-            {:error, changeset} ->
-              {:error, changeset}
-          end
-
-        reaction ->
-          Repo.delete!(reaction)
-          message = get_message!(message.id)
-          broadcast_message(:message_updated, message)
-          {:ok, message}
+    toggle_reaction_on(scope, message_id, fn member ->
+      with {:ok, emoji} <- Emojis.fetch_available_emoji_for_user(emoji_id, member) do
+        {:ok, %{emoji_id: emoji.id}}
       end
-    else
-      false -> {:error, :forbidden}
-      {:error, reason} -> {:error, reason}
+    end)
+  end
+
+  # The reaction's key (its emoji) is resolved inside the transaction, after the lock, because
+  # a custom emoji's availability depends on the member's current roles.
+  defp toggle_reaction_on(scope, message_id, emoji_key) do
+    with {:ok, message_id} <- cast_id(message_id) do
+      write(fn ->
+        with {:ok, message} <- authorize_message_write(scope, :add_reactions, message_id),
+             {:ok, key} <- emoji_key.(Visibility.member(scope)),
+             {:ok, _reaction} <- toggle_reaction_row(message, scope.user_id, key) do
+          {:ok, reload_message(message.id)}
+        end
+      end)
+      |> broadcast_written(:message_updated)
+    end
+  end
+
+  defp toggle_reaction_row(message, user_id, emoji_key) do
+    fields = Map.merge(emoji_key, %{message_id: message.id, user_id: user_id})
+
+    case Repo.get_by(Reaction, Map.to_list(fields)) do
+      nil -> %Reaction{} |> Reaction.changeset(fields) |> Repo.insert()
+      reaction -> Repo.delete(reaction)
     end
   end
 
@@ -479,10 +511,16 @@ defmodule Rfchat.Chat do
 
   defdelegate thread_channel?(channel), to: Channel, as: :thread?
 
-  def message_count(channel_id) do
-    Message
-    |> where([message], message.channel_id == ^channel_id)
-    |> Repo.aggregate(:count)
+  @doc "The number of messages in a channel the scope may view. A hidden channel counts 0, as a missing one does."
+  def message_count(%Scope{} = scope, channel_id) do
+    with {:ok, channel_id} <- cast_id(channel_id),
+         true <- Visibility.can?(scope, :view_channel, %Channel{id: channel_id}) do
+      Message
+      |> where([message], message.channel_id == ^channel_id)
+      |> Repo.aggregate(:count)
+    else
+      _ -> 0
+    end
   end
 
   def first_user! do
@@ -706,23 +744,89 @@ defmodule Rfchat.Chat do
   defp valid_binary_id?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
   defp valid_binary_id?(_value), do: false
 
-  defp authorize_message_create(channel, author, attrs) do
-    cond do
-      not can_send_messages?(channel, author) ->
-        {:error, :forbidden}
+  # Runs a write in one transaction. The block returns {:ok, value} or {:error, reason}; an error
+  # rolls the transaction back, so a refused or failed write changes nothing.
+  defp write(fun) do
+    Repo.transaction(fn ->
+      case fun.() do
+        {:ok, value} -> value
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
 
-      true ->
-        with :ok <- validate_reply_target(channel, attrs) do
-          authorize_message_mentions(channel, author, attrs)
-        end
+  # Broadcasts a committed message write. The broadcast happens after the commit, so a receiver
+  # never reads a message the database does not hold.
+  defp broadcast_written({:ok, %Message{} = message}, event) do
+    broadcast_message(event, message)
+    {:ok, message}
+  end
+
+  defp broadcast_written({:error, reason}, _event), do: {:error, reason}
+
+  defp reload_message(message_id) do
+    Message
+    |> preload(^@message_preloads)
+    |> Repo.get!(message_id)
+  end
+
+  # Takes the scope's membership lock and decides `action` on the target (a channel or a message).
+  defp authorize_write(scope, action, target) do
+    if Visibility.lock_and_can?(scope, action, target),
+      do: :ok,
+      else: refusal(scope, target)
+  end
+
+  # Decides a message write, then locks the message row and reads it. The lock keeps a moderator's
+  # delete from committing between the decision and the change. The row is read again with its
+  # deleted_at, so a message deleted after the decision is refused.
+  defp authorize_message_write(scope, action, message_id) do
+    with :ok <- authorize_write(scope, action, %Message{id: message_id}) do
+      case lock_live_message(message_id) do
+        %Message{} = message -> {:ok, message}
+        nil -> {:error, :not_found}
+      end
     end
   end
 
-  # The channel is needed in the struct for the broadcast and for the reply preview. Decisions
-  # load their own channel from the database, so a stale preload never decides access.
-  defp with_channel(%Message{} = message), do: Repo.preload(message, :channel)
+  # The one refusal for every write. A row the scope may not view, and a deleted message, answer as
+  # a missing row does. A visible row the scope may not change is forbidden.
+  defp refusal(scope, %Channel{id: channel_id}) do
+    if Visibility.can?(scope, :view_channel, %Channel{id: channel_id}),
+      do: {:error, :forbidden},
+      else: {:error, :not_found}
+  end
 
-  defp authorize_message_mentions(channel, author, attrs) do
+  defp refusal(scope, %Message{id: message_id}) do
+    case live_message(message_id) do
+      %Message{channel_id: channel_id} -> refusal(scope, %Channel{id: channel_id})
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp live_message(message_id) do
+    Repo.one(
+      from(message in Message, where: message.id == ^message_id and is_nil(message.deleted_at))
+    )
+  end
+
+  defp lock_live_message(message_id) do
+    Repo.one(
+      from(message in Message,
+        where: message.id == ^message_id and is_nil(message.deleted_at),
+        lock: "FOR UPDATE"
+      )
+    )
+  end
+
+  defp cast_id(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :not_found}
+    end
+  end
+
+  defp authorize_message_mentions(scope, channel_id, attrs) do
     role_ids = attrs |> mentioned_role_ids() |> Enum.uniq()
 
     disallowed_role_mentions =
@@ -734,7 +838,7 @@ defmodule Rfchat.Chat do
       disallowed_role_mentions == [] ->
         :ok
 
-      can_mention_everyone?(channel, author) ->
+      Visibility.can?(scope, :mention_everyone, %Channel{id: channel_id}) ->
         :ok
 
       true ->
@@ -743,7 +847,7 @@ defmodule Rfchat.Chat do
           |> Message.changeset(attrs)
           |> Ecto.Changeset.add_error(:body, "You do not have permission to mention that role.")
 
-        {:error, changeset, :changeset}
+        {:error, changeset}
     end
   end
 
@@ -764,23 +868,26 @@ defmodule Rfchat.Chat do
     |> Repo.all()
   end
 
-  defp validate_reply_target(%Channel{} = channel, attrs) do
+  # A reply must name a message in the same channel. A message elsewhere and a missing one get the
+  # same error, so the answer does not reveal a message in a channel the author may not view.
+  defp validate_reply_target(channel_id, attrs) do
     case normalize_optional_binary_id(Map.get(attrs, "reply_to_id")) do
       nil ->
         :ok
 
       reply_to_id ->
-        case Repo.get(Message, reply_to_id) do
-          %Message{} = reply_to when reply_to.channel_id == channel.id ->
-            :ok
-
-          %Message{} ->
+        with {:ok, reply_to_id} <- Ecto.UUID.cast(reply_to_id),
+             true <-
+               Repo.exists?(
+                 from(message in Message,
+                   where: message.id == ^reply_to_id and message.channel_id == ^channel_id
+                 )
+               ) do
+          :ok
+        else
+          _ ->
             {:error,
-             invalid_reply_changeset(attrs, "must reference a message in the same conversation"),
-             :changeset}
-
-          nil ->
-            {:error, invalid_reply_changeset(attrs, "does not exist"), :changeset}
+             invalid_reply_changeset(attrs, "must reference a message in the same conversation")}
         end
     end
   end
@@ -795,27 +902,7 @@ defmodule Rfchat.Chat do
   defp normalize_optional_binary_id(""), do: nil
   defp normalize_optional_binary_id(value), do: value
 
-  defp message_mentions?(attrs) do
-    attrs |> Map.get("body", "") |> mention_tokens_from_body() |> Enum.any?()
-  end
-
   defp broadcast_message(event, %Message{} = message) do
     Topics.broadcast_channel(message.channel_id, {event, message})
-  end
-
-  defp maybe_preload_message_channel(%Channel{} = channel) do
-    if Ecto.assoc_loaded?(channel.permission_overwrites) do
-      channel
-    else
-      Repo.preload(channel, [:permission_overwrites])
-    end
-  end
-
-  defp maybe_preload_message_author(%User{} = author) do
-    if Ecto.assoc_loaded?(author.membership) and Ecto.assoc_loaded?(author.member_roles) do
-      author
-    else
-      Repo.preload(author, [:membership, member_roles: :role])
-    end
   end
 end

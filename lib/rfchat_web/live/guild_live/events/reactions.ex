@@ -11,7 +11,7 @@ defmodule RfchatWeb.GuildLive.Events.Reactions do
   def handle_event("toggle_reaction", %{"id" => message_id, "emoji" => emoji_unicode}, socket) do
     with {:ok, message} <- State.fetch_open_message(socket, message_id),
          {:ok, updated_message} <-
-           Chat.toggle_reaction(message, socket.assigns.current_user, emoji_unicode) do
+           Chat.toggle_reaction(socket.assigns.current_scope, message.id, emoji_unicode) do
       {:noreply,
        socket
        |> assign(:reaction_picker_message_id, nil)
@@ -39,7 +39,9 @@ defmodule RfchatWeb.GuildLive.Events.Reactions do
       ) do
     with {:ok, message} <- State.fetch_open_message(socket, message_id),
          {:ok, updated_message} <-
-           Chat.toggle_reaction(message, socket.assigns.current_user, %{"emoji_id" => emoji_id}) do
+           Chat.toggle_reaction(socket.assigns.current_scope, message.id, %{
+             "emoji_id" => emoji_id
+           }) do
       {:noreply,
        socket
        |> assign(:reaction_picker_message_id, nil)

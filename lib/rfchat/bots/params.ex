@@ -2,7 +2,6 @@ defmodule Rfchat.Bots.Params do
   @moduledoc false
 
   alias Rfchat.Accounts
-  alias Rfchat.Chat
 
   def parse_limit(nil), do: 50
   def parse_limit(value) when is_integer(value), do: value |> max(1) |> min(100)
@@ -25,16 +24,11 @@ defmodule Rfchat.Bots.Params do
 
   def parse_positive_integer(_), do: {:error, :invalid_params}
 
-  def fetch_channel(channel_id) do
-    case Ecto.UUID.cast(channel_id) do
-      {:ok, _id} ->
-        case Chat.get_channel(channel_id) do
-          nil -> {:error, :not_found}
-          channel -> {:ok, channel}
-        end
-
-      :error ->
-        {:error, :invalid_params}
+  @doc "A malformed channel id is an invalid request; a well-formed one goes to the scoped operation."
+  def channel_id(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, :invalid_params}
     end
   end
 

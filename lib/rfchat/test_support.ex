@@ -138,7 +138,7 @@ defmodule Rfchat.TestSupport do
     channel = Chat.get_channel_by_slug!(channel_slug)
     user = Repo.get_by!(User, username: username)
 
-    {:ok, message} = Chat.create_message(channel, user, %{"body" => body})
+    {:ok, message} = Chat.create_message(Accounts.user_scope(user), channel.id, %{"body" => body})
 
     %{
       message: %{

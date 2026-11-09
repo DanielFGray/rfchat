@@ -7,49 +7,43 @@ defmodule RfchatWeb.API.UserMessageController do
 
   use RfchatWeb, :controller
 
-  alias Rfchat.Bots.Params
   alias Rfchat.Chat
   alias RfchatWeb.API.ErrorHelpers
 
   def create(conn, %{"channel_id" => channel_id, "message" => message_params})
       when is_map(message_params) do
-    user = conn.assigns.current_user
+    case Chat.create_message(conn.assigns.current_scope, channel_id, message_params) do
+      {:ok, message} ->
+        conn
+        |> put_status(:created)
+        |> json(%{data: %{id: message.id, channel_id: message.channel_id}})
 
-    case Params.fetch_channel(channel_id) do
-      {:error, _} ->
+      {:error, :not_found} ->
         ErrorHelpers.render_error(conn, :not_found, "not_found", "Channel not found.")
 
-      {:ok, channel} ->
-        case Chat.create_message(channel, user, message_params, preload: false) do
-          {:ok, message} ->
-            conn
-            |> put_status(:created)
-            |> json(%{data: %{id: message.id, channel_id: message.channel_id}})
+      {:error, :forbidden} ->
+        ErrorHelpers.render_error(
+          conn,
+          :forbidden,
+          "forbidden",
+          "You cannot send messages to that channel."
+        )
 
-          {:error, :forbidden} ->
-            ErrorHelpers.render_error(
-              conn,
-              :forbidden,
-              "forbidden",
-              "You cannot send messages to that channel."
-            )
+      {:error, %Ecto.Changeset{} = changeset} ->
+        ErrorHelpers.render_changeset_error(
+          conn,
+          :unprocessable_entity,
+          "invalid_message",
+          changeset
+        )
 
-          {:error, %Ecto.Changeset{} = changeset} ->
-            ErrorHelpers.render_changeset_error(
-              conn,
-              :unprocessable_entity,
-              "invalid_message",
-              changeset
-            )
-
-          {:error, reason} ->
-            ErrorHelpers.render_error(
-              conn,
-              :unprocessable_entity,
-              "invalid_message",
-              to_string(reason)
-            )
-        end
+      {:error, reason} ->
+        ErrorHelpers.render_error(
+          conn,
+          :unprocessable_entity,
+          "invalid_message",
+          to_string(reason)
+        )
     end
   end
 

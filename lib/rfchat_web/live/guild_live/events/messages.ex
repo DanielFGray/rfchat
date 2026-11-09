@@ -169,12 +169,12 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
 
       true ->
         case Chat.create_message(
-               socket.assigns.active_channel,
-               socket.assigns.current_user,
+               socket.assigns.current_scope,
+               socket.assigns.active_channel.id,
                State.maybe_put_reply(socket, message_params)
              ) do
           {:ok, message} ->
-            Chat.clear_typing(socket.assigns.active_channel, socket.assigns.current_user)
+            Chat.clear_typing(socket.assigns.current_scope, socket.assigns.active_channel.id)
             socket = push_event(socket, "composer:clear", %{target: "channel"})
 
             {:noreply,
@@ -184,7 +184,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
              |> State.refresh_typing_users()
              |> State.maybe_insert_message(message)}
 
-          {:error, :forbidden} ->
+          {:error, reason} when reason in [:forbidden, :not_found] ->
             {:noreply,
              socket
              |> put_flash(
@@ -202,7 +202,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
   def handle_event("typing_ping", _params, socket) do
     case socket.assigns.active_channel do
       %{} = channel ->
-        :ok = Chat.announce_typing(channel, socket.assigns.current_user)
+        _ = Chat.announce_typing(socket.assigns.current_scope, channel.id)
         {:noreply, socket}
 
       nil ->
@@ -213,7 +213,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
   def handle_event("typing_stop", _params, socket) do
     case socket.assigns.active_channel do
       %{} = channel ->
-        :ok = Chat.clear_typing(channel, socket.assigns.current_user)
+        _ = Chat.clear_typing(socket.assigns.current_scope, channel.id)
         {:noreply, State.refresh_typing_users(socket)}
 
       nil ->
@@ -224,7 +224,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
   def handle_event("typing_ping_thread", _params, socket) do
     case socket.assigns.active_thread do
       %{} = thread ->
-        :ok = Chat.announce_typing(thread, socket.assigns.current_user)
+        _ = Chat.announce_typing(socket.assigns.current_scope, thread.id)
         {:noreply, socket}
 
       nil ->
@@ -235,7 +235,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
   def handle_event("typing_stop_thread", _params, socket) do
     case socket.assigns.active_thread do
       %{} = thread ->
-        :ok = Chat.clear_typing(thread, socket.assigns.current_user)
+        _ = Chat.clear_typing(socket.assigns.current_scope, thread.id)
         {:noreply, State.refresh_thread_typing_users(socket)}
 
       nil ->
@@ -309,7 +309,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
   def handle_event("save_edit", %{"message" => %{"id" => message_id, "body" => body}}, socket) do
     with {:ok, message} <- State.fetch_open_message(socket, message_id),
          {:ok, updated_message} <-
-           Chat.update_message(message, socket.assigns.current_user, %{body: body}) do
+           Chat.update_message(socket.assigns.current_scope, message.id, %{body: body}) do
       {:noreply,
        socket
        |> assign(:editing_message_id, nil)
@@ -317,6 +317,9 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
        |> stream_insert(:messages, updated_message)}
     else
       :error ->
+        {:noreply, socket}
+
+      {:error, :not_found} ->
         {:noreply, socket}
 
       {:error, :forbidden} ->
@@ -334,7 +337,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
     previous_delete_id = socket.assigns.delete_confirmation_message_id
 
     with {:ok, message} <- State.fetch_open_message(socket, message_id),
-         {:ok, deleted_message} <- Chat.delete_message(message, socket.assigns.current_user) do
+         {:ok, deleted_message} <- Chat.delete_message(socket.assigns.current_scope, message.id) do
       {:noreply,
        socket
        |> State.close_message_ui()

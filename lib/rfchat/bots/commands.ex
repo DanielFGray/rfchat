@@ -6,7 +6,6 @@ defmodule Rfchat.Bots.Commands do
   alias Rfchat.Bots.Params
   alias Rfchat.Bots.Serializer
   alias Rfchat.Chat
-  alias Rfchat.Chat.Visibility
 
   @command_registry %{
     "send_message" => &__MODULE__.send_message/2,
@@ -26,16 +25,15 @@ defmodule Rfchat.Bots.Commands do
   end
 
   def send_message(%Scope{} = scope, %{"channel_id" => channel_id, "body" => body} = params) do
-    with {:ok, bot_user} <- Bots.acting_member(scope),
-         {:ok, channel} <- Params.fetch_channel(channel_id) do
+    with {:ok, _bot_user} <- Bots.acting_member(scope),
+         {:ok, channel_id} <- Params.channel_id(channel_id) do
       attrs =
         params
         |> Map.take(["body", "metadata", "reply_to_id"])
         |> Map.put("body", body)
 
-      case Chat.create_message(channel, bot_user, attrs) do
-        {:ok, message} -> {:ok, %{message: Serializer.serialize_message(message)}}
-        {:error, reason} -> {:error, reason}
+      with {:ok, message} <- Chat.create_message(scope, channel_id, attrs) do
+        {:ok, %{message: Serializer.serialize_message(message)}}
       end
     end
   end
@@ -43,14 +41,11 @@ defmodule Rfchat.Bots.Commands do
   def send_message(_, _), do: {:error, :invalid_params}
 
   def list_messages(%Scope{} = scope, %{"channel_id" => channel_id} = params) do
-    with {:ok, channel} <- Params.fetch_channel(channel_id) do
-      if Visibility.can?(scope, :view_channel, channel) do
-        limit = Params.parse_limit(Map.get(params, "limit"))
-        messages = Chat.list_messages(channel.id, limit: limit)
-        {:ok, %{messages: Enum.map(messages, &Serializer.serialize_message/1)}}
-      else
-        {:error, :forbidden}
-      end
+    limit = Params.parse_limit(Map.get(params, "limit"))
+
+    with {:ok, channel_id} <- Params.channel_id(channel_id),
+         {:ok, messages} <- Chat.list_messages(scope, channel_id, limit: limit) do
+      {:ok, %{messages: Enum.map(messages, &Serializer.serialize_message/1)}}
     end
   end
 

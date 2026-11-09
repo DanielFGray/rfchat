@@ -19,7 +19,7 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
 
     starter =
       Chat.get_channel_by_slug!("general").id
-      |> Chat.list_messages()
+      |> messages_in()
       |> Enum.find(&(&1.body == "starter for inline thread"))
 
     view |> element("#create-thread-#{starter.id}") |> render_click()
@@ -101,12 +101,12 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
 
     {:ok, view, _html} = live_hydrated(conn, ~p"/?channel=general&thread=#{thread.id}")
 
-    :ok = Chat.announce_typing(thread, typer)
+    :ok = Chat.announce_typing(scope_for(typer), thread.id)
     _ = :sys.get_state(view.pid)
 
     assert has_element?(view, "#thread-typing-indicator-#{starter.id}")
 
-    :ok = Chat.clear_typing(thread, typer)
+    :ok = Chat.clear_typing(scope_for(typer), thread.id)
     _ = :sys.get_state(view.pid)
 
     assert has_element?(view, "#thread-typing-indicator-#{starter.id}")

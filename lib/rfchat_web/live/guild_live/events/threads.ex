@@ -76,12 +76,12 @@ defmodule RfchatWeb.GuildLive.Events.Threads do
 
       true ->
         case Chat.create_message(
-               socket.assigns.active_thread,
-               socket.assigns.current_user,
+               socket.assigns.current_scope,
+               socket.assigns.active_thread.id,
                State.maybe_put_thread_reply(socket, message_params)
              ) do
           {:ok, message} ->
-            Chat.clear_typing(socket.assigns.active_thread, socket.assigns.current_user)
+            Chat.clear_typing(socket.assigns.current_scope, socket.assigns.active_thread.id)
             socket = push_event(socket, "composer:clear", %{target: "thread"})
 
             {:noreply,
