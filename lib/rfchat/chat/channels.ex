@@ -3,13 +3,13 @@ defmodule Rfchat.Chat.Channels do
 
   import Ecto.Query, warn: false
 
-  alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.Channel
+  alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.ChannelMembership
   alias Rfchat.Chat.Message
-  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.Topics
   alias Rfchat.Chat.User
+  alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
   def list_channels do
@@ -54,7 +54,7 @@ defmodule Rfchat.Chat.Channels do
   end
 
   def list_visible_channels_for_user(%User{} = user) do
-    visible_channels_for_user(user)
+    Visibility.visible_channels(%Scope{user_id: user.id})
   end
 
   def list_channel_tree_for_user(%User{} = user) do
@@ -144,12 +144,7 @@ defmodule Rfchat.Chat.Channels do
   end
 
   def get_channel_by_slug_for_user(slug, %User{} = user) do
-    default_role = default_role()
-
-    channel =
-      Channel
-      |> preload([:permission_overwrites])
-      |> Repo.get_by(slug: slug)
+    channel = Repo.get_by(Channel, slug: slug)
 
     cond do
       is_nil(channel) ->
@@ -158,7 +153,7 @@ defmodule Rfchat.Chat.Channels do
       not visible_text_channel?(channel) ->
         {:error, :not_found}
 
-      Authorization.can_view_channel?(user, channel, default_role) ->
+      Visibility.can?(%Scope{user_id: user.id}, :view_channel, channel) ->
         {:ok, channel}
 
       true ->
@@ -260,28 +255,6 @@ defmodule Rfchat.Chat.Channels do
     |> List.first()
   end
 
-  defp visible_channels_for_user(%User{} = user) do
-    default_role = default_role()
-
-    Channel
-    |> order_by([channel], asc: channel.position, asc: channel.inserted_at)
-    |> preload([:permission_overwrites])
-    |> Repo.all()
-    |> Enum.filter(&Authorization.can_view_channel?(user, &1, default_role))
-    |> reject_threads_of_hidden_parents()
-  end
-
-  # A thread is visible only when its parent channel is also visible
-  # (see Permissions.can_view_thread_channel?/3).
-  defp reject_threads_of_hidden_parents(channels) do
-    visible_ids = MapSet.new(channels, & &1.id)
-
-    Enum.reject(channels, fn channel ->
-      Permissions.thread_channel?(channel) and
-        not MapSet.member?(visible_ids, channel.parent_channel_id)
-    end)
-  end
-
   defp latest_messages_by_channel([]), do: %{}
 
   defp latest_messages_by_channel(channel_ids) do
@@ -323,6 +296,4 @@ defmodule Rfchat.Chat.Channels do
   defp normalize_optional_binary_id(nil), do: nil
   defp normalize_optional_binary_id(""), do: nil
   defp normalize_optional_binary_id(value), do: value
-
-  defp default_role, do: Permissions.default_role()
 end

@@ -50,6 +50,9 @@ defmodule Rfchat.Chat.Channel do
 
   def thread?(%__MODULE__{kind: kind}), do: kind in @thread_kinds
 
+  @doc "Whether the channel may hold a public thread's starter message: text-like channels only."
+  def thread_host?(%__MODULE__{kind: kind}), do: kind in [:text, :announcement, :forum]
+
   @doc """
   A changeset for a channel or category that a channel manager creates or edits. A thread is
   not one: its kind, parent, starter message and creator are fixed when it is created (see

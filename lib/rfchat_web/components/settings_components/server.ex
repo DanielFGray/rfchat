@@ -368,7 +368,7 @@ defmodule RfchatWeb.SettingsComponents.Server do
 
                   <div class="flex flex-wrap items-center gap-2">
                     <button
-                      :if={member_action_available?(@current_user, entry, :moderate_members)}
+                      :if={member_action_available?(@current_scope, entry, :moderate_members)}
                       type="submit"
                       class="rounded-md bg-amber-500 px-3 py-1.5 text-[11px] font-semibold text-black transition hover:bg-amber-400"
                       name="moderation[action]"
@@ -378,7 +378,7 @@ defmodule RfchatWeb.SettingsComponents.Server do
                     </button>
 
                     <button
-                      :if={member_action_available?(@current_user, entry, :kick_members)}
+                      :if={member_action_available?(@current_scope, entry, :kick_members)}
                       type="submit"
                       class="rounded-md bg-orange-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-orange-400"
                       name="moderation[action]"
@@ -388,7 +388,7 @@ defmodule RfchatWeb.SettingsComponents.Server do
                     </button>
 
                     <button
-                      :if={member_action_available?(@current_user, entry, :ban_members)}
+                      :if={member_action_available?(@current_scope, entry, :ban_members)}
                       type="submit"
                       class="rounded-md bg-rose-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-rose-400"
                       name="moderation[action]"

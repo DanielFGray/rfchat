@@ -1,6 +1,6 @@
 # Scoped reads
 
-Status: proposed design, revision 4. Three cold reviews on gpt-6.1-sol are logged on the task. Task: "Context reads take the signed-in user's Scope and return only what that user can see".
+Status: proposed design, revision 5 (slice 1 built). Three cold reviews on gpt-6.1-sol are logged on the task. Task: "Context reads take the signed-in user's Scope and return only what that user can see".
 
 ## Rule
 
@@ -49,7 +49,10 @@ end
 ```elixir
 Visibility.member(scope)                    # the fresh member, or nil (deleted, banned, kicked, bad token)
 Visibility.can?(scope, action, target)      # one decision
+Visibility.visible_channels(scope)          # the visible channel and thread structs, for list readers
 Visibility.channel_ids(scope)               # visible channel set, for list readers only
+Visibility.authority(scope, channel_ids)    # the facts Bots.Authority decides a role grant from, in one load
+Visibility.timed_out?(membership)           # the one timeout rule, also read by the banned page
 ```
 
 `can?/3` owns every rule that today is spread over `Permissions` and the contexts:
@@ -61,7 +64,7 @@ Visibility.channel_ids(scope)               # visible channel set, for list read
 | Send in a thread needs the parent's send | `thread_parent_allows_messages?` | yes |
 | A timeout blocks send, react, edit, thread create | `timed_out?` checks in each caller | yes, for those actions |
 | Role hierarchy for moderation | `top_role_position`, `authorize_member_moderation` | yes, `:moderate` actions |
-| Bot grant authority | `Bots.Authority` | stays in `Bots.Authority`, which calls `can?/3` for channel bits |
+| Bot grant authority | `Bots.Authority` | stays in `Bots.Authority`, which reads `authority/2`: owner, server bits, top role position and the bits in each named channel, from one load |
 | Owner and administrator | `expand_administrator`, owner checks | yes |
 
 Old `Permissions.can_*?` functions are deleted, not kept beside `can?/3`.
@@ -71,6 +74,7 @@ Cost:
 - A by-id read loads the target, its channel (and its parent channel, for a thread), their overwrites and the member, then decides. It does not build the whole visible set.
 - `channel_ids/1` is for list readers only: the channel sidebar, the bot stream and the event reader's context. It loads the inputs in batches (channels, threads under visible parents, their overwrites, the member) and decides each one with the same pure `Authorization` function and parent rule as a by-id read. There is one permission algorithm. Overwrite precedence (default role, then roles, then the user; allow after deny at each level; administrator first) is never restated in SQL.
 - No cache across calls. The event reader computes its read context once per page and keeps nothing between pages. Measure first: slice 1 counts the queries for each decision and benchmarks a server with 200 channels and 20,000 threads. If SQL filtering is ever needed, it must implement the full precedence, and a property test must prove it equal to the pure function.
+- Measured in slice 1: each by-id decision is one statement, except moderation, which reads the actor and then the subject (two); `authority/2` is one, and a role grant whose overwrites name channels reads those channels in a second; `channel_ids/1` is 3 statements and 435 to 507 ms on 200 channels and 20,000 threads; the GuildLive join runs 15 queries before its first connected render and 50 once hydrated. `channel_ids/1` is `visible_channels/1` mapped to ids, so a list reader that needs the structs does not load the channels twice.
 
 ## Read policy
 

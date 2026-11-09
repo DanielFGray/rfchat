@@ -3,11 +3,12 @@ defmodule Rfchat.Chat.Threads do
 
   import Ecto.Query, warn: false
 
+  alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.Message
-  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.Topics
   alias Rfchat.Chat.User
+  alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
   def list_thread_messages(channel_or_id, opts \\ [])
@@ -84,10 +85,10 @@ defmodule Rfchat.Chat.Threads do
       is_nil(thread) ->
         {:error, :not_found}
 
-      not Permissions.thread_channel?(thread) ->
+      not Channel.thread?(thread) ->
         {:error, :not_found}
 
-      Permissions.can_view_channel?(thread, user) ->
+      Visibility.can?(%Scope{user_id: user.id}, :view_channel, thread) ->
         {:ok, Repo.preload(thread, [:parent_channel, starter_message: :author])}
 
       true ->
@@ -202,7 +203,7 @@ defmodule Rfchat.Chat.Threads do
            "starter message must belong to that channel"
          )}
 
-      not Permissions.thread_host_channel?(parent_channel) ->
+      not Channel.thread_host?(parent_channel) ->
         {:error,
          invalid_thread_changeset(
            parent_channel,
@@ -210,7 +211,7 @@ defmodule Rfchat.Chat.Threads do
            "threads can only start from text-like channels"
          )}
 
-      not Permissions.can_create_public_threads?(parent_channel, author) ->
+      not Visibility.can?(%Scope{user_id: author.id}, :create_public_threads, parent_channel) ->
         {:error, :forbidden}
 
       deleted_message?(starter_message) ->

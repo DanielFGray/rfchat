@@ -3,11 +3,11 @@ defmodule Rfchat.Chat.Emojis do
 
   import Ecto.Query, warn: false
 
-  alias Rfchat.Chat.Authorization
+  alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.Emoji
   alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.MediaAssets
-  alias Rfchat.Chat.Permissions
+  alias Rfchat.Chat.Visibility
   alias Rfchat.Chat.User
   alias Rfchat.Repo
 
@@ -19,11 +19,12 @@ defmodule Rfchat.Chat.Emojis do
   end
 
   def list_available_emojis(%User{} = user) do
-    user = Repo.preload(user, [:membership, member_roles: :role])
-    role_ids = MapSet.new(Enum.map(user.member_roles || [], & &1.role_id))
+    user = Repo.preload(user, member_roles: :role)
+    role_ids = role_ids(user)
+    manager? = can_manage_emojis?(user)
 
     list_custom_emojis()
-    |> Enum.filter(&emoji_available_to_user?(&1, user, role_ids))
+    |> Enum.filter(&emoji_available?(&1, role_ids, manager?))
   end
 
   def get_emoji!(id) do
@@ -82,8 +83,9 @@ defmodule Rfchat.Chat.Emojis do
 
   def fetch_available_emoji_for_user(emoji_id, %User{} = user) do
     emoji = get_emoji!(emoji_id)
+    user = Repo.preload(user, member_roles: :role)
 
-    if emoji_available_to_user?(emoji, Repo.preload(user, [:membership, member_roles: :role])) do
+    if emoji_available?(emoji, role_ids(user), can_manage_emojis?(user)) do
       {:ok, emoji}
     else
       {:error, :forbidden}
@@ -92,39 +94,22 @@ defmodule Rfchat.Chat.Emojis do
     Ecto.NoResultsError -> {:error, :invalid_emoji}
   end
 
-  defp emoji_available_to_user?(%Emoji{} = emoji, %User{} = user, role_ids \\ nil) do
-    role_ids = role_ids || MapSet.new(Enum.map(user.member_roles || [], & &1.role_id))
-
+  # `manager?` is the user's manage_emojis_and_stickers decision, made once by the caller so a
+  # list does not decide it per emoji.
+  defp emoji_available?(%Emoji{} = emoji, role_ids, manager?) do
     cond do
-      not emoji.available ->
-        false
-
-      user.membership && user.membership.is_owner ->
-        true
-
-      can_manage_emojis_and_stickers?(user) ->
-        true
-
-      emoji.emoji_roles == [] ->
-        emoji.listed
-
-      true ->
-        emoji.listed and Enum.any?(emoji.emoji_roles, &MapSet.member?(role_ids, &1.role_id))
+      not emoji.available -> false
+      manager? -> true
+      emoji.emoji_roles == [] -> emoji.listed
+      true -> emoji.listed and Enum.any?(emoji.emoji_roles, &MapSet.member?(role_ids, &1.role_id))
     end
   end
 
-  defp can_manage_emojis_and_stickers?(%User{} = user) do
-    permissions =
-      user
-      |> Repo.preload([:membership, member_roles: :role])
-      |> Authorization.base_permissions(default_role())
+  defp can_manage_emojis?(%User{id: user_id}),
+    do: Visibility.can?(%Scope{user_id: user_id}, :manage_emojis_and_stickers, :server)
 
-    Authorization.has_permission?(permissions, :manage_emojis_and_stickers) or
-      Authorization.has_permission?(permissions, :administrator)
-  end
-
-  defp default_role do
-    Permissions.default_role()
+  defp role_ids(%User{} = user) do
+    MapSet.new(Enum.map(user.member_roles || [], & &1.role_id))
   end
 
   defp normalize_emoji_attrs(attrs) do

@@ -1,12 +1,15 @@
 defmodule Rfchat.BotsTest do
   use Rfchat.DataCase
 
+  import Ecto.Query, only: [from: 2]
   import Rfchat.ChatFixtures
 
   alias Rfchat.Bootstrap
   alias Rfchat.Bots
   alias Rfchat.Chat
+  alias Rfchat.Chat.Membership
   alias Rfchat.Chat.PermissionBits
+  alias Rfchat.Repo
 
   describe "bot tokens and command registry" do
     test "creates bot users with roles and one-time tokens" do
@@ -34,7 +37,7 @@ defmodule Rfchat.BotsTest do
 
       {:ok, %{token: token}} = Bots.create_bot_token(bot_user, %{"label" => "primary"}, actor)
       assert {:ok, bot_scope} = Bots.get_bot_scope_by_token(token)
-      assert bot_scope.bot_user.id == bot_user.id
+      assert bot_scope.user_id == bot_user.id
     end
 
     test "executes registered message command" do
@@ -52,11 +55,7 @@ defmodule Rfchat.BotsTest do
       {:ok, %{message: message}} =
         Bots.execute_command(
           "send_message",
-          %Bots.BotScope{
-            bot_user: bot_user,
-            roles: Enum.map(bot_user.member_roles, & &1.role),
-            base_permissions: PermissionBits.combine([:view_channel, :send_messages])
-          },
+          bot_scope_for(bot_user, actor),
           %{"channel_id" => channel.id, "body" => "hello from bot"}
         )
 
@@ -78,7 +77,7 @@ defmodule Rfchat.BotsTest do
 
       assert {:error, :invalid_params} =
                Bots.command_send_message(
-                 %Bots.BotScope{bot_user: bot_user, roles: [], base_permissions: 0},
+                 bot_scope_for(bot_user, actor),
                  %{"channel_id" => "not-a-uuid", "body" => "hello"}
                )
     end
@@ -238,5 +237,24 @@ defmodule Rfchat.BotsTest do
       },
       attrs
     )
+  end
+
+  test "get_bot_scope_by_token refuses a valid token whose bot is deactivated" do
+    actor = owner_fixture(%{email: "bot-deact-owner@example.com", username: "bot_deact_owner"})
+    bot_user = bot_fixture(actor)
+    {:ok, %{token: token}} = Bots.create_bot_token(bot_user, %{"label" => "deact"}, actor)
+    assert {:ok, _scope} = Bots.get_bot_scope_by_token(token)
+
+    Repo.update_all(from(m in Membership, where: m.user_id == ^bot_user.id),
+      set: [deactivated_at: DateTime.utc_now()]
+    )
+
+    assert {:error, :unauthorized} = Bots.get_bot_scope_by_token(token)
+  end
+
+  defp bot_scope_for(bot_user, actor) do
+    {:ok, %{token: token}} = Bots.create_bot_token(bot_user, %{"label" => "test"}, actor)
+    {:ok, scope} = Bots.get_bot_scope_by_token(token)
+    scope
   end
 end

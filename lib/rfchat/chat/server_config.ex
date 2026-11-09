@@ -6,12 +6,12 @@ defmodule Rfchat.Chat.ServerConfig do
 
   @cache_key {__MODULE__, :server_settings}
 
-  alias Rfchat.Chat.Authorization
+  alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.MediaAsset
   alias Rfchat.Chat.MediaAssets
-  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.ServerSettings
   alias Rfchat.Chat.User
+  alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
   def get_server_settings do
@@ -36,21 +36,20 @@ defmodule Rfchat.Chat.ServerConfig do
   uploaded icon is written to disk. An `"icon_asset_id"` in attrs is ignored.
   """
   def update_server_settings(attrs, %User{} = actor) when is_map(attrs) do
-    actor
-    |> Permissions.current_permissions()
-    |> Authorization.has_permission?(:manage_server)
-    |> if(do: persist_server_settings(attrs, actor), else: {:error, :forbidden})
+    if manages_server?(actor),
+      do: persist_server_settings(attrs, actor),
+      else: {:error, :forbidden}
   end
 
   @doc """
   Clears the server icon. Deletes the previous asset only when its kind is `:server_icon`.
   """
   def remove_server_icon(%User{} = actor) do
-    actor
-    |> Permissions.current_permissions()
-    |> Authorization.has_permission?(:manage_server)
-    |> if(do: persist_remove_server_icon(), else: {:error, :forbidden})
+    if manages_server?(actor), do: persist_remove_server_icon(), else: {:error, :forbidden}
   end
+
+  defp manages_server?(%User{id: user_id}),
+    do: Visibility.can?(%Scope{user_id: user_id}, :manage_server, :server)
 
   def server_icon_url(%ServerSettings{icon_asset: %MediaAsset{} = asset}),
     do: MediaAssets.asset_url(asset)

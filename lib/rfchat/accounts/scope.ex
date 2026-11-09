@@ -1,5 +1,8 @@
 defmodule Rfchat.Accounts.Scope do
-  @moduledoc false
+  @moduledoc """
+  Who acts. It holds ids only: the permissions are read by `Rfchat.Chat.Visibility` for each
+  decision, never stored here.
+  """
 
-  defstruct [:user, :membership, roles: [], base_permissions: 0]
+  defstruct [:user_id, :bot_token_id]
 end

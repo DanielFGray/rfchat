@@ -1,10 +1,12 @@
 defmodule Rfchat.Bots.Commands do
   @moduledoc false
 
-  alias Rfchat.Bots.BotScope
+  alias Rfchat.Accounts.Scope
+  alias Rfchat.Bots
   alias Rfchat.Bots.Params
   alias Rfchat.Bots.Serializer
   alias Rfchat.Chat
+  alias Rfchat.Chat.Visibility
 
   @command_registry %{
     "send_message" => &__MODULE__.send_message/2,
@@ -16,18 +18,16 @@ defmodule Rfchat.Bots.Commands do
 
   def command_registry, do: @command_registry
 
-  def execute(command_name, %BotScope{} = scope, params) when is_map(params) do
+  def execute(command_name, %Scope{} = scope, params) when is_map(params) do
     case Map.fetch(@command_registry, command_name) do
       {:ok, handler} -> handler.(scope, params)
       :error -> {:error, :unknown_command}
     end
   end
 
-  def send_message(
-        %BotScope{bot_user: bot_user},
-        %{"channel_id" => channel_id, "body" => body} = params
-      ) do
-    with {:ok, channel} <- Params.fetch_channel(channel_id) do
+  def send_message(%Scope{} = scope, %{"channel_id" => channel_id, "body" => body} = params) do
+    with {:ok, bot_user} <- Bots.acting_member(scope),
+         {:ok, channel} <- Params.fetch_channel(channel_id) do
       attrs =
         params
         |> Map.take(["body", "metadata", "reply_to_id"])
@@ -42,9 +42,9 @@ defmodule Rfchat.Bots.Commands do
 
   def send_message(_, _), do: {:error, :invalid_params}
 
-  def list_messages(%BotScope{bot_user: bot_user}, %{"channel_id" => channel_id} = params) do
+  def list_messages(%Scope{} = scope, %{"channel_id" => channel_id} = params) do
     with {:ok, channel} <- Params.fetch_channel(channel_id) do
-      if Chat.can_view_channel?(channel, bot_user) do
+      if Visibility.can?(scope, :view_channel, channel) do
         limit = Params.parse_limit(Map.get(params, "limit"))
         messages = Chat.list_messages(channel.id, limit: limit)
         {:ok, %{messages: Enum.map(messages, &Serializer.serialize_message/1)}}
@@ -56,8 +56,9 @@ defmodule Rfchat.Bots.Commands do
 
   def list_messages(_, _), do: {:error, :invalid_params}
 
-  def timeout_member(%BotScope{bot_user: bot_user}, %{"user_id" => user_id} = params) do
-    with {:ok, subject} <- Params.fetch_member(user_id),
+  def timeout_member(%Scope{} = scope, %{"user_id" => user_id} = params) do
+    with {:ok, bot_user} <- Bots.acting_member(scope),
+         {:ok, subject} <- Params.fetch_member(user_id),
          {:ok, duration_minutes} <-
            Params.parse_positive_integer(Map.get(params, "duration_minutes")) do
       case Chat.timeout_member(bot_user, subject, duration_minutes, Map.get(params, "reason")) do
@@ -72,8 +73,9 @@ defmodule Rfchat.Bots.Commands do
 
   def timeout_member(_, _), do: {:error, :invalid_params}
 
-  def kick_member(%BotScope{bot_user: bot_user}, %{"user_id" => user_id} = params) do
-    with {:ok, subject} <- Params.fetch_member(user_id) do
+  def kick_member(%Scope{} = scope, %{"user_id" => user_id} = params) do
+    with {:ok, bot_user} <- Bots.acting_member(scope),
+         {:ok, subject} <- Params.fetch_member(user_id) do
       case Chat.kick_member(bot_user, subject, Map.get(params, "reason")) do
         {:ok, updated_subject, moderation_case} ->
           {:ok, Serializer.moderation_response(updated_subject, moderation_case, "kick")}
@@ -86,8 +88,9 @@ defmodule Rfchat.Bots.Commands do
 
   def kick_member(_, _), do: {:error, :invalid_params}
 
-  def ban_member(%BotScope{bot_user: bot_user}, %{"user_id" => user_id} = params) do
-    with {:ok, subject} <- Params.fetch_member(user_id) do
+  def ban_member(%Scope{} = scope, %{"user_id" => user_id} = params) do
+    with {:ok, bot_user} <- Bots.acting_member(scope),
+         {:ok, subject} <- Params.fetch_member(user_id) do
       case Chat.ban_member(bot_user, subject, Map.get(params, "reason")) do
         {:ok, updated_subject, moderation_case} ->
           {:ok, Serializer.moderation_response(updated_subject, moderation_case, "ban")}

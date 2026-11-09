@@ -1,11 +1,14 @@
 defmodule RfchatWeb.API.BotControllerTest do
   use RfchatWeb.ConnCase
 
+  import Ecto.Query, only: [from: 2]
   import Rfchat.ChatFixtures
 
   alias Rfchat.Bots
   alias Rfchat.Chat
+  alias Rfchat.Chat.Membership
   alias Rfchat.Chat.PermissionBits
+  alias Rfchat.Repo
   alias RfchatWeb.API.BotController
   alias RfchatWeb.TestStreamAdapter
 
@@ -237,11 +240,7 @@ defmodule RfchatWeb.API.BotControllerTest do
       |> TestStreamAdapter.wrap()
 
     conn =
-      assign(conn, :current_bot_scope, %Bots.BotScope{
-        bot_user: bot_user,
-        roles: [],
-        base_permissions: 0
-      })
+      assign(conn, :current_bot_scope, bot_scope_for(bot_user, actor))
 
     task =
       Task.async(fn ->
@@ -288,11 +287,7 @@ defmodule RfchatWeb.API.BotControllerTest do
       |> TestStreamAdapter.wrap()
 
     conn =
-      assign(conn, :current_bot_scope, %Bots.BotScope{
-        bot_user: bot_user,
-        roles: [],
-        base_permissions: role.permissions
-      })
+      assign(conn, :current_bot_scope, bot_scope_for(bot_user, actor))
 
     task =
       Task.async(fn ->
@@ -304,7 +299,7 @@ defmodule RfchatWeb.API.BotControllerTest do
 
     {:ok, %{message: created_message}} =
       Bots.command_send_message(
-        %Bots.BotScope{bot_user: bot_user, roles: [], base_permissions: role.permissions},
+        bot_scope_for(bot_user, actor),
         %{
           "channel_id" => channel.id,
           "body" => "stream me",
@@ -374,11 +369,7 @@ defmodule RfchatWeb.API.BotControllerTest do
       |> TestStreamAdapter.wrap()
 
     conn =
-      assign(conn, :current_bot_scope, %Bots.BotScope{
-        bot_user: bot_user,
-        roles: [],
-        base_permissions: role.permissions
-      })
+      assign(conn, :current_bot_scope, bot_scope_for(bot_user, actor))
 
     task =
       Task.async(fn ->
@@ -398,6 +389,24 @@ defmodule RfchatWeb.API.BotControllerTest do
     Task.shutdown(task, :brutal_kill)
 
     assert next_chunk =~ ~s("id":"#{visible_message.id}")
+  end
+
+  test "events answers 401 when the bot's membership ended after the token was checked" do
+    actor = owner_fixture(%{email: "bot-api-deact@example.com", username: "bot_api_deact"})
+    bot_user = bot_fixture(actor)
+    scope = bot_scope_for(bot_user, actor)
+
+    Repo.update_all(from(m in Membership, where: m.user_id == ^bot_user.id),
+      set: [deactivated_at: DateTime.utc_now()]
+    )
+
+    conn =
+      Phoenix.ConnTest.build_conn()
+      |> assign(:current_bot_scope, scope)
+      |> BotController.events(%{})
+
+    assert conn.status == 401
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(conn, 401)
   end
 
   describe "events reauthorization" do
@@ -422,7 +431,10 @@ defmodule RfchatWeb.API.BotControllerTest do
       {task, ref} = start_stream(token)
       assert_receive {^ref, :chunk, "event: ready" <> _}
 
-      {:ok, %Bots.BotScope{token: bot_token}} = Bots.get_bot_scope_by_token(token)
+      {:ok, %Rfchat.Accounts.Scope{bot_token_id: bot_token_id}} =
+        Bots.get_bot_scope_by_token(token)
+
+      bot_token = Rfchat.Repo.get!(Rfchat.Chat.BotToken, bot_token_id)
       {:ok, _revoked} = Bots.revoke_bot_token(bot_token, actor)
 
       send(task.pid, :reauthorize)
@@ -511,5 +523,11 @@ defmodule RfchatWeb.API.BotControllerTest do
     conn = get(conn, ~p"/api/v1/bots/#{human.id}/tokens")
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
+  end
+
+  defp bot_scope_for(bot_user, actor) do
+    {:ok, %{token: token}} = Bots.create_bot_token(bot_user, %{"label" => "test"}, actor)
+    {:ok, scope} = Bots.get_bot_scope_by_token(token)
+    scope
   end
 end

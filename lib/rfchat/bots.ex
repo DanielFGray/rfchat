@@ -10,21 +10,15 @@ defmodule Rfchat.Bots do
   alias Rfchat.Bots.Serializer
   alias Rfchat.Chat
   alias Rfchat.Chat.AuditLogEntry
-  alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.BotToken
   alias Rfchat.Chat.MemberRole
   alias Rfchat.Chat.Membership
   alias Rfchat.Chat.Role
   alias Rfchat.Chat.User
+  alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
   @touch_threshold_seconds 300
-
-  defmodule BotScope do
-    @moduledoc false
-
-    defstruct [:bot_user, :token, roles: [], base_permissions: 0]
-  end
 
   def command_registry, do: Commands.command_registry()
 
@@ -294,58 +288,42 @@ defmodule Rfchat.Bots do
         [token, user],
         user.bot == true and user.system == false and is_nil(user.deleted_at)
       )
-      |> preload([token, user], user: [:membership, member_roles: :role])
       |> Repo.one()
 
-    if bot_token do
-      touch_bot_token(bot_token)
+    # A valid token whose bot is deactivated cannot act, so it is refused here like any bad token.
+    scope = bot_token && %Scope{user_id: bot_token.user_id, bot_token_id: bot_token.id}
 
-      {:ok,
-       %BotScope{
-         bot_user: bot_token.user,
-         token: bot_token,
-         roles: Enum.map(bot_token.user.member_roles || [], & &1.role),
-         base_permissions: Authorization.base_permissions(bot_token.user, Chat.default_role())
-       }}
+    if scope && Visibility.member(scope) do
+      touch_bot_token(bot_token)
+      {:ok, scope}
     else
       {:error, :unauthorized}
     end
   end
 
-  def can_manage_bots?(%Scope{} = scope) do
-    permissions = scope.base_permissions || 0
-
-    Authorization.has_permission?(permissions, :manage_bots) or
-      Authorization.has_permission?(permissions, :administrator) or
-      (scope.membership && scope.membership.is_owner)
-  end
+  def can_manage_bots?(%Scope{} = scope), do: Visibility.can?(scope, :manage_bots, :server)
 
   def can_manage_bots?(_), do: false
 
-  def execute_command(command_name, %BotScope{} = scope, params) when is_map(params) do
+  def execute_command(command_name, %Scope{} = scope, params) when is_map(params) do
     Commands.execute(command_name, scope, params)
   end
 
-  def command_send_message(
-        %BotScope{} = scope,
-        params
-      ) do
-    Commands.send_message(scope, params)
-  end
+  def command_send_message(%Scope{} = scope, params), do: Commands.send_message(scope, params)
 
   def command_send_message(_, _), do: {:error, :invalid_params}
 
-  def command_list_messages(%BotScope{} = scope, params),
+  def command_list_messages(%Scope{} = scope, params),
     do: Commands.list_messages(scope, params)
 
   def command_list_messages(_, _), do: {:error, :invalid_params}
 
-  def get_thread_for_starter_message(%BotScope{bot_user: bot_user}, starter_message_id) do
+  def get_thread_for_starter_message(%Scope{} = scope, starter_message_id) do
     case Ecto.UUID.cast(starter_message_id) do
       {:ok, starter_id} ->
         starter_id
         |> Chat.get_thread_for_starter_message()
-        |> viewable_thread_result(bot_user)
+        |> viewable_thread_result(scope)
 
       :error ->
         {:error, :not_found}
@@ -356,9 +334,9 @@ defmodule Rfchat.Bots do
 
   def create_public_thread(scope, starter_message_id, attrs \\ %{})
 
-  def create_public_thread(%BotScope{bot_user: bot_user}, starter_message_id, attrs)
-      when is_map(attrs) do
-    with {:ok, starter_message} <- fetch_message(starter_message_id),
+  def create_public_thread(%Scope{} = scope, starter_message_id, attrs) when is_map(attrs) do
+    with {:ok, bot_user} <- acting_member(scope),
+         {:ok, starter_message} <- fetch_message(starter_message_id),
          {:ok, parent_channel} <- fetch_channel(starter_message.channel_id) do
       case Chat.create_public_thread(parent_channel, starter_message, bot_user, attrs) do
         {:ok, thread} -> {:ok, %{thread: Serializer.serialize_thread(thread)}}
@@ -369,18 +347,29 @@ defmodule Rfchat.Bots do
 
   def create_public_thread(_, _, _), do: {:error, :invalid_params}
 
-  def command_timeout_member(%BotScope{} = scope, params),
+  def command_timeout_member(%Scope{} = scope, params),
     do: Commands.timeout_member(scope, params)
 
   def command_timeout_member(_, _), do: {:error, :invalid_params}
 
-  def command_kick_member(%BotScope{} = scope, params), do: Commands.kick_member(scope, params)
+  def command_kick_member(%Scope{} = scope, params), do: Commands.kick_member(scope, params)
 
   def command_kick_member(_, _), do: {:error, :invalid_params}
 
-  def command_ban_member(%BotScope{} = scope, params), do: Commands.ban_member(scope, params)
+  def command_ban_member(%Scope{} = scope, params), do: Commands.ban_member(scope, params)
 
   def command_ban_member(_, _), do: {:error, :invalid_params}
+
+  @doc """
+  The member a bot scope acts as, for the context calls that still take a `%User{}`. A revoked
+  or expired token yields `{:error, :unauthorized}`.
+  """
+  def acting_member(%Scope{} = scope) do
+    case Visibility.member(scope) do
+      %User{} = bot_user -> {:ok, bot_user}
+      nil -> {:error, :unauthorized}
+    end
+  end
 
   def serialize_bot_user(%User{} = bot_user), do: Serializer.serialize_bot_user(bot_user)
 
@@ -466,10 +455,10 @@ defmodule Rfchat.Bots do
     |> Repo.insert!()
   end
 
-  defp viewable_thread_result(nil, _bot_user), do: {:error, :not_found}
+  defp viewable_thread_result(nil, _scope), do: {:error, :not_found}
 
-  defp viewable_thread_result(thread, bot_user) do
-    if Chat.can_view_channel?(thread, bot_user) do
+  defp viewable_thread_result(thread, scope) do
+    if Visibility.can?(scope, :view_channel, thread) do
       {:ok, %{thread: Serializer.serialize_thread(thread)}}
     else
       {:error, :forbidden}

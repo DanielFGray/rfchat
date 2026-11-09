@@ -7,10 +7,8 @@ defmodule Rfchat.Accounts do
 
   alias Ecto.Changeset
   alias Rfchat.Accounts.Scope
-  alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.BotToken
   alias Rfchat.Chat.Membership
-  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.User
   alias Rfchat.Chat.UserSession
   alias Rfchat.Ephemeral
@@ -272,16 +270,7 @@ defmodule Rfchat.Accounts do
     :ok
   end
 
-  def user_scope(%User{} = user) do
-    default_role = Permissions.default_role()
-
-    %Scope{
-      user: user,
-      membership: user.membership,
-      roles: Enum.map(user.member_roles || [], & &1.role),
-      base_permissions: Authorization.base_permissions(user, default_role)
-    }
-  end
+  def user_scope(%User{id: user_id}), do: %Scope{user_id: user_id}
 
   def membership_state(nil), do: :anonymous
 
@@ -297,13 +286,6 @@ defmodule Rfchat.Accounts do
 
   def banned?(%User{} = user), do: membership_state(user) == :banned
   def removed?(%User{} = user), do: membership_state(user) == :removed
-
-  def timed_out?(%User{membership: %{timeout_until: timeout_until}})
-      when not is_nil(timeout_until) do
-    DateTime.compare(timeout_until, DateTime.utc_now()) == :gt
-  end
-
-  def timed_out?(%User{}), do: false
 
   def hash_token(token) when is_binary(token), do: :crypto.hash(:sha256, token)
 

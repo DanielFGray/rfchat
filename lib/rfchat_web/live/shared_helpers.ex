@@ -5,66 +5,28 @@ defmodule RfchatWeb.Live.SharedHelpers do
   import Phoenix.LiveView, only: [put_flash: 3]
 
   alias Rfchat.Chat
-  alias Rfchat.Chat.Authorization
+  alias Rfchat.Chat.Visibility
 
+  # Each button's visibility is one decision, made when the view renders. Nothing is stored
+  # on the socket, so a role change applies at the next render.
   def can_manage_channels?(nil), do: false
-
-  def can_manage_channels?(scope) do
-    permissions = scope_permissions(scope)
-
-    Authorization.has_permission?(permissions, :manage_channels) or
-      Authorization.has_permission?(permissions, :administrator)
-  end
+  def can_manage_channels?(scope), do: Visibility.can?(scope, :manage_channels, :server)
 
   def can_manage_emojis?(nil), do: false
 
-  def can_manage_emojis?(scope) do
-    permissions = scope_permissions(scope)
-
-    Authorization.has_permission?(permissions, :manage_emojis_and_stickers) or
-      Authorization.has_permission?(permissions, :administrator)
-  end
+  def can_manage_emojis?(scope),
+    do: Visibility.can?(scope, :manage_emojis_and_stickers, :server)
 
   def can_manage_server?(nil), do: false
-
-  def can_manage_server?(scope) do
-    permissions = scope_permissions(scope)
-
-    Authorization.has_permission?(permissions, :manage_server) or
-      Authorization.has_permission?(permissions, :administrator)
-  end
+  def can_manage_server?(scope), do: Visibility.can?(scope, :manage_server, :server)
 
   def can_moderate_members?(nil), do: false
 
   def can_moderate_members?(scope) do
-    permissions = scope_permissions(scope)
-
-    Authorization.has_permission?(permissions, :moderate_members) or
-      Authorization.has_permission?(permissions, :kick_members) or
-      Authorization.has_permission?(permissions, :ban_members) or
-      Authorization.has_permission?(permissions, :administrator)
-  end
-
-  def scope_permissions(%{
-        base_permissions: base_permissions,
-        membership: membership,
-        roles: roles
-      }) do
-    role_permissions = Enum.reduce(roles || [], 0, &Bitwise.bor(&1.permissions, &2))
-
-    cond do
-      membership && membership.is_owner ->
-        Authorization.all_permissions()
-
-      Authorization.has_permission?(base_permissions || 0, :administrator) ->
-        Authorization.all_permissions()
-
-      Authorization.has_permission?(role_permissions, :administrator) ->
-        Authorization.all_permissions()
-
-      true ->
-        Bitwise.bor(base_permissions || 0, role_permissions)
-    end
+    Enum.any?(
+      [:moderate_members, :kick_members, :ban_members],
+      &Visibility.can?(scope, &1, :server)
+    )
   end
 
   def channel_sections_for_manager(true), do: Chat.list_channel_tree()

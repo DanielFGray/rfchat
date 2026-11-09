@@ -1,7 +1,7 @@
 defmodule RfchatWeb.SettingsComponents.Helpers do
   @moduledoc false
 
-  alias Rfchat.Chat
+  alias Rfchat.Chat.Visibility
 
   def mention_alerts_enabled?(setting) do
     setting.desktop_enabled && setting.notify_on_mentions
@@ -35,10 +35,8 @@ defmodule RfchatWeb.SettingsComponents.Helpers do
 
   def selected_member(entry, member_action_user_id), do: entry.user.id == member_action_user_id
 
-  def member_action_available?(current_user, entry, permission_name) do
-    current_user.id != entry.user.id and
-      not entry.user.membership.is_owner and
-      Chat.moderation_permission?(current_user, permission_name)
+  def member_action_available?(scope, entry, permission_name) do
+    Visibility.can?(scope, {:moderate, permission_name}, entry.user.id)
   end
 
   def moderation_case_label(:timeout), do: "Timeout"

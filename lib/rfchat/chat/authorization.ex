@@ -13,31 +13,31 @@ defmodule Rfchat.Chat.Authorization do
 
   def all_permissions, do: @all_permissions
 
-  def base_permissions(%User{} = user, %Role{} = default_role) do
+  def server_permissions(%User{} = user, %Role{} = default_role) do
     user
-    |> do_base_permissions(default_role.permissions)
+    |> do_server_permissions(default_role.permissions)
     |> expand_administrator()
   end
 
-  def base_permissions(%User{} = user, nil) do
+  def server_permissions(%User{} = user, nil) do
     user
-    |> do_base_permissions(0)
+    |> do_server_permissions(0)
     |> expand_administrator()
   end
 
   def channel_permissions(%User{} = user, %Channel{} = channel, default_role) do
-    base_permissions = base_permissions(user, default_role)
+    server_permissions = server_permissions(user, default_role)
 
     cond do
-      base_permissions == 0 ->
+      server_permissions == 0 ->
         0
 
-      administrator?(base_permissions) ->
+      administrator?(server_permissions) ->
         @all_permissions
 
       true ->
         apply_channel_overwrites(
-          base_permissions,
+          server_permissions,
           user,
           channel.permission_overwrites || [],
           default_role
@@ -61,12 +61,12 @@ defmodule Rfchat.Chat.Authorization do
     band(permissions, permission_bit) == permission_bit
   end
 
-  defp do_base_permissions(%User{membership: membership}, _default_permissions)
+  defp do_server_permissions(%User{membership: membership}, _default_permissions)
        when is_nil(membership) do
     0
   end
 
-  defp do_base_permissions(
+  defp do_server_permissions(
          %User{membership: %{deactivated_at: deactivated_at}},
          _default_permissions
        )
@@ -74,10 +74,10 @@ defmodule Rfchat.Chat.Authorization do
     0
   end
 
-  defp do_base_permissions(%User{membership: %{is_owner: true}}, _default_permissions),
+  defp do_server_permissions(%User{membership: %{is_owner: true}}, _default_permissions),
     do: @all_permissions
 
-  defp do_base_permissions(%User{} = user, default_permissions) do
+  defp do_server_permissions(%User{} = user, default_permissions) do
     Enum.reduce(user.member_roles || [], default_permissions, fn member_role, permissions ->
       permissions ||| member_role.role.permissions
     end)
@@ -89,7 +89,7 @@ defmodule Rfchat.Chat.Authorization do
 
   defp administrator?(permissions), do: has_permission?(permissions, :administrator)
 
-  defp apply_channel_overwrites(base_permissions, %User{} = user, overwrites, default_role) do
+  defp apply_channel_overwrites(server_permissions, %User{} = user, overwrites, default_role) do
     {everyone_deny, everyone_allow} =
       overwrites
       |> Enum.filter(&matches_default_role?(&1, default_role))
@@ -107,7 +107,7 @@ defmodule Rfchat.Chat.Authorization do
       |> Enum.filter(&(&1.user_id == user.id))
       |> merge_overwrites()
 
-    base_permissions
+    server_permissions
     |> drop_permissions(everyone_deny)
     |> add_permissions(everyone_allow)
     |> drop_permissions(role_deny)

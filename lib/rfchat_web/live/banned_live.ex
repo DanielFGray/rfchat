@@ -1,8 +1,8 @@
 defmodule RfchatWeb.BannedLive do
   use RfchatWeb, :live_view
 
-  alias Rfchat.Accounts
   alias Rfchat.Chat
+  alias Rfchat.Chat.Visibility
 
   @impl true
   def mount(_params, _session, socket) do
@@ -19,7 +19,7 @@ defmodule RfchatWeb.BannedLive do
      |> assign(:current_server, server_settings)
      |> assign(:ban_reason, Map.get(flags, "ban_reason"))
      |> assign(:ban_at, membership.deactivated_at)
-     |> assign(:timed_out?, Accounts.timed_out?(user))}
+     |> assign(:timed_out?, Visibility.timed_out?(membership))}
   end
 
   @impl true

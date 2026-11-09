@@ -12,9 +12,7 @@ defmodule RfchatWeb.Plugs.RequireBotAuth do
     with [authorization] <- get_req_header(conn, "authorization"),
          "Bearer " <> token <- authorization,
          {:ok, bot_scope} <- Bots.get_bot_scope_by_token(token) do
-      conn
-      |> assign(:current_bot_scope, bot_scope)
-      |> assign(:current_bot_user, bot_scope.bot_user)
+      assign(conn, :current_bot_scope, bot_scope)
     else
       _ ->
         conn

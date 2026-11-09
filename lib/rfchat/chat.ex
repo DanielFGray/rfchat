@@ -5,15 +5,16 @@ defmodule Rfchat.Chat do
 
   import Ecto.Query, warn: false
 
+  alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.Channels
   alias Rfchat.Chat.Emojis
   alias Rfchat.Chat.MediaAssets
   alias Rfchat.Chat.Notifications
-  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.ServerConfig
   alias Rfchat.Chat.Threads
   alias Rfchat.Chat.Topics
+  alias Rfchat.Chat.Visibility
   alias Rfchat.Chat.Membership
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.MessageRoleMention
@@ -292,12 +293,11 @@ defmodule Rfchat.Chat do
   end
 
   def update_message(%Message{} = message, %User{} = actor, attrs) do
-    message = with_current_overwrites(message)
-    member = Permissions.current_member(actor.id)
+    message = with_channel(message)
 
-    if can_edit_message?(message, member) do
+    if Visibility.can?(user_scope(actor), :edit_message, message) do
       with {:ok, attrs} <- normalize_message_attrs(attrs),
-           :ok <- authorize_message_mentions(message.channel, member, attrs) do
+           :ok <- authorize_message_mentions(message.channel, actor, attrs) do
         Repo.transaction(fn ->
           with {:ok, updated_message} <-
                  message
@@ -327,7 +327,7 @@ defmodule Rfchat.Chat do
   end
 
   def delete_message(%Message{} = message, %User{} = actor) do
-    message = with_current_overwrites(message)
+    message = with_channel(message)
 
     if message.author_id == actor.id or can_manage_messages?(message.channel, actor) do
       now = DateTime.utc_now()
@@ -372,7 +372,7 @@ defmodule Rfchat.Chat do
 
   def toggle_reaction(%Message{} = message, %User{} = user, emoji_unicode)
       when is_binary(emoji_unicode) do
-    message = with_current_overwrites(message)
+    message = with_channel(message)
     emoji_unicode = String.trim(emoji_unicode)
 
     if emoji_unicode == "" do
@@ -416,7 +416,7 @@ defmodule Rfchat.Chat do
 
   def toggle_reaction(%Message{} = message, %User{} = user, %{"emoji_id" => emoji_id})
       when is_binary(emoji_id) do
-    message = with_current_overwrites(message)
+    message = with_channel(message)
 
     with {:ok, emoji} <- Emojis.fetch_available_emoji_for_user(emoji_id, user),
          true <- can_add_reactions?(message.channel, user) do
@@ -453,16 +453,31 @@ defmodule Rfchat.Chat do
 
   defdelegate mark_channel_read(user, channel, message \\ nil), to: Notifications
 
-  defdelegate can_send_messages?(channel, user), to: Permissions
-  defdelegate can_view_channel?(channel, user), to: Permissions
-  defdelegate can_create_public_threads?(channel, user), to: Permissions
-  defdelegate can_send_messages_in_threads?(channel, user), to: Permissions
-  defdelegate can_add_reactions?(channel, user), to: Permissions
-  defdelegate can_manage_messages?(channel, user), to: Permissions
-  defdelegate can_mention_everyone?(channel, user), to: Permissions
-  defdelegate can_manage_emojis_and_stickers?(user), to: Permissions
-  defdelegate timed_out?(user), to: Permissions
-  defdelegate thread_channel?(channel), to: Permissions
+  def can_send_messages?(channel, user),
+    do: Visibility.can?(user_scope(user), :send_messages, channel)
+
+  def can_view_channel?(channel, user),
+    do: Visibility.can?(user_scope(user), :view_channel, channel)
+
+  def can_create_public_threads?(channel, user),
+    do: Visibility.can?(user_scope(user), :create_public_threads, channel)
+
+  def can_send_messages_in_threads?(channel, user),
+    do: Visibility.can?(user_scope(user), :send_messages_in_threads, channel)
+
+  def can_add_reactions?(channel, user),
+    do: Visibility.can?(user_scope(user), :add_reactions, channel)
+
+  def can_manage_messages?(channel, user),
+    do: Visibility.can?(user_scope(user), :manage_messages, channel)
+
+  def can_mention_everyone?(channel, user),
+    do: Visibility.can?(user_scope(user), :mention_everyone, channel)
+
+  def can_manage_emojis_and_stickers?(user),
+    do: Visibility.can?(user_scope(user), :manage_emojis_and_stickers, :server)
+
+  defdelegate thread_channel?(channel), to: Channel, as: :thread?
 
   def message_count(channel_id) do
     Message
@@ -474,8 +489,9 @@ defmodule Rfchat.Chat do
     Repo.one!(from(user in User, order_by: [asc: user.inserted_at], limit: 1))
   end
 
-  defdelegate default_role(), to: Permissions
-  defdelegate moderation_permission?(user, permission_name), to: Permissions
+  def default_role, do: Repo.get_by(Role, is_default: true)
+
+  defp user_scope(%User{id: user_id}), do: %Scope{user_id: user_id}
 
   defp normalize_message_attrs(attrs) do
     attrs =
@@ -543,25 +559,13 @@ defmodule Rfchat.Chat do
     end
   end
 
-  # Both members are read from the database, because a session's copy can be stale after a role
-  # change. The owner may moderate anyone else; any other moderator only members whose highest
-  # role sits below their own, as on Discord.
+  # The rule (owner, hierarchy, self and owner targets) lives in `Visibility`, which reads both
+  # members from the database for the decision.
   defp authorize_member_moderation(%User{} = actor, %User{} = subject, permission_name) do
-    actor = Permissions.current_member(actor.id)
-    subject = Permissions.current_member(subject.id)
-
-    cond do
-      is_nil(actor) or is_nil(subject) -> {:error, :forbidden}
-      actor.id == subject.id -> {:error, :forbidden}
-      owner?(subject) -> {:error, :forbidden}
-      not moderation_permission?(actor, permission_name) -> {:error, :forbidden}
-      owner?(actor) -> :ok
-      Permissions.top_role_position(actor) > Permissions.top_role_position(subject) -> :ok
-      true -> {:error, :forbidden}
-    end
+    if Visibility.can?(user_scope(actor), {:moderate, permission_name}, subject.id),
+      do: :ok,
+      else: {:error, :forbidden}
   end
-
-  defp owner?(%User{membership: membership}), do: match?(%{is_owner: true}, membership)
 
   defp record_moderation_case(%User{} = actor, %User{} = subject, action_type, reason, attrs) do
     attrs = %{
@@ -735,21 +739,9 @@ defmodule Rfchat.Chat do
     end
   end
 
-  # The member is read fresh from the database, so a timeout or a removed view permission applies
-  # to edits made from a session opened before the change.
-  defp can_edit_message?(%Message{} = message, %User{id: id} = member) do
-    id == message.author_id and not Permissions.timed_out?(member) and
-      Permissions.can_view_channel?(message.channel, member)
-  end
-
-  defp can_edit_message?(%Message{}, nil), do: false
-
-  # A caller may pass a message whose overwrites were loaded before a later
-  # deny. Permission decisions must use the current overwrites, so this reloads
-  # them even when they are already loaded.
-  defp with_current_overwrites(%Message{} = message) do
-    Repo.preload(message, [channel: [:permission_overwrites]], force: true)
-  end
+  # The channel is needed in the struct for the broadcast and for the reply preview. Decisions
+  # load their own channel from the database, so a stale preload never decides access.
+  defp with_channel(%Message{} = message), do: Repo.preload(message, :channel)
 
   defp authorize_message_mentions(channel, author, attrs) do
     role_ids = attrs |> mentioned_role_ids() |> Enum.uniq()

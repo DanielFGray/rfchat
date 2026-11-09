@@ -17,27 +17,27 @@ defmodule Rfchat.Bots.Authority do
   import Bitwise
   import Ecto.Query, warn: false
 
+  alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.Authorization
   alias Rfchat.Chat.ChannelPermissionOverwrite
   alias Rfchat.Chat.PermissionBits
-  alias Rfchat.Chat.Permissions
   alias Rfchat.Chat.Role
   alias Rfchat.Chat.User
+  alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
-  defstruct [:user, owner?: false, permissions: 0, top_position: 0]
+  defstruct [:scope, :owner?, :permissions, :top_position, channel_permissions: %{}]
 
   @administrator PermissionBits.flag(:administrator)
 
   @doc "The actor's current authority, when the actor may manage bots."
   def manage_bots(%User{id: actor_id}) do
-    with %User{} = user <- Permissions.current_member(actor_id),
-         authority = authority(user),
-         true <- Authorization.has_permission?(authority.permissions, :manage_bots) do
-      {:ok, authority}
-    else
-      _ -> {:error, :forbidden}
-    end
+    scope = %Scope{user_id: actor_id}
+    facts = Visibility.authority(scope, [])
+
+    if Authorization.has_permission?(facts.server_permissions, :manage_bots),
+      do: {:ok, from_facts(scope, facts)},
+      else: {:error, :forbidden}
   end
 
   @doc "The roles behind `role_ids`, when the authority may give every one of them to a bot."
@@ -50,6 +50,7 @@ defmodule Rfchat.Bots.Authority do
         with true <- Authorization.has_permission?(authority.permissions, :manage_roles),
              {:ok, roles} <- fetch_roles(ids),
              overwrites_by_role = overwrites_by_role_id(Enum.map(roles, & &1.id)),
+             authority = with_channel_facts(authority, overwrites_by_role),
              true <- Enum.all?(roles, &grantable?(authority, &1, overwrites_by_role)) do
           {:ok, roles}
         else
@@ -67,6 +68,7 @@ defmodule Rfchat.Bots.Authority do
       |> Enum.map(& &1.role)
 
     overwrites_by_role = overwrites_by_role_id(Enum.map(roles, & &1.id))
+    authority = with_channel_facts(authority, overwrites_by_role)
 
     if Enum.all?(roles, &grantable?(authority, &1, overwrites_by_role)),
       do: :ok,
@@ -83,6 +85,7 @@ defmodule Rfchat.Bots.Authority do
         |> Repo.all()
 
       overwrites_by_role = overwrites_by_role_id(Enum.map(roles, & &1.id))
+      authority = with_channel_facts(authority, overwrites_by_role)
       Enum.filter(roles, &grantable?(authority, &1, overwrites_by_role))
     else
       []
@@ -106,12 +109,8 @@ defmodule Rfchat.Bots.Authority do
   # A role overwrite may allow bits the member does not have in that channel; granting it
   # would let a bot token act where the member cannot.
   defp channel_overwrites_grantable?(%__MODULE__{} = authority, overwrites) do
-    default_role = Permissions.default_role()
-
     Enum.all?(overwrites, fn overwrite ->
-      actor_permissions =
-        Authorization.channel_permissions(authority.user, overwrite.channel, default_role)
-
+      actor_permissions = Map.get(authority.channel_permissions, overwrite.channel_id, 0)
       band(overwrite.allow_permissions, bnot(actor_permissions)) == 0
     end)
   end
@@ -120,24 +119,39 @@ defmodule Rfchat.Bots.Authority do
 
   defp overwrites_by_role_id(role_ids) do
     from(overwrite in ChannelPermissionOverwrite,
-      where: overwrite.role_id in ^Enum.uniq(role_ids),
-      preload: [channel: :permission_overwrites]
+      where: overwrite.role_id in ^Enum.uniq(role_ids)
     )
     |> Repo.all()
     |> Enum.group_by(& &1.role_id)
   end
 
-  defp authority(%User{} = user) do
-    %__MODULE__{
-      user: user,
-      owner?: active_owner?(user),
-      permissions: Authorization.base_permissions(user, Permissions.default_role()),
-      top_position: Permissions.top_role_position(user)
-    }
+  # Reads the bits the authority holds in each channel a role overwrite names, in one load. The
+  # channel ids are known only once the roles are loaded, so a grant reads them after that.
+  defp with_channel_facts(%__MODULE__{} = authority, overwrites_by_role) do
+    channel_ids =
+      overwrites_by_role
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.map(& &1.channel_id)
+      |> Enum.uniq()
+
+    if channel_ids == [] do
+      authority
+    else
+      facts = Visibility.authority(authority.scope, channel_ids)
+      %{authority | channel_permissions: facts.channel_permissions}
+    end
   end
 
-  defp active_owner?(%User{membership: %{is_owner: true, deactivated_at: nil}}), do: true
-  defp active_owner?(%User{}), do: false
+  defp from_facts(%Scope{} = scope, facts) do
+    %__MODULE__{
+      scope: scope,
+      owner?: facts.owner?,
+      permissions: facts.server_permissions,
+      top_position: facts.top_role_position,
+      channel_permissions: facts.channel_permissions
+    }
+  end
 
   defp fetch_roles(ids) do
     if Enum.all?(ids, &match?({:ok, _}, Ecto.UUID.cast(&1))) do

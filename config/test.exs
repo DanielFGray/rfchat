@@ -43,5 +43,3 @@ config :rfchat, Rfchat.ObjectStore,
   access_key_id: "test",
   secret_access_key: "test",
   req_options: [plug: Rfchat.TestObjectStore, retry: false]
-
-config :rfchat, :cache_default_role, false

@@ -1,10 +1,12 @@
 defmodule RfchatWeb.API.BotController do
   use RfchatWeb, :controller
 
+  alias Rfchat.Accounts.Scope
   alias Rfchat.Bots
-  alias Rfchat.Bots.BotScope
   alias Rfchat.Chat
   alias Rfchat.Chat.Topics
+  alias Rfchat.Chat.User
+  alias Rfchat.Chat.Visibility
   alias RfchatWeb.API.ErrorHelpers
 
   @reauthorize_interval 20_000
@@ -177,9 +179,15 @@ defmodule RfchatWeb.API.BotController do
     end
   end
 
+  # The membership can end between the auth plug and this call, so the member is read here too.
   def events(conn, _params) do
-    %BotScope{bot_user: bot_user} = conn.assigns.current_bot_scope
+    case Bots.acting_member(conn.assigns.current_bot_scope) do
+      {:ok, bot_user} -> open_events(conn, bot_user)
+      {:error, :unauthorized} -> unauthorized(conn)
+    end
+  end
 
+  defp open_events(conn, bot_user) do
     conn =
       conn
       |> put_resp_content_type("text/event-stream")
@@ -247,20 +255,23 @@ defmodule RfchatWeb.API.BotController do
     end
   end
 
+  # A banned or removed bot keeps a valid token, so the member read is part of the check: a
+  # bot with no active membership is closed like a revoked token.
   defp reauthorize(conn, state) do
-    case fetch_scope(state.token) do
-      {:ok, %BotScope{bot_user: %{id: id} = bot_user}} when id == state.bot_user.id ->
-        state = resync(%{state | bot_user: bot_user})
+    with {:ok, %Scope{user_id: id} = scope} when id == state.bot_user.id <-
+           fetch_scope(state.token),
+         %User{} = bot_user <- Visibility.member(scope) do
+      state = resync(%{state | bot_user: bot_user})
 
-        case chunk(conn, ": keepalive\n\n") do
-          {:ok, conn} ->
-            schedule_reauthorize()
-            stream_events(conn, state)
+      case chunk(conn, ": keepalive\n\n") do
+        {:ok, conn} ->
+          schedule_reauthorize()
+          stream_events(conn, state)
 
-          {:error, _reason} ->
-            conn
-        end
-
+        {:error, _reason} ->
+          conn
+      end
+    else
       _revoked ->
         case chunk(conn, "event: closed\ndata: {\"reason\":\"token_revoked\"}\n\n") do
           {:ok, conn} -> conn
@@ -303,4 +314,14 @@ defmodule RfchatWeb.API.BotController do
 
   defp forbidden(conn),
     do: ErrorHelpers.render_error(conn, :forbidden, "forbidden", "You cannot manage this bot.")
+
+  # The same answer RequireBotAuth gives a token it refuses, so a client sees one auth failure.
+  defp unauthorized(conn),
+    do:
+      ErrorHelpers.render_error(
+        conn,
+        :unauthorized,
+        "unauthorized",
+        "Valid bot bearer token required."
+      )
 end
