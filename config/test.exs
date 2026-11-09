@@ -4,7 +4,13 @@ import Config
 config :rfchat, Rfchat.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   # Test modules run one at a time, so a small pool is enough; the dev login allows 32.
-  pool_size: 8
+  pool_size: 8,
+  # In shared sandbox mode every process uses one connection, and Ecto runs preloads in parallel
+  # tasks that queue for it. Over the ~100 ms link to the test database each holder keeps the
+  # connection at least one round trip, so the default queue limit (about 100 ms) drops requests
+  # that only had to wait their turn.
+  queue_target: 2_000,
+  queue_interval: 10_000
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
