@@ -120,7 +120,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
 
     {:ok, message} =
       Chat.create_message(engineering, sender, %{
-        body: "hello @guildlive_user_default",
+        body: "hello @#{current_user.username}",
         metadata: %{
           "entities" => [
             %{
@@ -146,27 +146,33 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
   test "receives inactive channel mention from another hydrated user", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     receiver_conn = log_in_member_user(conn, "mention_receiver")
-    sender_conn = log_in_member_user(Phoenix.ConnTest.build_conn(), "mention_sender")
-    receiver = current_user_from_conn(receiver_conn)
-    sender = current_user_from_conn(sender_conn)
     {:ok, receiver_view, _html} = live_hydrated(receiver_conn, ~p"/")
-    {:ok, _sender_view, _html} = live_hydrated(sender_conn, ~p"/")
 
     engineering = Chat.get_channel_by_slug!("engineering")
+    denied_sender = user_fixture(%{username: "mention_denied_sender"})
 
-    {:ok, _message} =
-      Chat.create_message(engineering, sender, %{
-        body: "hello @#{receiver.username}"
-      })
+    assert {:error, changeset} = Chat.create_message(engineering, denied_sender, %{body: "@here"})
 
+    assert Enum.any?(changeset.errors, fn
+             {:body, {message, _opts}} ->
+               message == "You do not have permission to mention that role."
+
+             _error ->
+               false
+           end)
+
+    refute has_element?(receiver_view, "#channel-mention-engineering")
+
+    allowed_sender = owner_fixture(%{username: "mention_allowed_sender"})
+    {:ok, _message} = Chat.create_message(engineering, allowed_sender, %{body: "@here"})
     _ = :sys.get_state(receiver_view.pid)
 
-    expected_body = "hello @#{receiver.username}"
+    expected_body = "@here"
 
     assert has_element?(receiver_view, "#channel-mention-engineering")
 
     assert_push_event(receiver_view, "notify:mention", %{
-      author_name: "Guildlive User mention_sender",
+      author_name: "Test User",
       body: ^expected_body,
       channel_name: "Engineering"
     })

@@ -151,6 +151,70 @@ defmodule Rfchat.ChatTest do
       assert Chat.message_mentions_user?(role_message, user)
     end
 
+    test "metadata cannot mention a user who is absent from the body" do
+      channel = channel_fixture()
+      author = owner_fixture()
+      user = user_fixture(%{username: "metadata_only_target"})
+
+      assert {:ok, message} =
+               Chat.create_message(channel, author, %{
+                 body: "plain text",
+                 metadata: %{
+                   "entities" => [%{"type" => "mention", "id" => user.id}]
+                 }
+               })
+
+      refute Repo.get_by(MessageUserMention,
+               message_id: message.id,
+               mentioned_user_id: user.id
+             )
+
+      refute Chat.message_mentions_user?(message, Repo.preload(user, :member_roles))
+    end
+
+    test "@here and @everyone use the protected default role" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture()
+      _owner = owner_fixture()
+      author = user_fixture()
+      receiver = user_fixture()
+
+      for token <- ["@here", "@everyone"] do
+        assert {:error, changeset} = Chat.create_message(channel, author, %{body: token})
+        assert "You do not have permission to mention that role." in errors_on(changeset).body
+      end
+
+      allowed_author = owner_fixture()
+
+      for token <- ["@here", "@everyone"] do
+        assert {:ok, message} = Chat.create_message(channel, allowed_author, %{body: token})
+        assert Chat.message_mentions_user?(message, Repo.preload(receiver, :member_roles))
+
+        assert Repo.get_by(MessageRoleMention,
+                 message_id: message.id,
+                 mentioned_role_id: Chat.default_role().id
+               )
+      end
+
+      assert Chat.unread_mentions_for_user(receiver, [channel])[channel.id] == 2
+    end
+
+    test "@here follows the default role, not the name @everyone" do
+      Bootstrap.ensure_seed_data!()
+      channel = channel_fixture()
+      owner = owner_fixture()
+      receiver = user_fixture()
+
+      Chat.default_role() |> Ecto.Changeset.change(name: "Members") |> Repo.update!()
+      impostor = role_fixture(%{name: "@everyone", mentionable: true})
+
+      assert {:ok, message} = Chat.create_message(channel, owner, %{body: "@here"})
+      assert [%{mentioned_role_id: role_id}] = message.role_mentions
+      assert role_id == Chat.default_role().id
+      refute role_id == impostor.id
+      assert Chat.message_mentions_user?(message, Repo.preload(receiver, :member_roles))
+    end
+
     test "mention_notifications_enabled?/2 respects user desktop mention setting" do
       user = user_fixture(%{email: "notify-prefs@example.com", username: "notify_prefs"})
       channel = channel_fixture()

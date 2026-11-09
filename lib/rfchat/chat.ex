@@ -203,8 +203,8 @@ defmodule Rfchat.Chat do
           # Receivers decide whether a broadcast message mentions them from these rows.
           message =
             if message_mentions?(attrs) do
-              :ok = sync_message_mentions(message, attrs)
-              Repo.preload(message, [:user_mentions, :role_mentions])
+              :ok = sync_message_mentions(message)
+              Repo.preload(message, [:user_mentions, role_mentions: :mentioned_role])
             else
               %{message | user_mentions: [], role_mentions: []}
             end
@@ -304,7 +304,7 @@ defmodule Rfchat.Chat do
                  |> Message.changeset(attrs)
                  |> Ecto.Changeset.put_change(:edited_at, DateTime.utc_now())
                  |> Repo.update() do
-            :ok = sync_message_mentions(updated_message, attrs)
+            :ok = sync_message_mentions(updated_message)
             Repo.preload(updated_message, [:author, :channel, reply_to: :author])
           else
             {:error, changeset} -> Repo.rollback(changeset)
@@ -629,28 +629,12 @@ defmodule Rfchat.Chat do
     (Repo.aggregate(ModerationCase, :max, :case_number) || 0) + 1
   end
 
-  defp sync_message_mentions(%Message{id: message_id, body: body}, attrs) do
+  defp sync_message_mentions(%Message{id: message_id, body: body}) do
     clear_message_mentions(message_id)
 
-    entities =
-      attrs
-      |> Map.get("metadata", %{})
-      |> Map.get("entities", [])
-
-    entity_ids =
-      entities
-      |> Enum.filter(&(normalize_entity_value(&1, "type") == "mention"))
-      |> Enum.map(&normalize_entity_value(&1, "id"))
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
-
     mention_tokens = mention_tokens_from_body(body)
-
-    user_ids =
-      MapSet.new(fetch_existing_user_ids(entity_ids, mention_tokens))
-
-    role_ids =
-      MapSet.new(fetch_existing_role_ids(entity_ids, mention_tokens))
+    user_ids = MapSet.new(fetch_existing_user_ids(mention_tokens))
+    role_ids = MapSet.new(fetch_existing_role_ids(mention_tokens))
 
     Enum.each(user_ids, fn user_id ->
       %MessageUserMention{}
@@ -677,26 +661,28 @@ defmodule Rfchat.Chat do
     :ok
   end
 
-  defp fetch_existing_user_ids(entity_ids, mention_tokens) do
-    valid_entity_ids = Enum.filter(entity_ids, &valid_binary_id?/1)
+  defp fetch_existing_user_ids(mention_tokens) do
     usernames = Enum.uniq(mention_tokens)
 
     User
-    |> where([user], user.id in ^valid_entity_ids or user.username in ^usernames)
+    |> where([user], user.username in ^usernames)
     |> select([user], user.id)
     |> Repo.all()
   end
 
-  defp fetch_existing_role_ids(entity_ids, mention_tokens) do
-    valid_entity_ids = Enum.filter(entity_ids, &valid_binary_id?/1)
+  # "@here" and "@everyone" name the default role whatever it is called; other tokens match role
+  # names, so a role named "@everyone" is not a mass mention.
+  defp fetch_existing_role_ids(mention_tokens) do
+    {everyone_tokens, role_tokens} = Enum.split_with(mention_tokens, &everyone_token?/1)
+    everyone? = everyone_tokens != []
 
     role_names =
-      mention_tokens
+      role_tokens
       |> Enum.flat_map(&role_name_candidates/1)
       |> Enum.uniq()
 
     Role
-    |> where([role], role.id in ^valid_entity_ids or role.name in ^role_names)
+    |> where([role], role.name in ^role_names or (^everyone? and role.is_default))
     |> select([role], role.id)
     |> Repo.all()
   end
@@ -710,18 +696,11 @@ defmodule Rfchat.Chat do
 
   defp mention_tokens_from_body(_body), do: []
 
+  defp everyone_token?(token), do: String.trim_leading(token, "@") in ["here", "everyone"]
+
   defp role_name_candidates(token) do
     normalized = String.trim_leading(token, "@")
     [token, normalized, "@#{normalized}"]
-  end
-
-  defp normalize_entity_value(entity, key) when is_map(entity) do
-    case key do
-      "type" -> Map.get(entity, "type") || Map.get(entity, :type)
-      "id" -> Map.get(entity, "id") || Map.get(entity, :id)
-      "label" -> Map.get(entity, "label") || Map.get(entity, :label)
-      _ -> Map.get(entity, key)
-    end
   end
 
   defp valid_binary_id?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
@@ -749,7 +728,7 @@ defmodule Rfchat.Chat do
     disallowed_role_mentions =
       role_ids
       |> mentioned_roles()
-      |> Enum.reject(& &1.mentionable)
+      |> Enum.reject(&(&1.mentionable and not &1.is_default))
 
     cond do
       disallowed_role_mentions == [] ->
@@ -769,21 +748,10 @@ defmodule Rfchat.Chat do
   end
 
   defp mentioned_role_ids(attrs) do
-    metadata_ids =
-      attrs
-      |> Map.get("metadata", %{})
-      |> Map.get("entities", [])
-      |> Enum.filter(&(normalize_entity_value(&1, "type") == "mention"))
-      |> Enum.map(&normalize_entity_value(&1, "id"))
-      |> Enum.reject(&is_nil/1)
-
-    body_ids =
-      attrs
-      |> Map.get("body")
-      |> mention_tokens_from_body()
-      |> then(&fetch_existing_role_ids([], &1))
-
-    metadata_ids ++ body_ids
+    attrs
+    |> Map.get("body")
+    |> mention_tokens_from_body()
+    |> then(&fetch_existing_role_ids/1)
   end
 
   defp mentioned_roles([]), do: []
@@ -828,15 +796,7 @@ defmodule Rfchat.Chat do
   defp normalize_optional_binary_id(value), do: value
 
   defp message_mentions?(attrs) do
-    metadata_mentions? =
-      attrs
-      |> Map.get("metadata", %{})
-      |> Map.get("entities", [])
-      |> Enum.any?(&(normalize_entity_value(&1, "type") == "mention"))
-
-    body_mentions? = attrs |> Map.get("body", "") |> mention_tokens_from_body() |> Enum.any?()
-
-    metadata_mentions? or body_mentions?
+    attrs |> Map.get("body", "") |> mention_tokens_from_body() |> Enum.any?()
   end
 
   defp broadcast_message(event, %Message{} = message) do

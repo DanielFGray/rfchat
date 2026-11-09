@@ -54,8 +54,10 @@ defmodule Rfchat.Chat.Notifications do
 
     role_ids =
       Role
-      |> join(:inner, [role], member_role in assoc(role, :member_roles))
-      |> where([_role, member_role], member_role.user_id == ^user.id)
+      |> join(:left, [role], member_role in assoc(role, :member_roles),
+        on: member_role.user_id == ^user.id
+      )
+      |> where([role, member_role], role.is_default or not is_nil(member_role.id))
       |> select([role, _member_role], role.id)
       |> Repo.all()
 
@@ -67,20 +69,21 @@ defmodule Rfchat.Chat.Notifications do
   end
 
   @doc """
-  Whether `message` mentions `user`: directly, through one of the user's roles, or with
-  @everyone or @here. It reads the mention rows preloaded on the message, which
+  Whether `message` mentions `user`: directly, through one of the user's roles, or through
+  the default role. It reads the mention rows preloaded on the message, which
   Chat.create_message/3 loads before it broadcasts, so every receiver decides without a query.
   """
   def message_mentions_user?(
-        %Message{user_mentions: user_mentions, role_mentions: role_mentions, body: body},
+        %Message{user_mentions: user_mentions, role_mentions: role_mentions},
         %User{id: user_id, member_roles: member_roles}
       )
       when is_list(user_mentions) and is_list(role_mentions) and is_list(member_roles) do
     role_ids = MapSet.new(member_roles, & &1.role_id)
 
     Enum.any?(user_mentions, &(&1.mentioned_user_id == user_id)) or
-      Enum.any?(role_mentions, &MapSet.member?(role_ids, &1.mentioned_role_id)) or
-      String.contains?(body || "", ["@everyone", "@here"])
+      Enum.any?(role_mentions, fn mention ->
+        MapSet.member?(role_ids, mention.mentioned_role_id) or mention.mentioned_role.is_default
+      end)
   end
 
   def mention_notifications_enabled?(%User{} = user, %Channel{} = channel) do

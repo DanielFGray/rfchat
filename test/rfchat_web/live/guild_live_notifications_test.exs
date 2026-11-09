@@ -27,7 +27,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
 
     {:ok, _message} =
       Chat.create_message(engineering, sender, %{
-        body: "hello @guildlive_user_default",
+        body: "hello @#{current_user.username}",
         metadata: %{
           "entities" => [
             %{
@@ -39,11 +39,13 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
         }
       })
 
+    expected_body = "hello @#{current_user.username}"
+
     assert_push_event(view, "notify:mention", %{
       author_name: "Mention Notify Sender",
       channel_id: ^channel_id,
       channel_name: "Engineering",
-      body: "hello @guildlive_user_default"
+      body: ^expected_body
     })
   end
 
@@ -85,7 +87,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
 
     {:ok, _message} =
       Chat.create_message(engineering, sender, %{
-        body: "hello @guildlive_user_default",
+        body: "hello @#{current_user.username}",
         metadata: %{
           "entities" => [
             %{
