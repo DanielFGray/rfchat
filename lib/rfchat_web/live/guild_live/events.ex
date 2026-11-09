@@ -9,7 +9,10 @@ defmodule RfchatWeb.GuildLive.Events do
   alias RfchatWeb.GuildLive.Events.Reactions
   alias RfchatWeb.GuildLive.Events.Threads
 
-  def handle_params(params, uri, socket), do: Navigation.handle_params(params, uri, socket)
+  def handle_params(params, uri, socket) do
+    socket = Phoenix.Component.assign(socket, :url_params, params)
+    Navigation.handle_params(params, uri, socket)
+  end
 
   def handle_info(message, socket)
       when (is_tuple(message) and tuple_size(message) == 2 and

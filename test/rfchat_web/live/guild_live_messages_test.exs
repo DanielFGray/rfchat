@@ -23,7 +23,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     })
 
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     for event <-
           ~w(toggle_message_controls toggle_message_action_menu confirm_delete_message reply_message
@@ -39,7 +39,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
   test "posts a message into the active channel", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     html =
       view
@@ -54,7 +54,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
   test "stores the mention and slash command entities from composer metadata", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     metadata = %{
       "composer" => "tiptap",
@@ -84,7 +84,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
   test "persists user and role mention records from composer submissions", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     mentioned_user = user_fixture(%{email: "lv-mentioned@example.com", username: "lv_mentioned"})
     role = role_fixture(%{name: "@design", mentionable: true})
@@ -126,8 +126,8 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     sender_conn = log_in_member_user(conn, "sender")
     receiver_conn = log_in_member_user(recycle(conn), "receiver")
 
-    {:ok, sender_view, _html} = live(sender_conn, ~p"/")
-    {:ok, receiver_view, _html} = live(receiver_conn, ~p"/")
+    {:ok, sender_view, _html} = live_hydrated(sender_conn, ~p"/")
+    {:ok, receiver_view, _html} = live_hydrated(receiver_conn, ~p"/")
 
     sender_view
     |> form("#message-form", %{message: %{body: "hello from another session"}})
@@ -141,7 +141,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
   test "supports replying to a message", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     original = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
 
@@ -160,7 +160,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
   test "supports editing an authored message", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     view |> form("#message-form", %{message: %{body: "editable body"}}) |> render_submit()
 
@@ -184,7 +184,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
   test "supports deleting an authored message", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     view |> form("#message-form", %{message: %{body: "delete me"}}) |> render_submit()
 
@@ -234,7 +234,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
       |> Plug.Conn.put_session(:user_token, token)
       |> Plug.Conn.put_session(:live_socket_id, "users_sessions:moderator")
 
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     view |> element("#open-message-actions-#{message.id}") |> render_click()
     assert has_element?(view, "#prompt-delete-message-#{message.id}")
@@ -248,7 +248,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
   test "shows composer guidance when mention_everyone is unavailable", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert has_element?(view, "#message-form", "@everyone and locked roles need extra permission")
     refute has_element?(view, "#message-form", "mentions enabled")

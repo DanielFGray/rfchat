@@ -124,10 +124,8 @@ defmodule RfchatWeb.GuildLive.Events.Navigation do
       %{} = channel ->
         {:ok, channel}
 
-      nil when socket.assigns.navigation_ready? ->
-        {:error, :not_found}
-
       nil ->
+        # A slug outside the visible list is either hidden from this user or missing.
         Chat.get_channel_by_slug_for_user(slug, socket.assigns.current_user)
     end
   end

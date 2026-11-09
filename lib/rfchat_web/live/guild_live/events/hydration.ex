@@ -1,6 +1,7 @@
 defmodule RfchatWeb.GuildLive.Events.Hydration do
   @moduledoc false
 
+  alias RfchatWeb.GuildLive.Events.Navigation
   alias RfchatWeb.GuildLive.State
   alias RfchatWeb.Live.SharedHelpers
 
@@ -34,7 +35,8 @@ defmodule RfchatWeb.GuildLive.Events.Hydration do
 
     send(self(), :hydrate_unread_state)
 
-    {:noreply, socket}
+    # The URL was first handled before navigation existed, so resolve its channel and thread now.
+    Navigation.handle_params(socket.assigns.url_params, nil, socket)
   end
 
   def handle_info(:hydrate_unread_state, socket) do

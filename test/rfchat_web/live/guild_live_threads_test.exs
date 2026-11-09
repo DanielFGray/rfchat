@@ -11,7 +11,7 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
   test "creates and replies inside an inline thread", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     view
     |> form("#message-form", %{message: %{body: "starter for inline thread"}})
@@ -50,7 +50,7 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
     thread = thread_fixture(general, starter, author)
     _reply = message_fixture(thread, author, %{body: "focused thread reply"})
 
-    {:ok, view, _html} = live(conn, ~p"/?channel=general&thread=#{thread.id}")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/?channel=general&thread=#{thread.id}")
 
     assert has_element?(view, "#thread-panel-#{starter.id}")
     assert has_element?(view, "#thread-panel-#{starter.id}", "focused thread reply")
@@ -60,7 +60,7 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
   test "supports replying to a thread message", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     general = Chat.get_channel_by_slug!("general")
     author = current_user_from_conn(conn)
@@ -99,7 +99,7 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
 
     typer = author
 
-    {:ok, view, _html} = live(conn, ~p"/?channel=general&thread=#{thread.id}")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/?channel=general&thread=#{thread.id}")
 
     :ok = Chat.announce_typing(thread, typer)
     _ = :sys.get_state(view.pid)

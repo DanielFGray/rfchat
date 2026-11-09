@@ -6,6 +6,7 @@ defmodule RfchatWeb.UserAuthLiveTest do
   alias Rfchat.Accounts.LoginRateLimiter
   alias Rfchat.Bootstrap
   import Rfchat.ChatFixtures
+  import RfchatWeb.GuildLiveFixtures
 
   setup do
     LoginRateLimiter.reset!()
@@ -166,7 +167,7 @@ defmodule RfchatWeb.UserAuthLiveTest do
 
     conn = follow_trigger_action(login_form, conn)
 
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert has_element?(view, "#logout-link")
     assert render(view) =~ "@guild_user"

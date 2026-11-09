@@ -1,5 +1,13 @@
 <Layouts.app flash={@flash} current_scope={@current_scope}>
-  <div class="flex min-h-dvh flex-col overflow-x-clip overflow-y-hidden bg-base-300 text-base-content transition-colors duration-200 xl:flex-row">
+  <div
+    id="guild-shell"
+    data-hydrated={
+      to_string(
+        @navigation_ready? and @members_ready? and (is_nil(@active_channel) or @channel_ready?)
+      )
+    }
+    class="flex min-h-dvh flex-col overflow-x-clip overflow-y-hidden bg-base-300 text-base-content transition-colors duration-200 xl:flex-row"
+  >
     <RfchatWeb.GuildComponents.mobile_overlays guild={assigns} />
     <RfchatWeb.GuildComponents.mobile_channel_drawer guild={assigns} />
 

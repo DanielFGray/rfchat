@@ -14,17 +14,35 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live_hydrated(conn, ~p"/")
 
     assert html =~ "RFChat"
     assert html =~ "General"
     assert html =~ "Welcome to RFChat"
   end
 
+  test "connected mount returns before the channel list loads and hydration then fills it", %{
+    conn: conn
+  } do
+    Bootstrap.ensure_seed_data!()
+    conn = log_in_member_user(conn)
+
+    {:ok, _view, mounted_html} = live(conn, ~p"/")
+    mounted = LazyHTML.from_fragment(mounted_html)
+
+    assert LazyHTML.query(mounted, "#guild-shell[data-hydrated=false]") |> Enum.count() == 1
+    assert LazyHTML.query(mounted, "#channel-link-general") |> Enum.count() == 0
+
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
+
+    assert has_element?(view, "#guild-shell[data-hydrated=true]")
+    assert has_element?(view, "#channel-link-general")
+  end
+
   test "switches channels by patching the channel slug", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert view |> element("#channel-link-engineering") |> render_click()
     assert_patch(view, ~p"/?channel=engineering")
@@ -42,7 +60,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     })
 
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     refute has_element?(view, "#channel-link-#{hidden_channel.slug}")
   end
@@ -58,18 +76,16 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
 
     conn = log_in_member_user(conn)
 
-    assert {:error,
-            {:live_redirect,
-             %{
-               to: "/?channel=general",
-               flash: %{"error" => "You do not have access to that channel."}
-             }}} = live(conn, ~p"/?channel=#{hidden_channel.slug}")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/?channel=#{hidden_channel.slug}")
+
+    assert_patch(view, ~p"/?channel=general")
+    assert has_element?(view, "#flash-error")
   end
 
   test "shows unread badge for inactive channel messages and clears it on visit", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     sender = user_fixture(%{email: "badge-sender@example.com", username: "badge_sender"})
 
@@ -90,7 +106,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
   } do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
     current_user = Rfchat.Accounts.get_user_by_email("guildlive-default@example.com")
     assert current_user
 
@@ -136,7 +152,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     author = current_user_from_conn(conn)
     starter = message_fixture(general, author, %{body: "navigation thread starter"})
     _thread = thread_fixture(general, starter, author)
-    {:ok, view, _html} = live(conn, ~p"/?channel=general")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/?channel=general")
 
     view |> element("#channel-link-engineering") |> render_click()
     assert_patch(view, ~p"/?channel=engineering")
@@ -166,7 +182,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
       })
 
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
     refute has_element?(view, "#channel-link-#{channel.slug}")
 
     Repo.delete!(overwrite)
@@ -184,7 +200,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
   test "lists a channel created while connected and shows its unread badge", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     channel = channel_fixture(%{name: "Fresh Channel", slug: unique_slug(), position: 20})
     _ = :sys.get_state(view.pid)
@@ -200,7 +216,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
   test "supports opening and closing the mobile channel drawer", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert has_element?(view, "#mobile-channel-drawer.-translate-x-full")
 
@@ -214,7 +230,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
   test "supports opening and closing the mobile members drawer", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert has_element?(view, "#mobile-members-drawer.translate-x-full")
 
@@ -228,7 +244,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
   test "settings trigger opens consolidated settings panel", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert has_element?(view, "#open-settings-link")
 

@@ -12,7 +12,7 @@ defmodule RfchatWeb.GuildLiveReactionsTest do
   test "supports toggling reactions with live aggregation", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     message = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
     reaction_id = Base.url_encode64("👍", padding: false)
@@ -37,7 +37,7 @@ defmodule RfchatWeb.GuildLiveReactionsTest do
     })
 
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     message = Chat.list_messages(channel.id) |> List.first()
     assert has_element?(view, "#open-reaction-picker-#{message.id}[disabled]")
@@ -56,7 +56,7 @@ defmodule RfchatWeb.GuildLiveReactionsTest do
     emoji = emoji_fixture(user, %{name: "blobwow", shortcode: ":blobwow:"})
     server_settings_fixture(%{name: "Picker Layout"})
 
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
     message = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
     quick_reaction_id = Base.url_encode64("👍", padding: false)
 
@@ -77,7 +77,7 @@ defmodule RfchatWeb.GuildLiveReactionsTest do
     user = current_user_from_conn(conn)
     emoji = emoji_fixture(user, %{name: "blobparty", shortcode: ":blobparty:"})
 
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     message = Chat.list_messages(Chat.get_channel_by_slug!("general").id) |> List.first()
 

@@ -11,7 +11,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
   test "pushes a browser mention notification event for inactive channel mentions", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
     current_user = Rfchat.Accounts.get_user_by_email("guildlive-default@example.com")
     assert current_user
 
@@ -64,7 +64,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
   test "suppresses browser mention event when desktop mention alerts are disabled", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
     current_user = Rfchat.Accounts.get_user_by_email("guildlive-default@example.com")
     assert current_user
 
@@ -103,7 +103,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
   test "renders member sidebar with owner and activity indicators", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert has_element?(view, "#member-sidebar")
     assert has_element?(view, "#member-sidebar", "Guildlive User default")
@@ -114,7 +114,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
     typing_conn = log_in_member_user(recycle(conn), "typing")
-    {:ok, view, _html} = live(conn, ~p"/")
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     typer = current_user_from_conn(typing_conn)
 

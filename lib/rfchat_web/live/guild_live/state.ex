@@ -13,25 +13,11 @@ defmodule RfchatWeb.GuildLive.State do
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.Topics
 
-  @defer_hydration Application.compile_env(:rfchat, :defer_guild_live_hydration, true)
-
   def queue_initial_hydration(socket) do
     if connected?(socket) do
-      if @defer_hydration do
-        send(self(), :hydrate_navigation)
-        send(self(), :hydrate_members)
-
-        if socket.assigns.active_channel do
-          queue_channel_hydration(socket)
-        else
-          socket
-        end
-      else
-        socket
-        |> hydrate_navigation()
-        |> hydrate_members()
-        |> maybe_load_active_channel_sync()
-      end
+      send(self(), :hydrate_navigation)
+      send(self(), :hydrate_members)
+      socket
     else
       socket
     end
@@ -41,14 +27,8 @@ defmodule RfchatWeb.GuildLive.State do
     case socket.assigns.active_channel do
       %{} = channel ->
         channel_request_token = System.unique_integer([:positive])
-        socket = assign(socket, :channel_request_token, channel_request_token)
-
-        if @defer_hydration do
-          send(self(), {:hydrate_channel, channel.id, channel_request_token})
-          socket
-        else
-          load_channel(socket, channel)
-        end
+        send(self(), {:hydrate_channel, channel.id, channel_request_token})
+        assign(socket, :channel_request_token, channel_request_token)
 
       nil ->
         socket
@@ -602,13 +582,6 @@ defmodule RfchatWeb.GuildLive.State do
           :active_channel,
           Enum.find(channels, &(&1.id == active_channel.id)) || active_channel
         )
-    end
-  end
-
-  defp maybe_load_active_channel_sync(socket) do
-    case socket.assigns.active_channel do
-      %{} = channel -> load_channel(socket, channel)
-      nil -> socket
     end
   end
 

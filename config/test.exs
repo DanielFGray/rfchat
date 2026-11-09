@@ -44,5 +44,4 @@ config :rfchat, Rfchat.ObjectStore,
   secret_access_key: "test",
   req_options: [plug: Rfchat.TestObjectStore, retry: false]
 
-config :rfchat, :defer_guild_live_hydration, false
 config :rfchat, :cache_default_role, false
