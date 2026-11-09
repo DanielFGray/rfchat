@@ -13,7 +13,7 @@ defmodule RfchatWeb.UserSessionController do
       ) do
     ip_address = conn.remote_ip |> :inet.ntoa() |> to_string()
 
-    case LoginRateLimiter.allow_login_attempt(ip_address, email) do
+    case LoginRateLimiter.check_attempt(ip_address, email) do
       {:error, retry_after_seconds} ->
         conn
         |> put_flash(
@@ -25,8 +25,6 @@ defmodule RfchatWeb.UserSessionController do
       :ok ->
         case Accounts.get_user_by_email_and_password(email, password) do
           nil ->
-            :ok = LoginRateLimiter.record_failed_attempt(ip_address, email)
-
             conn
             |> put_flash(:error, "Invalid email or password.")
             |> redirect(to: ~p"/login")

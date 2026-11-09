@@ -26,6 +26,7 @@ config :rfchat,
   # The platform gives each deploy its own prefix, colon included: `rfchat:` live,
   # `rfchat-staged:` in a staged copy. The Valkey login may touch only keys under it.
   valkey_key_prefix: System.get_env("VALKEY_KEY_PREFIX", "rfchat:"),
+  trusted_proxy_header: System.get_env("TRUSTED_PROXY_HEADER"),
   # The platform sets the short commit of each deploy; a checkout has none.
   git_commit: System.get_env("GIT_COMMIT")
 

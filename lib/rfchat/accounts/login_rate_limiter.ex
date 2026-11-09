@@ -15,33 +15,31 @@ defmodule Rfchat.Accounts.LoginRateLimiter do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def allow_login_attempt(ip_address, email) do
+  def check_attempt(ip_address, email) do
     now = System.system_time(:second)
 
-    login_keys(ip_address, email)
-    |> Enum.find_value(:ok, fn {key, limit, _window_seconds} ->
-      case bucket_for(key, now) do
-        {count, reset_at} when count >= limit -> {:error, max(reset_at - now, 1)}
-        _ -> nil
-      end
-    end)
-  end
+    retry_after =
+      Enum.reduce(login_keys(ip_address, email), nil, fn {key, limit, window_seconds},
+                                                         retry_after ->
+        {count, reset_at} = bump_bucket(key, window_seconds, now)
 
-  def record_failed_attempt(ip_address, email) do
-    now = System.system_time(:second)
+        if count > limit do
+          max(retry_after || 0, max(reset_at - now, 1))
+        else
+          retry_after
+        end
+      end)
 
-    Enum.each(login_keys(ip_address, email), fn {key, _limit, window_seconds} ->
-      bump_bucket(key, window_seconds, now)
-    end)
-
-    :ok
+    case retry_after do
+      nil -> :ok
+      seconds -> {:error, seconds}
+    end
   end
 
   def clear_attempts(ip_address, email) do
-    Enum.each(login_keys(ip_address, email), fn {key, _limit, _window_seconds} ->
-      clear_remote_bucket(key)
-      :ets.delete(@table, key)
-    end)
+    key = credential_key(ip_address, email)
+    clear_remote_bucket(key)
+    :ets.delete(@table, key)
 
     :ok
   end
@@ -73,61 +71,40 @@ defmodule Rfchat.Accounts.LoginRateLimiter do
 
     [
       {{:ip, normalized_ip}, @ip_limit, @ip_window_seconds},
-      {{:credential, normalized_ip, normalized_email}, @credential_limit,
+      {credential_key(normalized_ip, normalized_email), @credential_limit,
        @credential_window_seconds}
     ]
   end
 
-  defp bucket_for(key, now) do
-    case remote_bucket(key, now) do
-      {:ok, bucket} ->
-        bucket
-
-      :unavailable ->
-        current_local_bucket(key, now)
-    end
-  end
-
-  defp current_local_bucket(key, now) do
-    case :ets.lookup(@table, key) do
-      [{^key, count, reset_at}] when reset_at > now ->
-        {count, reset_at}
-
-      [{^key, _count, reset_at}] when reset_at <= now ->
-        :ets.delete(@table, key)
-        {0, now}
-
-      [] ->
-        {0, now}
-    end
+  defp credential_key(ip_address, email) do
+    {:credential, normalize_ip(ip_address), normalize_email(email)}
   end
 
   defp bump_bucket(key, window_seconds, now) do
     case remote_bump_bucket(key, window_seconds, now) do
-      :ok ->
-        :ok
+      {:ok, count, reset_at} ->
+        {count, reset_at}
 
       :unavailable ->
-        case current_local_bucket(key, now) do
-          {0, _reset_at} ->
-            :ets.insert(@table, {key, 1, now + window_seconds})
-
-          {count, reset_at} ->
-            :ets.insert(@table, {key, count + 1, reset_at})
-        end
+        local_bump_bucket(key, window_seconds, now)
     end
   end
 
-  defp remote_bucket(key, now) do
-    case Ephemeral.get_rate_limit(remote_key(key), now) do
-      {:ok, count, reset_at} -> {:ok, {count, reset_at}}
-      {:error, :unavailable} -> :unavailable
-    end
+  # Each step is one atomic ets call: the delete removes only a window that has ended, and
+  # update_counter inserts a fresh window when the row is missing, so concurrent callers never
+  # read a row that another caller deletes.
+  defp local_bump_bucket(key, window_seconds, now) do
+    :ets.select_delete(@table, [{{key, :_, :"$1"}, [{:"=<", :"$1", now}], [true]}])
+
+    [count, reset_at] =
+      :ets.update_counter(@table, key, [{2, 1}, {3, 0}], {key, 0, now + window_seconds})
+
+    {count, reset_at}
   end
 
   defp remote_bump_bucket(key, window_seconds, now) do
     case Ephemeral.increment_rate_limit(remote_key(key), window_seconds, now) do
-      {:ok, _count, _reset_at} -> :ok
+      {:ok, count, reset_at} -> {:ok, count, reset_at}
       {:error, :unavailable} -> :unavailable
     end
   end

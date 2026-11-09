@@ -20,7 +20,8 @@
         { "name": "PORT", "value": "4000" },
         { "name": "DATABASE_VISITOR", "database": "rfchat", "role": "visitor" },
         { "name": "PHX_URL", "route": "rfchat" },
-        { "name": "VALKEY_KEY_PREFIX", "valkey": "keyPrefix" }
+        { "name": "VALKEY_KEY_PREFIX", "valkey": "keyPrefix" },
+        { "name": "TRUSTED_PROXY_HEADER", "value": "x-forwarded-for" }
       ],
       "connections": [],
       "migrate": {

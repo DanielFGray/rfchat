@@ -94,16 +94,6 @@ defmodule Rfchat.Ephemeral do
     end
   end
 
-  def get_rate_limit(key, now \\ System.system_time(:second)) when is_binary(key) do
-    key = namespaced(key)
-
-    case Redis.pipeline([["GET", key], ["TTL", key]]) do
-      {:ok, [nil, _ttl]} -> {:ok, 0, now}
-      {:ok, [count, ttl]} -> {:ok, String.to_integer(count), now + max(ttl, 0)}
-      {:error, _reason} -> {:error, :unavailable}
-    end
-  end
-
   def clear_rate_limit(key) when is_binary(key) do
     case Redis.command(["DEL", namespaced(key)]) do
       {:ok, _deleted} -> :ok

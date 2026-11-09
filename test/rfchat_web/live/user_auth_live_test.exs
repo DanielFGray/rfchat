@@ -35,7 +35,7 @@ defmodule RfchatWeb.UserAuthLiveTest do
 
   test "registration signs in through the login limiter", %{conn: conn} do
     Enum.each(1..5, fn _attempt ->
-      :ok = LoginRateLimiter.record_failed_attempt("127.0.0.1", "limited-signup@example.com")
+      _result = LoginRateLimiter.check_attempt("127.0.0.1", "limited-signup@example.com")
     end)
 
     {:ok, view, _html} = live(conn, ~p"/register")
