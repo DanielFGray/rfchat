@@ -217,6 +217,11 @@ defmodule Rfchat.Accounts do
       do: Repo.preload(user, [:membership, member_roles: :role])
   end
 
+  def valid_user_password?(%User{hashed_password: nil}, _password) do
+    Bcrypt.no_user_verify()
+    false
+  end
+
   def valid_user_password?(%User{} = user, password) when is_binary(password) do
     Bcrypt.verify_pass(password, user.hashed_password)
   end

@@ -104,6 +104,19 @@ defmodule Rfchat.AccountsTest do
     refute Accounts.get_user_by_email_and_password("auth@example.com", "wrongpass")
   end
 
+  test "get_user_by_email_and_password/2 rejects accounts with no password hash" do
+    user =
+      %User{}
+      |> User.account_changeset(%{
+        email: "system-account@example.com",
+        username: "system_account",
+        display_name: "System Account"
+      })
+      |> Repo.insert!()
+
+    refute Accounts.get_user_by_email_and_password(user.email, "any-password")
+  end
+
   test "session token roundtrip resolves current user" do
     user = user_fixture()
 

@@ -8,12 +8,13 @@ defmodule RfchatWeb.Endpoint do
     store: :cookie,
     key: "_rfchat_key",
     signing_salt: "w+9iBrcb",
-    same_site: "Lax"
+    same_site: "Lax",
+    secure: Application.compile_env(:rfchat, :secure_cookies, false)
   ]
 
   socket "/live", Phoenix.LiveView.Socket,
-    websocket: [connect_info: [session: @session_options]],
-    longpoll: [connect_info: [session: @session_options]]
+    websocket: [connect_info: [:peer_data, :x_headers, session: @session_options]],
+    longpoll: [connect_info: [:peer_data, :x_headers, session: @session_options]]
 
   # Serve at "/" the static files from "priv/static" directory.
   #

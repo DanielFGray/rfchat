@@ -4,6 +4,7 @@ defmodule RfchatWeb.SettingsLiveTest do
   import Phoenix.LiveViewTest
 
   alias Rfchat.Accounts
+  alias Rfchat.Accounts.LoginRateLimiter
   alias Rfchat.Bootstrap
   alias Rfchat.Chat.PermissionBits
   alias Rfchat.Chat.User
@@ -80,6 +81,26 @@ defmodule RfchatWeb.SettingsLiveTest do
 
       assert render(view) =~ "Email updated."
       assert Repo.get!(User, user.id).email == "moved@example.com"
+    end
+
+    test "the email form blocks password checks after the credential limit", %{conn: conn} do
+      Bootstrap.ensure_seed_data!()
+      user = user_fixture(%{email: "limited-email@example.com", username: "limited_email"})
+
+      Enum.each(1..5, fn _attempt ->
+        :ok = LoginRateLimiter.check_attempt("127.0.0.1", user.email)
+      end)
+
+      {:ok, view, _html} = live(log_in_as(conn, user), ~p"/settings?tab=profile")
+
+      view
+      |> form("#email-form", %{
+        "email_change" => %{"email" => "changed@example.com", "password" => "supersecurepass"}
+      })
+      |> render_submit()
+
+      assert render(view) =~ "Too many attempts. Try again in"
+      assert Repo.get!(User, user.id).email == user.email
     end
   end
 

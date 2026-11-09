@@ -70,8 +70,9 @@ defmodule RfchatWeb.BannedLive do
 
           <div class="mt-6 flex flex-wrap items-center gap-3">
             <.link
-              navigate={~p"/logout"}
+              href={~p"/logout"}
               method="delete"
+              id="banned-logout-link"
               class="inline-flex items-center justify-center rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-rose-400"
             >
               Log out

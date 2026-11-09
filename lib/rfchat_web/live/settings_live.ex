@@ -4,16 +4,19 @@ defmodule RfchatWeb.SettingsLive do
   import Ecto.Query, warn: false
 
   alias Rfchat.Accounts
+  alias Rfchat.Accounts.LoginRateLimiter
   alias Rfchat.Bots
   alias Rfchat.Chat
   alias Rfchat.Repo
   alias RfchatWeb.Live.SharedHelpers
+  alias RfchatWeb.Plugs.ClientIp
   alias RfchatWeb.SettingsLive.State
 
   @impl true
   def mount(_params, _session, socket) do
     socket =
       socket
+      |> assign(:client_ip, socket_client_ip(socket))
       |> allow_upload(:server_icon,
         accept: ~w(.png .jpg .jpeg .gif .webp),
         max_entries: 1,
@@ -62,20 +65,32 @@ defmodule RfchatWeb.SettingsLive do
 
   @impl true
   def handle_event("save_email", %{"email_change" => email_params}, socket) do
-    case Accounts.update_user_email(
-           socket.assigns.current_user,
-           Map.get(email_params, "password"),
-           email_params
-         ) do
-      {:ok, user} ->
+    user = socket.assigns.current_user
+    ip_address = socket.assigns.client_ip
+
+    case LoginRateLimiter.check_attempt(ip_address, user.email) do
+      {:error, retry_after_seconds} ->
         {:noreply,
          socket
-         |> assign(:current_user, user)
-         |> assign(:email_form, to_form(Accounts.change_user_email(user), as: :email_change))
-         |> put_flash(:info, "Email updated.")}
+         |> put_flash(:error, "Too many attempts. Try again in #{retry_after_seconds} seconds.")}
 
-      {:error, changeset} ->
-        {:noreply, assign(socket, :email_form, to_form(changeset, as: :email_change))}
+      :ok ->
+        case Accounts.update_user_email(user, Map.get(email_params, "password"), email_params) do
+          {:ok, updated_user} ->
+            :ok = LoginRateLimiter.clear_attempts(ip_address, user.email)
+
+            {:noreply,
+             socket
+             |> assign(:current_user, updated_user)
+             |> assign(
+               :email_form,
+               to_form(Accounts.change_user_email(updated_user), as: :email_change)
+             )
+             |> put_flash(:info, "Email updated.")}
+
+          {:error, changeset} ->
+            {:noreply, assign(socket, :email_form, to_form(changeset, as: :email_change))}
+        end
     end
   end
 
@@ -553,5 +568,11 @@ defmodule RfchatWeb.SettingsLive do
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to moderate members.")}
     end
+  end
+
+  defp socket_client_ip(socket) do
+    peer_data = Phoenix.LiveView.get_connect_info(socket, :peer_data)
+    headers = Phoenix.LiveView.get_connect_info(socket, :x_headers) || []
+    ClientIp.client_ip(peer_data && peer_data.address, headers)
   end
 end

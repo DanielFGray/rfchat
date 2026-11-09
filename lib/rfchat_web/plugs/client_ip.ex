@@ -3,24 +3,29 @@ defmodule RfchatWeb.Plugs.ClientIp do
 
   @behaviour Plug
 
-  import Plug.Conn
-
   @impl Plug
   def init(opts), do: opts
 
   @impl Plug
   def call(conn, _opts) do
+    %{conn | remote_ip: client_ip(conn.remote_ip, conn.req_headers)}
+  end
+
+  @doc """
+  The client address for a request: the leftmost entry of the header that TRUSTED_PROXY_HEADER
+  names, or the peer address when that header is unset, missing or not an address. `headers` are
+  `{name, value}` pairs with lowercase names, as Plug and Phoenix connect_info give them.
+  """
+  def client_ip(peer_ip, headers) do
     case Application.get_env(:rfchat, :trusted_proxy_header) do
-      nil -> conn
-      header -> set_client_ip(conn, header)
+      nil -> peer_ip
+      header -> forwarded_ip(peer_ip, headers, String.downcase(header))
     end
   end
 
-  # Plug.Conn stores request header names in lowercase, and the platform docs spell them
-  # either way (`x-real-ip`, `X-Forwarded-For`).
-  defp set_client_ip(conn, header) do
-    case get_req_header(conn, String.downcase(header)) do
-      [value | _] ->
+  defp forwarded_ip(peer_ip, headers, trusted_header) do
+    case List.keyfind(headers, trusted_header, 0) do
+      {_name, value} ->
         value
         |> String.split(",", parts: 2)
         |> hd()
@@ -28,12 +33,12 @@ defmodule RfchatWeb.Plugs.ClientIp do
         |> String.to_charlist()
         |> :inet.parse_address()
         |> case do
-          {:ok, ip_address} -> %{conn | remote_ip: ip_address}
-          {:error, _reason} -> conn
+          {:ok, ip_address} -> ip_address
+          {:error, _reason} -> peer_ip
         end
 
-      [] ->
-        conn
+      nil ->
+        peer_ip
     end
   end
 end

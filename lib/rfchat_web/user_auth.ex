@@ -13,7 +13,8 @@ defmodule RfchatWeb.UserAuth do
     sign: true,
     max_age: 60 * 60 * 24 * 30,
     same_site: "Lax",
-    http_only: true
+    http_only: true,
+    secure: Application.compile_env(:rfchat, :secure_cookies, false)
   ]
 
   def init(action), do: action

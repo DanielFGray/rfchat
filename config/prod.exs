@@ -6,6 +6,7 @@ import Config
 # which you should run after static files are built and
 # before starting your production server.
 config :rfchat, RfchatWeb.Endpoint, cache_static_manifest: "priv/static/cache_manifest.json"
+config :rfchat, :secure_cookies, true
 
 # The app serves plain HTTP. TLS ends outside it, at Traefik for a public route and at
 # Tailscale Serve for a tailnet route, and the platform's health check calls the app over

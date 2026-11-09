@@ -9,6 +9,14 @@ defmodule RfchatWeb.Plugs.ClientIpTest do
     :ok
   end
 
+  test "client_ip/2 returns the peer address for a missing or invalid header" do
+    Application.put_env(:rfchat, :trusted_proxy_header, "x-forwarded-for")
+    peer_ip = {127, 0, 0, 1}
+
+    assert ClientIp.client_ip(peer_ip, []) == peer_ip
+    assert ClientIp.client_ip(peer_ip, [{"x-forwarded-for", "not-an-ip"}]) == peer_ip
+  end
+
   test "leaves remote_ip unchanged when the header is not configured" do
     Application.delete_env(:rfchat, :trusted_proxy_header)
     conn = ClientIp.call(%Plug.Conn{remote_ip: {127, 0, 0, 1}}, [])
