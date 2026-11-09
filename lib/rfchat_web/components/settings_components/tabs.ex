@@ -16,7 +16,6 @@ defmodule RfchatWeb.SettingsComponents.Tabs do
       <.form for={@profile_form} id="profile-form" phx-submit="save_profile" class="mt-5 space-y-4">
         <.input field={@profile_form[:display_name]} type="text" label="Display name" />
         <.input field={@profile_form[:username]} type="text" label="Username" />
-        <.input field={@profile_form[:email]} type="email" label="Email" />
 
         <div class="rounded-xl border border-dashed border-base-300 bg-base-200 p-4">
           <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">
@@ -29,6 +28,28 @@ defmodule RfchatWeb.SettingsComponents.Tabs do
 
         <.button class="rounded-md bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-400">
           Save profile
+        </.button>
+      </.form>
+
+      <.form
+        for={@email_form}
+        id="email-form"
+        phx-submit="save_email"
+        class="mt-8 space-y-4 border-t border-base-300 pt-6"
+      >
+        <p class="text-[11px] font-semibold uppercase tracking-[0.16em] text-base-content/50">
+          Sign-in email
+        </p>
+        <.input field={@email_form[:email]} type="email" label="New email" />
+        <.input
+          field={@email_form[:password]}
+          type="password"
+          label="Current password"
+          autocomplete="current-password"
+        />
+
+        <.button class="rounded-md bg-violet-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-violet-400">
+          Change email
         </.button>
       </.form>
     </div>

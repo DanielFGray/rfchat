@@ -161,12 +161,12 @@ defmodule Rfchat.Accounts do
   end
 
   def change_profile_user(%User{} = user, attrs \\ %{}) do
-    User.changeset(user, attrs)
+    User.profile_changeset(user, attrs)
   end
 
   def update_profile_user(%User{} = user, attrs) do
     user
-    |> User.changeset(attrs)
+    |> User.profile_changeset(attrs)
     |> Repo.update()
     |> case do
       {:ok, updated_user} ->
@@ -174,6 +174,34 @@ defmodule Rfchat.Accounts do
 
       {:error, changeset} ->
         {:error, changeset}
+    end
+  end
+
+  def change_user_email(%User{} = user, attrs \\ %{}) do
+    User.email_changeset(user, attrs)
+  end
+
+  @doc """
+  Changes the email when `password` is the account's current password. A wrong or missing
+  password adds an error on `:password` and writes nothing.
+  """
+  def update_user_email(%User{} = user, password, attrs) do
+    changeset = User.email_changeset(user, attrs)
+
+    if valid_user_password?(user, password) do
+      changeset
+      |> Repo.update()
+      |> case do
+        {:ok, updated_user} ->
+          {:ok, Repo.preload(updated_user, [:membership, member_roles: :role])}
+
+        {:error, changeset} ->
+          {:error, changeset}
+      end
+    else
+      changeset
+      |> Ecto.Changeset.add_error(:password, "is not correct")
+      |> Ecto.Changeset.apply_action(:update)
     end
   end
 
@@ -335,7 +363,7 @@ defmodule Rfchat.Accounts do
 
   defp create_membership!(%User{} = user, now) do
     %Membership{user_id: user.id, is_owner: false}
-    |> Membership.changeset(%{joined_at: now})
+    |> Membership.join_changeset(now)
     |> Repo.insert!()
   end
 

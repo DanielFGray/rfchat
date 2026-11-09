@@ -27,22 +27,29 @@ defmodule Rfchat.Chat.Membership do
     |> put_change(:is_owner, is_owner)
   end
 
-  def changeset(membership, attrs) do
+  @doc """
+  Records that a user joined the server. The membership's `user_id` comes from the struct the
+  caller builds, so no attrs are cast.
+  """
+  def join_changeset(membership, joined_at) do
     membership
-    |> cast(attrs, [
-      :user_id,
-      :nickname,
-      :pronouns,
-      :server_avatar_asset_id,
-      :joined_at,
-      :last_seen_at,
-      :timeout_until,
-      :deactivated_at,
-      :flags
-    ])
+    |> change(joined_at: joined_at)
     |> validate_required([:user_id, :joined_at])
-    |> validate_length(:nickname, max: 40)
-    |> validate_length(:pronouns, max: 32)
     |> unique_constraint(:user_id)
+  end
+
+  @doc """
+  Sets or clears the timeout. Passing `nil` lifts it.
+  """
+  def timeout_changeset(membership, timeout_until) do
+    change(membership, timeout_until: timeout_until)
+  end
+
+  @doc """
+  Deactivates the membership and replaces its flags with `flags`. Deactivation also clears any
+  timeout, so a deactivated member carries no stale timeout.
+  """
+  def deactivate_changeset(membership, deactivated_at, flags) when is_map(flags) do
+    change(membership, deactivated_at: deactivated_at, timeout_until: nil, flags: flags)
   end
 end

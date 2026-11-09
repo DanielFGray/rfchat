@@ -44,7 +44,7 @@ defmodule Rfchat.AccountsTest do
 
       bot =
         %User{bot: true}
-        |> User.changeset(%{
+        |> User.account_changeset(%{
           email: "bot@example.com",
           username: "bot_user",
           display_name: "Bot"
@@ -52,10 +52,46 @@ defmodule Rfchat.AccountsTest do
         |> Repo.insert!()
 
       %Membership{user_id: bot.id}
-      |> Membership.changeset(%{joined_at: DateTime.utc_now()})
+      |> Membership.join_changeset(DateTime.utc_now())
       |> Repo.insert!()
 
       assert {:error, :not_found} = Accounts.promote_first_owner(bot.email)
+    end
+  end
+
+  describe "update_user_email/3" do
+    test "changes the email when the current password is right" do
+      user = user_fixture(%{email: "before@example.com", username: "email_right"})
+
+      assert {:ok, updated} =
+               Accounts.update_user_email(user, "supersecurepass", %{
+                 "email" => "After@Example.com"
+               })
+
+      assert updated.email == "after@example.com"
+      assert Repo.get!(User, user.id).email == "after@example.com"
+    end
+
+    test "writes nothing and reports the password when it is wrong" do
+      user = user_fixture(%{email: "keep@example.com", username: "email_wrong"})
+
+      assert {:error, changeset} =
+               Accounts.update_user_email(user, "wrongpassword!!", %{
+                 "email" => "takeover@example.com"
+               })
+
+      assert {"is not correct", _} = changeset.errors[:password]
+      assert Repo.get!(User, user.id).email == "keep@example.com"
+    end
+
+    test "writes nothing when no password is given" do
+      user = user_fixture(%{email: "nopass@example.com", username: "email_nopass"})
+
+      assert {:error, changeset} =
+               Accounts.update_user_email(user, nil, %{"email" => "takeover@example.com"})
+
+      assert {"is not correct", _} = changeset.errors[:password]
+      assert Repo.get!(User, user.id).email == "nopass@example.com"
     end
   end
 

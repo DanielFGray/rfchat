@@ -175,24 +175,14 @@ defmodule RfchatWeb.SettingsComponents.Server do
 
           <div class="mt-4 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
             <.form
-              for={
-                Map.get(
-                  @bot_token_forms,
-                  bot_user.id,
-                  to_form(%{"label" => "", "expires_in_days" => ""}, as: :token)
-                )
-              }
+              for={Map.fetch!(@bot_token_forms, bot_user.id)}
               id={"bot-token-form-#{bot_user.id}"}
               phx-submit="create_bot_token"
               phx-value-id={bot_user.id}
               class="grid gap-3 md:grid-cols-2"
             >
               <% token_form =
-                Map.get(
-                  @bot_token_forms,
-                  bot_user.id,
-                  to_form(%{"label" => "", "expires_in_days" => ""}, as: :token)
-                ) %>
+                Map.fetch!(@bot_token_forms, bot_user.id) %>
 
               <.input field={token_form[:label]} type="text" label="Token label" />
               <.input

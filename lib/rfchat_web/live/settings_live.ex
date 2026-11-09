@@ -61,6 +61,25 @@ defmodule RfchatWeb.SettingsLive do
   end
 
   @impl true
+  def handle_event("save_email", %{"email_change" => email_params}, socket) do
+    case Accounts.update_user_email(
+           socket.assigns.current_user,
+           Map.get(email_params, "password"),
+           email_params
+         ) do
+      {:ok, user} ->
+        {:noreply,
+         socket
+         |> assign(:current_user, user)
+         |> assign(:email_form, to_form(Accounts.change_user_email(user), as: :email_change))
+         |> put_flash(:info, "Email updated.")}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :email_form, to_form(changeset, as: :email_change))}
+    end
+  end
+
+  @impl true
   def handle_event("save_notifications", %{"notification" => attrs}, socket) do
     case Chat.update_user_notification_setting(socket.assigns.current_user, attrs) do
       {:ok, setting} ->
@@ -265,7 +284,11 @@ defmodule RfchatWeb.SettingsLive do
 
         {:error, changeset} ->
           token_forms =
-            Map.put(socket.assigns.bot_token_forms, bot_id, to_form(changeset, as: :token))
+            Map.put(
+              socket.assigns.bot_token_forms,
+              bot_id,
+              State.bot_token_form(bot_id, changeset)
+            )
 
           {:noreply, assign(socket, :bot_token_forms, token_forms)}
       end

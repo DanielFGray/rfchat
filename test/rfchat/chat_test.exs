@@ -7,6 +7,7 @@ defmodule Rfchat.ChatTest do
   alias Rfchat.Chat.MessageRoleMention
   alias Rfchat.Chat.MessageUserMention
   alias Rfchat.Chat.PermissionBits
+  alias Rfchat.Chat.User
   alias Rfchat.Chat.UserNotificationSetting
   alias Rfchat.Repo
 
@@ -628,6 +629,7 @@ defmodule Rfchat.ChatTest do
   describe "seed bootstrap" do
     test "ensure_seed_data!/0 creates default channels, role, and welcome message idempotently" do
       first = Bootstrap.ensure_seed_data!()
+      assert %{bot: true, system: true} = Repo.get!(User, first.system_user.id)
       second = Bootstrap.ensure_seed_data!()
 
       assert first.system_user.id == second.system_user.id

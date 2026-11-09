@@ -59,13 +59,11 @@ defmodule Rfchat.Bootstrap do
   defp ensure_system_user! do
     now = DateTime.utc_now()
 
-    %User{}
-    |> User.changeset(%{
+    %User{bot: true, system: true}
+    |> User.account_changeset(%{
       email: "system@rfchat.local",
       username: @default_seed_username,
       display_name: @default_seed_display_name,
-      bot: true,
-      system: true,
       bio: "System actor for bootstrap and service messages."
     })
     |> Repo.insert!(

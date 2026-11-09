@@ -100,6 +100,14 @@ defmodule Rfchat.BotsTest do
       assert Bots.list_controllable_bot_users(bot_manager) == []
     end
 
+    test "the system user is never a manageable bot", %{owner: owner} do
+      %{system_user: system_user} = Bootstrap.ensure_seed_data!()
+
+      refute Enum.any?(Bots.list_controllable_bot_users(owner), &(&1.id == system_user.id))
+      assert Bots.get_bot_user(system_user.id) == nil
+      assert_raise Ecto.NoResultsError, fn -> Bots.get_bot_user!(system_user.id) end
+    end
+
     test "a manage_bots-only member cannot give a bot any role" do
       bot_manager = member_with([:manage_bots])
       speaker = role_fixture(%{permissions: 0, position: 0})

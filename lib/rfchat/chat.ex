@@ -175,7 +175,7 @@ defmodule Rfchat.Chat do
 
   def create_user(attrs) do
     %User{}
-    |> User.changeset(attrs)
+    |> User.account_changeset(attrs)
     |> Repo.insert()
   end
 
@@ -249,7 +249,7 @@ defmodule Rfchat.Chat do
 
         {:ok, membership} =
           membership
-          |> Membership.changeset(%{timeout_until: timeout_until})
+          |> Membership.timeout_changeset(timeout_until)
           |> Repo.update()
 
         moderation_case =
@@ -518,11 +518,7 @@ defmodule Rfchat.Chat do
 
       {:ok, membership} =
         membership
-        |> Membership.changeset(%{
-          deactivated_at: now,
-          timeout_until: nil,
-          flags: flags
-        })
+        |> Membership.deactivate_changeset(now, flags)
         |> Repo.update()
 
       moderation_case =

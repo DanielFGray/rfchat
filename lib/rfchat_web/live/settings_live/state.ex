@@ -47,10 +47,11 @@ defmodule RfchatWeb.SettingsLive.State do
       SharedHelpers.channel_sections_for_manager(can_manage_channels?)
     )
     |> assign(:custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
-    |> assign(:bot_users, Bots.list_controllable_bot_users(current_user))
-    |> assign(:manageable_roles, Bots.grantable_roles(current_user))
+    |> assign(:bot_users, [])
+    |> assign(:manageable_roles, [])
     |> assign(:bot_form, to_form(bot_form_defaults(), as: :bot))
     |> assign(:bot_token_forms, %{})
+    |> refresh_bot_assigns()
     |> assign(:revealed_bot_tokens, %{})
     |> assign(:manage_channels_open?, false)
     |> assign(:manage_emojis_open?, false)
@@ -62,6 +63,7 @@ defmodule RfchatWeb.SettingsLive.State do
     |> assign(:channel_form_title, "Create text channel")
     |> assign(:editing_channel_id, nil)
     |> assign(:profile_form, to_form(Accounts.change_profile_user(current_user), as: :user))
+    |> assign(:email_form, to_form(Accounts.change_user_email(current_user), as: :email_change))
     |> assign(:server_settings_form, server_settings_form(server_settings))
     |> assign_notification_form()
     |> SharedHelpers.assign_channel_form()
@@ -201,11 +203,7 @@ defmodule RfchatWeb.SettingsLive.State do
 
       bot_token_forms =
         Enum.reduce(bot_users, %{}, fn bot_user, acc ->
-          Map.put_new(
-            acc,
-            bot_user.id,
-            to_form(%{"label" => "", "expires_in_days" => ""}, as: :token)
-          )
+          Map.put_new(acc, bot_user.id, bot_token_form(bot_user.id))
         end)
 
       socket
@@ -218,6 +216,14 @@ defmodule RfchatWeb.SettingsLive.State do
     else
       socket
     end
+  end
+
+  @doc """
+  The token form for one bot card. Each card renders its own form, so the form id carries the
+  bot id and its input ids stay unique on the page.
+  """
+  def bot_token_form(bot_id, source \\ %{"label" => "", "expires_in_days" => ""}) do
+    to_form(source, as: :token, id: "bot-token-#{bot_id}")
   end
 
   def bot_form_defaults do

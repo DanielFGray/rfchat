@@ -191,9 +191,9 @@ defmodule RfchatWeb.UserAuthLiveTest do
     banned_user = Rfchat.Accounts.get_user_with_membership!(banned_user.id)
 
     banned_user.membership
-    |> Rfchat.Chat.Membership.changeset(%{
-      deactivated_at: DateTime.utc_now(),
-      flags: %{"banned" => true, "ban_reason" => "repeat abuse"}
+    |> Rfchat.Chat.Membership.deactivate_changeset(DateTime.utc_now(), %{
+      "banned" => true,
+      "ban_reason" => "repeat abuse"
     })
     |> Rfchat.Repo.update!()
 

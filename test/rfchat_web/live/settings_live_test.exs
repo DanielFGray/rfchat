@@ -6,7 +6,82 @@ defmodule RfchatWeb.SettingsLiveTest do
   alias Rfchat.Accounts
   alias Rfchat.Bootstrap
   alias Rfchat.Chat.PermissionBits
+  alias Rfchat.Chat.User
+  alias Rfchat.Repo
   import Rfchat.ChatFixtures
+
+  describe "profile save" do
+    test "saves name, username and bio, and ignores asset ids and email", %{conn: conn} do
+      Bootstrap.ensure_seed_data!()
+      user = user_fixture(%{email: "profile-me@example.com", username: "profile_me"})
+      other = user_fixture(%{email: "profile-other@example.com", username: "profile_other"})
+      other_asset = media_asset_fixture(other)
+
+      {:ok, view, _html} = live(log_in_as(conn, user), ~p"/settings?tab=profile")
+
+      render_submit(view, "save_profile", %{
+        "user" => %{
+          "display_name" => "Renamed",
+          "username" => "renamed_me",
+          "bio" => "New bio",
+          "email" => "hijack@example.com",
+          "avatar_asset_id" => other_asset.id,
+          "banner_asset_id" => other_asset.id
+        }
+      })
+
+      reloaded = Repo.get!(User, user.id)
+      assert reloaded.display_name == "Renamed"
+      assert reloaded.username == "renamed_me"
+      assert reloaded.bio == "New bio"
+      assert reloaded.email == "profile-me@example.com"
+      assert is_nil(reloaded.avatar_asset_id)
+      assert is_nil(reloaded.banner_asset_id)
+    end
+
+    test "the profile form has no email input and the email form is present", %{conn: conn} do
+      Bootstrap.ensure_seed_data!()
+      user = user_fixture(%{email: "form-me@example.com", username: "form_me"})
+
+      {:ok, view, _html} = live(log_in_as(conn, user), ~p"/settings?tab=profile")
+
+      refute has_element?(view, "#profile-form input[name='user[email]']")
+      assert has_element?(view, "#email-form input[name='email_change[password]']")
+    end
+
+    test "the email form keeps the old email when the password is wrong", %{conn: conn} do
+      Bootstrap.ensure_seed_data!()
+      user = user_fixture(%{email: "keep-me@example.com", username: "keep_me"})
+
+      {:ok, view, _html} = live(log_in_as(conn, user), ~p"/settings?tab=profile")
+
+      view
+      |> form("#email-form", %{
+        "email_change" => %{"email" => "takeover@example.com", "password" => "wrongpassword!!"}
+      })
+      |> render_submit()
+
+      assert has_element?(view, "#email-form")
+      assert render(view) =~ "is not correct"
+      assert Repo.get!(User, user.id).email == "keep-me@example.com"
+    end
+
+    test "the email form changes the email when the password is right", %{conn: conn} do
+      Bootstrap.ensure_seed_data!()
+      user = user_fixture(%{email: "move-me@example.com", username: "move_me"})
+
+      {:ok, view, _html} = live(log_in_as(conn, user), ~p"/settings?tab=profile")
+
+      view
+      |> form("#email-form", %{
+        "email_change" => %{"email" => "moved@example.com", "password" => "supersecurepass"}
+      })
+      |> render_submit()
+
+      assert render(view) =~ "Email updated."
+      assert Repo.get!(User, user.id).email == "moved@example.com"
+    end
+  end
 
   describe "owner promote/demote" do
     test "owner sees Owner badge and Promote button for members", %{conn: conn} do
@@ -117,6 +192,13 @@ defmodule RfchatWeb.SettingsLiveTest do
       assert has_element?(view, "#bot-card-#{low_bot.id}")
       refute has_element?(view, "#bot-card-#{high_bot.id}")
     end
+  end
+
+  defp log_in_as(conn, user) do
+    conn
+    |> Phoenix.ConnTest.init_test_session(%{})
+    |> Plug.Conn.put_session(:user_token, Accounts.generate_user_session_token(user))
+    |> Plug.Conn.put_session(:live_socket_id, "users_sessions:#{user.id}")
   end
 
   defp log_in_owner_with_member(conn) do

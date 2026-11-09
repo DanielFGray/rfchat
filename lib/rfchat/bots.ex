@@ -32,8 +32,7 @@ defmodule Rfchat.Bots do
   def list_controllable_bot_users(%User{} = actor) do
     case Authority.manage_bots(actor) do
       {:ok, authority} ->
-        User
-        |> where([user], user.bot == true and is_nil(user.deleted_at))
+        bot_users_query()
         |> order_by([user], asc: user.display_name, asc: user.username)
         |> preload([:membership, :bot_tokens, member_roles: :role])
         |> Repo.all()
@@ -45,8 +44,7 @@ defmodule Rfchat.Bots do
   end
 
   def get_bot_user!(id) do
-    User
-    |> where([user], user.bot == true and is_nil(user.deleted_at))
+    bot_users_query()
     |> preload([:membership, :bot_tokens, member_roles: :role])
     |> Repo.get!(id)
   end
@@ -55,8 +53,7 @@ defmodule Rfchat.Bots do
   def get_bot_user(id) do
     case Ecto.UUID.cast(id) do
       {:ok, uuid} ->
-        User
-        |> where([user], user.bot == true and is_nil(user.deleted_at))
+        bot_users_query()
         |> preload([:membership, :bot_tokens, member_roles: :role])
         |> Repo.get(uuid)
 
@@ -84,7 +81,7 @@ defmodule Rfchat.Bots do
 
       bot_user =
         %User{bot: true, system: false}
-        |> User.changeset(%{
+        |> User.account_changeset(%{
           username: Map.get(attrs, "username") || Map.get(attrs, :username),
           display_name: Map.get(attrs, "display_name") || Map.get(attrs, :display_name),
           email: Map.get(attrs, "email") || Map.get(attrs, :email),
@@ -94,7 +91,7 @@ defmodule Rfchat.Bots do
 
       membership =
         %Membership{user_id: bot_user.id}
-        |> Membership.changeset(%{joined_at: now, is_owner: false})
+        |> Membership.join_changeset(now)
         |> Repo.insert!()
 
       assign_roles!(bot_user, roles, actor)
@@ -138,7 +135,7 @@ defmodule Rfchat.Bots do
     Repo.transaction(fn ->
       updated_bot =
         bot_user
-        |> User.changeset(%{
+        |> User.account_changeset(%{
           username: Map.get(attrs, "username", bot_user.username),
           display_name: Map.get(attrs, "display_name", bot_user.display_name),
           email: Map.get(attrs, "email", bot_user.email),
@@ -181,7 +178,7 @@ defmodule Rfchat.Bots do
 
       if bot_user.membership do
         bot_user.membership
-        |> Membership.changeset(%{deactivated_at: now, flags: %{"bot_revoked" => true}})
+        |> Membership.deactivate_changeset(now, %{"bot_revoked" => true})
         |> Repo.update!()
       end
 
@@ -293,7 +290,10 @@ defmodule Rfchat.Bots do
       |> where([token, user], token.token_hash == ^hashed_token)
       |> where([token, user], is_nil(token.revoked_at))
       |> where([token, user], is_nil(token.expires_at) or token.expires_at > ^now)
-      |> where([token, user], user.bot == true and is_nil(user.deleted_at))
+      |> where(
+        [token, user],
+        user.bot == true and user.system == false and is_nil(user.deleted_at)
+      )
       |> preload([token, user], user: [:membership, member_roles: :role])
       |> Repo.one()
 
@@ -498,5 +498,11 @@ defmodule Rfchat.Bots do
       {:error, changeset} ->
         {:error, changeset}
     end
+  end
+
+  # Bootstrap creates the system user with bot: true, but it is the server's own actor: no
+  # member may list it, manage it or hold a token for it.
+  defp bot_users_query do
+    where(User, [user], user.bot == true and user.system == false and is_nil(user.deleted_at))
   end
 end

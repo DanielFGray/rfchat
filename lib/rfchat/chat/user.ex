@@ -41,18 +41,39 @@ defmodule Rfchat.Chat.User do
     timestamps(type: :utc_datetime_usec)
   end
 
-  def changeset(user, attrs) do
+  @doc """
+  The profile fields a member edits on their own account. It casts no email, which has its own
+  changeset with a password check, and no asset id, which only the server sets.
+  """
+  def profile_changeset(user, attrs) do
     user
-    |> cast(attrs, [:username, :display_name, :email, :bio, :avatar_asset_id, :banner_asset_id])
+    |> cast(attrs, [:username, :display_name, :bio])
+    |> validate_required([:username, :display_name])
+    |> validate_profile_fields()
+  end
+
+  @doc """
+  The fields an account is created with. Member registration, bot creation and bot edits all use
+  it. It casts no asset id.
+  """
+  def account_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:username, :display_name, :email, :bio])
     |> validate_required([:username, :display_name, :email])
-    |> validate_length(:username, min: 2, max: 24)
-    |> validate_length(:display_name, min: 1, max: 40)
-    |> validate_length(:bio, max: 200)
+    |> validate_profile_fields()
     |> validate_email()
-    |> validate_format(:username, ~r/^[a-z0-9_]+$/,
-      message: "must contain only lowercase letters, numbers, and underscores"
-    )
-    |> unique_constraint(:username)
+    |> unique_constraint(:email)
+  end
+
+  @doc """
+  The email change. It casts only the email. The caller checks the account password before it
+  writes the changeset.
+  """
+  def email_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:email])
+    |> validate_required([:email])
+    |> validate_email()
     |> unique_constraint(:email)
   end
 
@@ -63,7 +84,7 @@ defmodule Rfchat.Chat.User do
   """
   def registration_changeset(user, attrs, opts \\ []) do
     user
-    |> changeset(attrs)
+    |> account_changeset(attrs)
     |> cast(attrs, [:password])
     |> validate_required([:password])
     |> validate_password(opts)
@@ -81,6 +102,17 @@ defmodule Rfchat.Chat.User do
     |> cast(attrs, [:email, :password])
     |> validate_required([:email, :password])
     |> validate_email()
+  end
+
+  defp validate_profile_fields(changeset) do
+    changeset
+    |> validate_length(:username, min: 2, max: 24)
+    |> validate_length(:display_name, min: 1, max: 40)
+    |> validate_length(:bio, max: 200)
+    |> validate_format(:username, ~r/^[a-z0-9_]+$/,
+      message: "must contain only lowercase letters, numbers, and underscores"
+    )
+    |> unique_constraint(:username)
   end
 
   defp validate_email(changeset) do
