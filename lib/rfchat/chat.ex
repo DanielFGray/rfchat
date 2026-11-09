@@ -199,9 +199,14 @@ defmodule Rfchat.Chat do
                %Message{channel_id: channel.id, author_id: author.id}
                |> Message.create_changeset(attrs)
                |> Repo.insert() do
-          if message_mentions?(attrs) do
-            :ok = sync_message_mentions(message, attrs)
-          end
+          # Receivers decide whether a broadcast message mentions them from these rows.
+          message =
+            if message_mentions?(attrs) do
+              :ok = sync_message_mentions(message, attrs)
+              Repo.preload(message, [:user_mentions, :role_mentions])
+            else
+              %{message | user_mentions: [], role_mentions: []}
+            end
 
           if Keyword.get(opts, :preload, true) do
             Repo.preload(message, [
@@ -362,7 +367,7 @@ defmodule Rfchat.Chat do
     end
   end
 
-  defdelegate message_mentions_user?(message_id, user), to: Notifications
+  defdelegate message_mentions_user?(message, user), to: Notifications
   defdelegate mention_notifications_enabled?(user, channel), to: Notifications
 
   def toggle_reaction(%Message{} = message, %User{} = user, emoji_unicode)
@@ -837,10 +842,7 @@ defmodule Rfchat.Chat do
       |> Map.get("entities", [])
       |> Enum.any?(&(normalize_entity_value(&1, "type") == "mention"))
 
-    body_mentions? =
-      attrs
-      |> Map.get("body", "")
-      |> String.contains?(["<@", "@everyone", "@here"])
+    body_mentions? = attrs |> Map.get("body", "") |> mention_tokens_from_body() |> Enum.any?()
 
     metadata_mentions? or body_mentions?
   end

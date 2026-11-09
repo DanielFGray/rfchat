@@ -109,7 +109,7 @@ defmodule Rfchat.ChatTest do
       assert Chat.unread_mentions_for_user(user, channels)[engineering.id] == 1
     end
 
-    test "message_mentions_user?/2 returns true for direct and role mentions" do
+    test "a created message carries the mention rows receivers check" do
       channel = channel_fixture()
 
       author =
@@ -144,9 +144,11 @@ defmodule Rfchat.ChatTest do
           }
         })
 
-      refute Chat.message_mentions_user?(direct_message.id, author)
-      assert Chat.message_mentions_user?(direct_message.id, user)
-      assert Chat.message_mentions_user?(role_message.id, user)
+      [author, user] = Repo.preload([author, user], :member_roles, force: true)
+
+      refute Chat.message_mentions_user?(direct_message, author)
+      assert Chat.message_mentions_user?(direct_message, user)
+      assert Chat.message_mentions_user?(role_message, user)
     end
 
     test "mention_notifications_enabled?/2 respects user desktop mention setting" do

@@ -404,20 +404,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
 
     message.author_id != current_user.id and
       (is_nil(active_channel) or active_channel.id != message.channel_id) and
-      mentioned_current_user?(message, current_user)
-  end
-
-  defp mentioned_current_user?(message, current_user) do
-    metadata = message.metadata || %{}
-    entities = Map.get(metadata, "entities", [])
-    mentions_everyone? = String.contains?(message.body || "", ["@everyone", "@here"])
-    member_role_ids = MapSet.new(Enum.map(current_user.member_roles || [], & &1.role_id))
-
-    Enum.any?(entities, fn entity ->
-      Map.get(entity, "type") == "mention" and
-        (Map.get(entity, "id") == current_user.id or
-           MapSet.member?(member_role_ids, Map.get(entity, "id")))
-    end) or mentions_everyone?
+      Chat.message_mentions_user?(message, current_user)
   end
 
   defp maybe_refresh_typing_users(socket, channel_id, type, user_id) do

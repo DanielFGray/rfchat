@@ -404,7 +404,7 @@ defmodule RfchatWeb.GuildLive.State do
       is_nil(channel) ->
         socket
 
-      not message_mentions_current_user?(message, current_user) ->
+      not Chat.message_mentions_user?(message, current_user) ->
         socket
 
       not Chat.mention_notifications_enabled?(current_user, channel) ->
@@ -589,18 +589,5 @@ defmodule RfchatWeb.GuildLive.State do
 
   defp visible_text_channel?(channel) do
     channel.kind not in [:category, :thread_public, :thread_private, :thread_announcement]
-  end
-
-  defp message_mentions_current_user?(message, current_user) do
-    metadata = message.metadata || %{}
-    entities = Map.get(metadata, "entities", [])
-    mentions_everyone? = String.contains?(message.body || "", ["@everyone", "@here"])
-    member_role_ids = MapSet.new(Enum.map(current_user.member_roles || [], & &1.role_id))
-
-    Enum.any?(entities, fn entity ->
-      Map.get(entity, "type") == "mention" and
-        (Map.get(entity, "id") == current_user.id or
-           MapSet.member?(member_role_ids, Map.get(entity, "id")))
-    end) or mentions_everyone?
   end
 end

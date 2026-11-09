@@ -66,30 +66,21 @@ defmodule Rfchat.Chat.Notifications do
     end)
   end
 
-  def message_mentions_user?(message_id, %User{} = user) do
-    role_ids =
-      Role
-      |> join(:inner, [role], member_role in assoc(role, :member_roles))
-      |> where([_role, member_role], member_role.user_id == ^user.id)
-      |> select([role, _member_role], role.id)
-      |> Repo.all()
-
-    direct_mention? =
-      Repo.exists?(
-        from(mention in MessageUserMention,
-          where: mention.message_id == ^message_id and mention.mentioned_user_id == ^user.id
-        )
+  @doc """
+  Whether `message` mentions `user`: directly, through one of the user's roles, or with
+  @everyone or @here. It reads the mention rows preloaded on the message, which
+  Chat.create_message/3 loads before it broadcasts, so every receiver decides without a query.
+  """
+  def message_mentions_user?(
+        %Message{user_mentions: user_mentions, role_mentions: role_mentions, body: body},
+        %User{id: user_id, member_roles: member_roles}
       )
+      when is_list(user_mentions) and is_list(role_mentions) and is_list(member_roles) do
+    role_ids = MapSet.new(member_roles, & &1.role_id)
 
-    role_mention? =
-      role_ids != [] and
-        Repo.exists?(
-          from(mention in MessageRoleMention,
-            where: mention.message_id == ^message_id and mention.mentioned_role_id in ^role_ids
-          )
-        )
-
-    direct_mention? or role_mention?
+    Enum.any?(user_mentions, &(&1.mentioned_user_id == user_id)) or
+      Enum.any?(role_mentions, &MapSet.member?(role_ids, &1.mentioned_role_id)) or
+      String.contains?(body || "", ["@everyone", "@here"])
   end
 
   def mention_notifications_enabled?(%User{} = user, %Channel{} = channel) do

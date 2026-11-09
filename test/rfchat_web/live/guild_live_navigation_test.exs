@@ -143,6 +143,35 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     Chat.mark_channel_read(current_user, engineering, message)
   end
 
+  test "receives inactive channel mention from another hydrated user", %{conn: conn} do
+    Bootstrap.ensure_seed_data!()
+    receiver_conn = log_in_member_user(conn, "mention_receiver")
+    sender_conn = log_in_member_user(Phoenix.ConnTest.build_conn(), "mention_sender")
+    receiver = current_user_from_conn(receiver_conn)
+    sender = current_user_from_conn(sender_conn)
+    {:ok, receiver_view, _html} = live_hydrated(receiver_conn, ~p"/")
+    {:ok, _sender_view, _html} = live_hydrated(sender_conn, ~p"/")
+
+    engineering = Chat.get_channel_by_slug!("engineering")
+
+    {:ok, _message} =
+      Chat.create_message(engineering, sender, %{
+        body: "hello @#{receiver.username}"
+      })
+
+    _ = :sys.get_state(receiver_view.pid)
+
+    expected_body = "hello @#{receiver.username}"
+
+    assert has_element?(receiver_view, "#channel-mention-engineering")
+
+    assert_push_event(receiver_view, "notify:mention", %{
+      author_name: "Guildlive User mention_sender",
+      body: ^expected_body,
+      channel_name: "Engineering"
+    })
+  end
+
   test "counts an inactive channel message once after channel and thread navigation", %{
     conn: conn
   } do
