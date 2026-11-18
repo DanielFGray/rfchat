@@ -37,8 +37,8 @@ defmodule RfchatWeb.Router do
     plug(:fetch_session)
   end
 
-  # The platform's health check: no session, no auth, no database.
-  get("/health", RfchatWeb.HealthController, :show)
+  # The platform health check: no session, no auth, no CSRF.
+  get("/healthz", RfchatWeb.HealthController, :show)
 
   # Uploaded files: public, like the static assets, with no session.
   get("/uploads/*key", RfchatWeb.UploadController, :show)

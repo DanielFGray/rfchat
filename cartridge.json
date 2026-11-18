@@ -10,7 +10,7 @@
       "image": "registry.cluster:5000/rfchat",
       "hostPort": "dynamic",
       "containerPort": 4000,
-      "healthCheck": { "type": "http", "path": "/health" },
+      "healthCheck": { "type": "http", "path": "/healthz" },
       "cpu": 500,
       "memoryMB": 512,
       "networkMode": "bridge",
