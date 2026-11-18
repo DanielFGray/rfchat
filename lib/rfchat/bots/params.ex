@@ -1,8 +1,6 @@
 defmodule Rfchat.Bots.Params do
   @moduledoc false
 
-  alias Rfchat.Accounts
-
   def parse_limit(nil), do: 50
   def parse_limit(value) when is_integer(value), do: value |> max(1) |> min(100)
 
@@ -32,12 +30,11 @@ defmodule Rfchat.Bots.Params do
     end
   end
 
-  def fetch_member(user_id) do
+  @doc "A malformed member id is an invalid request; a well-formed one is decided by the scoped operation."
+  def member_id(user_id) do
     case Ecto.UUID.cast(user_id) do
-      {:ok, _id} -> {:ok, Accounts.get_user_with_membership!(user_id)}
+      {:ok, id} -> {:ok, id}
       :error -> {:error, :invalid_params}
     end
-  rescue
-    Ecto.NoResultsError -> {:error, :not_found}
   end
 end

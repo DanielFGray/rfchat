@@ -3,6 +3,8 @@ defmodule Rfchat.AccountsTest do
 
   alias Rfchat.Accounts
   alias Rfchat.Accounts.LoginRateLimiter
+  alias Rfchat.Bootstrap
+  alias Rfchat.Chat
   alias Rfchat.Chat.Membership
   alias Rfchat.Chat.User
   alias Rfchat.Chat.UserSession
@@ -159,15 +161,99 @@ defmodule Rfchat.AccountsTest do
     end
   end
 
+  describe "get_member/2" do
+    setup do
+      Bootstrap.ensure_seed_data!()
+      owner = owner_fixture()
+      %{owner: owner, viewer: user_fixture()}
+    end
+
+    test "returns an active member with its membership and roles", %{viewer: viewer} do
+      member = user_fixture()
+
+      assert %User{id: id, membership: %Membership{}, member_roles: roles} =
+               Accounts.get_member(scope_for(viewer), member.id)
+
+      assert id == member.id
+      assert is_list(roles)
+    end
+
+    test "answers nil for a removed, banned or deleted user, an unknown id and a malformed id",
+         %{owner: owner, viewer: viewer} do
+      removed = user_fixture()
+      banned = user_fixture()
+      deleted = user_fixture()
+      {:ok, _, _} = Chat.kick_member(scope_for(owner), removed.id)
+      {:ok, _, _} = Chat.ban_member(scope_for(owner), banned.id)
+
+      deleted
+      |> Ecto.Changeset.change(deleted_at: DateTime.utc_now())
+      |> Repo.update!()
+
+      scope = scope_for(viewer)
+      assert Accounts.get_member(scope, removed.id) == nil
+      assert Accounts.get_member(scope, banned.id) == nil
+      assert Accounts.get_member(scope, deleted.id) == nil
+      assert Accounts.get_member(scope, Ecto.UUID.generate()) == nil
+      assert Accounts.get_member(scope, "not-a-uuid") == nil
+    end
+
+    test "answers nil for every user when the scope is not an active member", %{
+      owner: owner,
+      viewer: viewer
+    } do
+      member = user_fixture()
+      {:ok, _, _} = Chat.ban_member(scope_for(owner), viewer.id)
+
+      assert Accounts.get_member(scope_for(viewer), member.id) == nil
+    end
+  end
+
+  describe "list_members/1" do
+    test "lists active members with presence, and omits removed, banned and deleted users" do
+      Bootstrap.ensure_seed_data!()
+      owner = owner_fixture()
+      active = user_fixture()
+      removed = user_fixture()
+      banned = user_fixture()
+      deleted = user_fixture()
+      {:ok, _, _} = Chat.kick_member(scope_for(owner), removed.id)
+      {:ok, _, _} = Chat.ban_member(scope_for(owner), banned.id)
+
+      deleted
+      |> Ecto.Changeset.change(deleted_at: DateTime.utc_now())
+      |> Repo.update!()
+
+      entries = Accounts.list_members(scope_for(active))
+      ids = Enum.map(entries, & &1.user.id)
+
+      assert owner.id in ids
+      assert active.id in ids
+      refute removed.id in ids
+      refute banned.id in ids
+      refute deleted.id in ids
+      assert Enum.all?(entries, &(&1.status in [:online, :recent, :offline]))
+    end
+
+    test "is empty for a scope that is not an active member" do
+      Bootstrap.ensure_seed_data!()
+      owner = owner_fixture()
+      viewer = user_fixture()
+      {:ok, _, _} = Chat.ban_member(scope_for(owner), viewer.id)
+
+      assert Accounts.list_members(scope_for(viewer)) == []
+    end
+  end
+
   describe "promote_to_owner/2" do
     test "owner can promote a regular member" do
       owner = owner_fixture()
       member = user_fixture()
 
-      member = Accounts.get_user_with_membership!(member.id)
+      member = user_with_membership!(member.id)
       refute member.membership.is_owner
 
-      assert {:ok, membership} = Accounts.promote_to_owner(owner, member)
+      assert {:ok, membership} = Accounts.promote_to_owner(scope_for(owner), member.id)
       assert membership.is_owner
     end
 
@@ -176,27 +262,39 @@ defmodule Rfchat.AccountsTest do
       member_a = user_fixture()
       member_b = user_fixture()
 
-      member_a = Accounts.get_user_with_membership!(member_a.id)
-      member_b = Accounts.get_user_with_membership!(member_b.id)
+      member_a = user_with_membership!(member_a.id)
+      member_b = user_with_membership!(member_b.id)
 
-      assert {:error, :forbidden} = Accounts.promote_to_owner(member_a, member_b)
+      assert {:error, :forbidden} = Accounts.promote_to_owner(scope_for(member_a), member_b.id)
     end
 
     test "owner cannot promote themselves" do
       owner = owner_fixture()
-      assert {:error, :self} = Accounts.promote_to_owner(owner, owner)
+      assert {:error, :self} = Accounts.promote_to_owner(scope_for(owner), owner.id)
+    end
+
+    test "a banned member, or an id with no membership, answers like a missing member" do
+      owner = owner_fixture()
+      member = user_fixture()
+      {:ok, _member, _case} = Chat.ban_member(scope_for(owner), member.id)
+
+      assert {:error, :not_found} = Accounts.promote_to_owner(scope_for(owner), member.id)
+      assert {:error, :not_found} = Accounts.demote_from_owner(scope_for(owner), member.id)
+
+      assert {:error, :not_found} =
+               Accounts.promote_to_owner(scope_for(owner), Ecto.UUID.generate())
     end
 
     test "multiple owners can coexist" do
       owner = owner_fixture()
       member = user_fixture()
 
-      member = Accounts.get_user_with_membership!(member.id)
-      assert {:ok, _membership} = Accounts.promote_to_owner(owner, member)
+      member = user_with_membership!(member.id)
+      assert {:ok, _membership} = Accounts.promote_to_owner(scope_for(owner), member.id)
 
       # Both are now owners
-      assert Accounts.owner?(Accounts.get_user_with_membership!(owner.id))
-      assert Accounts.owner?(Accounts.get_user_with_membership!(member.id))
+      assert Accounts.owner?(user_with_membership!(owner.id))
+      assert Accounts.owner?(user_with_membership!(member.id))
     end
   end
 
@@ -205,27 +303,27 @@ defmodule Rfchat.AccountsTest do
       owner = owner_fixture()
       member = user_fixture()
 
-      member = Accounts.get_user_with_membership!(member.id)
-      {:ok, _} = Accounts.promote_to_owner(owner, member)
+      member = user_with_membership!(member.id)
+      {:ok, _} = Accounts.promote_to_owner(scope_for(owner), member.id)
 
-      member = Accounts.get_user_with_membership!(member.id)
+      member = user_with_membership!(member.id)
       assert member.membership.is_owner
 
-      assert {:ok, membership} = Accounts.demote_from_owner(owner, member)
+      assert {:ok, membership} = Accounts.demote_from_owner(scope_for(owner), member.id)
       refute membership.is_owner
     end
 
     test "owner cannot demote themselves" do
       owner = owner_fixture()
-      assert {:error, :self} = Accounts.demote_from_owner(owner, owner)
+      assert {:error, :self} = Accounts.demote_from_owner(scope_for(owner), owner.id)
     end
 
     test "non-owner cannot demote anyone" do
       _owner = owner_fixture()
       member = user_fixture()
 
-      member = Accounts.get_user_with_membership!(member.id)
-      assert {:error, :forbidden} = Accounts.demote_from_owner(member, member)
+      member = user_with_membership!(member.id)
+      assert {:error, :forbidden} = Accounts.demote_from_owner(scope_for(member), member.id)
     end
   end
 end

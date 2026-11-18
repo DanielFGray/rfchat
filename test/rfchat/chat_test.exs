@@ -650,7 +650,7 @@ defmodule Rfchat.ChatTest do
       timeout_channel = channel_fixture(%{slug: unique_slug()})
       timeout_starter = message_fixture(timeout_channel, author, %{body: "timeout"})
       owner = owner_fixture()
-      assert {:ok, _timed_out, _case} = Chat.timeout_member(owner, author, 10)
+      assert {:ok, _timed_out, _case} = Chat.timeout_member(scope_for(owner), author.id, 10)
 
       assert {:error, :forbidden} =
                Chat.create_public_thread(scope_for(author), timeout_starter.id)
@@ -769,7 +769,7 @@ defmodule Rfchat.ChatTest do
       author = user_fixture()
       message = message_fixture(channel, author, %{body: "before"})
 
-      assert {:ok, _timed_out, _case} = Chat.timeout_member(owner, author, 10)
+      assert {:ok, _timed_out, _case} = Chat.timeout_member(scope_for(owner), author.id, 10)
 
       assert {:error, :forbidden} =
                Chat.update_message(scope_for(author), message.id, %{body: "after"})
@@ -940,7 +940,7 @@ defmodule Rfchat.ChatTest do
       member = user_fixture()
       member_role_fixture(member, role_fixture(%{position: 10}))
 
-      assert {:ok, banned, _case} = Chat.ban_member(moderator, member)
+      assert {:ok, banned, _case} = Chat.ban_member(scope_for(moderator), member.id)
       assert banned.membership.deactivated_at
     end
 
@@ -955,8 +955,82 @@ defmodule Rfchat.ChatTest do
         role_fixture(%{permissions: PermissionBits.combine([:administrator]), position: 60})
       )
 
-      assert {:error, :forbidden} = Chat.ban_member(moderator, peer)
-      assert {:error, :forbidden} = Chat.ban_member(moderator, admin)
+      assert {:error, :forbidden} = Chat.ban_member(scope_for(moderator), peer.id)
+      assert {:error, :forbidden} = Chat.ban_member(scope_for(moderator), admin.id)
+    end
+
+    test "a scope without the moderation bit is refused", %{moderator: moderator} do
+      member = user_fixture()
+      plain = user_fixture()
+
+      assert {:error, :forbidden} = Chat.timeout_member(scope_for(plain), member.id, 10)
+      assert {:error, :forbidden} = Chat.kick_member(scope_for(plain), member.id)
+      assert {:error, :forbidden} = Chat.ban_member(scope_for(plain), member.id)
+      assert {:ok, _banned, _case} = Chat.ban_member(scope_for(moderator), member.id)
+    end
+
+    test "a subject who is not an active member is :not_found", %{moderator: moderator} do
+      assert {:error, :not_found} = Chat.kick_member(scope_for(moderator), Ecto.UUID.generate())
+      assert {:error, :not_found} = Chat.ban_member(scope_for(moderator), "not-a-uuid")
+
+      assert {:error, :not_found} =
+               Chat.timeout_member(scope_for(moderator), Ecto.UUID.generate(), 5)
+    end
+
+    test "list_moderation_cases/2 needs view_audit_log", %{moderator: moderator} do
+      member = user_fixture()
+      {:ok, _banned, _case} = Chat.ban_member(scope_for(moderator), member.id)
+
+      assert {:error, :forbidden} = Chat.list_moderation_cases(scope_for(moderator), member.id)
+
+      auditor = user_fixture()
+
+      member_role_fixture(
+        auditor,
+        role_fixture(%{permissions: PermissionBits.combine([:view_audit_log]), position: 5})
+      )
+
+      assert {:ok, [moderation_case]} = Chat.list_moderation_cases(scope_for(auditor), member.id)
+      assert moderation_case.action_type == :ban
+    end
+  end
+
+  describe "composer_mentions/1" do
+    test "lists active members and roles only, for a scope that is an active member" do
+      Bootstrap.ensure_seed_data!()
+      owner = owner_fixture()
+      active = user_fixture()
+      banned = user_fixture()
+      removed = user_fixture()
+      deleted = user_fixture()
+      {:ok, _, _} = Chat.ban_member(scope_for(owner), banned.id)
+      {:ok, _, _} = Chat.kick_member(scope_for(owner), removed.id)
+
+      deleted
+      |> Ecto.Changeset.change(deleted_at: DateTime.utc_now())
+      |> Repo.update!()
+
+      user_ids =
+        scope_for(active)
+        |> Chat.composer_mentions()
+        |> Enum.filter(&(&1.type == "user"))
+        |> Enum.map(& &1.id)
+
+      assert active.id in user_ids
+      assert owner.id in user_ids
+      refute banned.id in user_ids
+      refute removed.id in user_ids
+      refute deleted.id in user_ids
+      assert Enum.any?(Chat.composer_mentions(scope_for(active)), &(&1.type == "role"))
+    end
+
+    test "is empty for a scope that is not an active member" do
+      Bootstrap.ensure_seed_data!()
+      owner = owner_fixture()
+      viewer = user_fixture()
+      {:ok, _, _} = Chat.ban_member(scope_for(owner), viewer.id)
+
+      assert Chat.composer_mentions(scope_for(viewer)) == []
     end
   end
 
@@ -1014,7 +1088,7 @@ defmodule Rfchat.ChatTest do
 
       assert general.slug in visible_slugs
       refute hidden_channel.slug in visible_slugs
-      refute Chat.can_view_channel?(hidden_channel, user)
+      refute Rfchat.Chat.Visibility.can?(scope_for(user), :view_channel, hidden_channel)
       refute Chat.can_send_messages?(hidden_channel, user)
     end
   end

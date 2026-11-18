@@ -6,6 +6,7 @@ defmodule RfchatWeb.SettingsLiveTest do
   alias Rfchat.Accounts
   alias Rfchat.Accounts.LoginRateLimiter
   alias Rfchat.Bootstrap
+  alias Rfchat.Chat
   alias Rfchat.Chat.PermissionBits
   alias Rfchat.Chat.User
   alias Rfchat.Repo
@@ -155,9 +156,9 @@ defmodule RfchatWeb.SettingsLiveTest do
       {conn, _owner, member} = log_in_owner_with_member(conn)
 
       # First promote the member
-      member_with_membership = Accounts.get_user_with_membership!(member.id)
+      member_with_membership = user_with_membership!(member.id)
       owner_user = current_user_from_conn(conn)
-      {:ok, _} = Accounts.promote_to_owner(owner_user, member_with_membership)
+      {:ok, _} = Accounts.promote_to_owner(scope_for(owner_user), member_with_membership.id)
 
       {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
 
@@ -186,6 +187,46 @@ defmodule RfchatWeb.SettingsLiveTest do
       refute has_element?(view, "#promote-owner-#{owner_id}")
       refute has_element?(view, "#demote-owner-#{owner_id}")
     end
+  end
+
+  describe "moderation case list" do
+    setup do
+      Bootstrap.ensure_seed_data!()
+      owner = owner_fixture(%{email: "case-owner@example.com", username: "case_owner"})
+      target = user_fixture(%{email: "case-target@example.com", username: "case_target"})
+      {:ok, _timed_out, _case} = Chat.timeout_member(scope_for(owner), target.id, 10)
+      %{target: target}
+    end
+
+    test "a moderator without view_audit_log sees no case list", %{conn: conn, target: target} do
+      moderator = moderator_with([:kick_members], "case_kick")
+      {:ok, view, _html} = live(log_in_as(conn, moderator), ~p"/settings?tab=server")
+
+      render_click(element(view, "#open-member-actions-#{target.id}"))
+
+      assert has_element?(view, "#member-actions-#{target.id}")
+      refute has_element?(view, "#moderation-cases")
+    end
+
+    test "a moderator with view_audit_log sees the case list", %{conn: conn, target: target} do
+      auditor = moderator_with([:kick_members, :view_audit_log], "case_audit")
+      {:ok, view, _html} = live(log_in_as(conn, auditor), ~p"/settings?tab=server")
+
+      render_click(element(view, "#open-member-actions-#{target.id}"))
+
+      assert has_element?(view, "#moderation-cases")
+    end
+  end
+
+  defp moderator_with(permissions, username) do
+    moderator = user_fixture(%{email: "#{username}@example.com", username: username})
+
+    member_role_fixture(
+      moderator,
+      role_fixture(%{permissions: PermissionBits.combine(permissions), position: 50})
+    )
+
+    moderator
   end
 
   describe "bot registry visibility" do

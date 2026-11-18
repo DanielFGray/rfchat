@@ -50,12 +50,19 @@ defmodule Rfchat.AccountsOwnershipRaceTest do
     {:ok, alice} = Accounts.register_user(user_attrs())
     {:ok, bob} = Accounts.register_user(user_attrs())
     {:ok, alice} = Accounts.promote_first_owner(alice.email)
-    {:ok, _} = Accounts.promote_to_owner(alice, bob)
+    {:ok, _} = Accounts.promote_to_owner(%Rfchat.Accounts.Scope{user_id: alice.id}, bob.id)
 
-    first = hold_open(fn -> Accounts.demote_from_owner(alice, bob) end)
+    first =
+      hold_open(fn ->
+        Accounts.demote_from_owner(%Rfchat.Accounts.Scope{user_id: alice.id}, bob.id)
+      end)
 
     second =
-      Task.async(fn -> on_own_connection(fn -> Accounts.demote_from_owner(bob, alice) end) end)
+      Task.async(fn ->
+        on_own_connection(fn ->
+          Accounts.demote_from_owner(%Rfchat.Accounts.Scope{user_id: bob.id}, alice.id)
+        end)
+      end)
 
     assert Task.yield(second, @blocked_ms) == nil, "the second demotion did not wait"
     assert {:ok, %Membership{is_owner: false}} = commit(first)

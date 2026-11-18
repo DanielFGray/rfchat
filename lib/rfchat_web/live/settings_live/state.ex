@@ -21,6 +21,7 @@ defmodule RfchatWeb.SettingsLive.State do
     can_manage_channels? = SharedHelpers.can_manage_channels?(socket.assigns.current_scope)
     can_manage_emojis? = SharedHelpers.can_manage_emojis?(socket.assigns.current_scope)
     can_moderate_members? = SharedHelpers.can_moderate_members?(socket.assigns.current_scope)
+    can_view_audit_log? = SharedHelpers.can_view_audit_log?(socket.assigns.current_scope)
     can_manage_bots? = Bots.can_manage_bots?(socket.assigns.current_scope)
     server_settings = Chat.get_server_settings()
 
@@ -33,6 +34,7 @@ defmodule RfchatWeb.SettingsLive.State do
     |> assign(:can_manage_channels?, can_manage_channels?)
     |> assign(:can_manage_emojis?, can_manage_emojis?)
     |> assign(:can_moderate_members?, can_moderate_members?)
+    |> assign(:can_view_audit_log?, can_view_audit_log?)
     |> assign(
       :can_manage_server?,
       SharedHelpers.can_manage_server?(socket.assigns.current_scope)
@@ -51,7 +53,7 @@ defmodule RfchatWeb.SettingsLive.State do
     |> assign(:revealed_bot_tokens, %{})
     |> assign(:manage_channels_open?, false)
     |> assign(:manage_emojis_open?, false)
-    |> assign(:member_presence, Accounts.list_members_with_presence())
+    |> assign(:member_presence, Accounts.list_members(socket.assigns.current_scope))
     |> assign(:member_action_user_id, nil)
     |> assign(:member_action_form, to_form(Chat.change_moderation_action(%{}), as: :moderation))
     |> assign(:moderation_cases, [])
@@ -128,7 +130,7 @@ defmodule RfchatWeb.SettingsLive.State do
   end
 
   def refresh_member_presence(socket) do
-    assign(socket, :member_presence, Accounts.list_members_with_presence())
+    assign(socket, :member_presence, Accounts.list_members(socket.assigns.current_scope))
   end
 
   def save_channel(socket, channel_params) do
@@ -188,8 +190,8 @@ defmodule RfchatWeb.SettingsLive.State do
     assign(socket, :custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
   end
 
-  def run_member_moderation(actor, subject, params),
-    do: SharedHelpers.run_member_moderation(actor, subject, params)
+  def run_member_moderation(scope, subject_id, params),
+    do: SharedHelpers.run_member_moderation(scope, subject_id, params)
 
   def refresh_bot_assigns(socket) do
     if socket.assigns.can_manage_bots? do

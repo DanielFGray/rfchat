@@ -4,7 +4,6 @@ defmodule RfchatWeb.BannedLiveTest do
   import Phoenix.LiveViewTest
   import Rfchat.ChatFixtures
 
-  alias Rfchat.Accounts
   alias Rfchat.Chat.Membership
   alias Rfchat.Repo
 
@@ -16,7 +15,7 @@ defmodule RfchatWeb.BannedLiveTest do
         display_name: "Banned Link"
       })
 
-    user = Accounts.get_user_with_membership!(user.id)
+    user = user_with_membership!(user.id)
 
     user.membership
     |> Membership.deactivate_changeset(DateTime.utc_now(), %{"banned" => true})

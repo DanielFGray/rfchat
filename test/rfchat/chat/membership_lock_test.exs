@@ -9,9 +9,14 @@ defmodule Rfchat.Chat.MembershipLockTest do
 
   import Ecto.Query
 
+  import Rfchat.ChatFixtures, only: [role_fixture: 1, member_role_fixture: 2, scope_for: 1]
+
+  alias Rfchat.Accounts
   alias Rfchat.Accounts.Scope
+  alias Rfchat.Chat
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.Membership
+  alias Rfchat.Chat.PermissionBits
   alias Rfchat.Chat.User
   alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
@@ -20,14 +25,21 @@ defmodule Rfchat.Chat.MembershipLockTest do
   # timeout bounds how fast a missing lock shows up.
   @lock_timeout "300ms"
 
+  # Backends blocked on a row lock. A row-lock wait is an ungranted `transactionid` lock in
+  # `pg_locks`, which every role may read. `pg_stat_activity` hides other sessions' queries and wait
+  # events from a non-superuser role, so it cannot show this wait.
+  @waiting_sql """
+  SELECT count(*) FROM pg_locks
+  WHERE NOT granted AND locktype = 'transactionid' AND pid <> pg_backend_pid()
+  """
+
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo, sandbox: false)
     assert Repo.aggregate(User, :count) == 0, "the test database must start empty"
 
-    on_exit(fn ->
-      :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo, sandbox: false)
-      Repo.delete_all(User)
-    end)
+    # These tests commit moderation cases, audit rows and roles, which reference users, so the
+    # cleanup truncates every table rather than deleting users alone.
+    on_exit(fn -> Rfchat.TestDatabase.truncate!() end)
   end
 
   test "authorize_write/3 raises outside a transaction" do
@@ -57,6 +69,110 @@ defmodule Rfchat.Chat.MembershipLockTest do
     user = register_user()
 
     assert :granted = from_other_connection(fn -> try_moderation_lock(user.id) end)
+  end
+
+  # The holder makes the subject an owner and stays open. The ban cannot read that change until the
+  # holder commits, so the ban must wait on the subject's row and then decide on the committed owner.
+  test "a ban waiting on a subject who becomes an owner answers :forbidden when the actor id sorts first" do
+    {actor, subject} = moderator_and_subject(actor_first?: true)
+
+    holder = hold_open(fn -> make_owner_in_open_transaction(subject) end)
+    ban = start_ban(actor, subject)
+
+    await_lock_wait()
+    commit(holder)
+
+    assert {:error, :forbidden} = Task.await(ban, 10_000)
+  end
+
+  test "a ban waiting on a subject who becomes an owner answers :forbidden when the subject id sorts first" do
+    {actor, subject} = moderator_and_subject(actor_first?: false)
+
+    holder = hold_open(fn -> make_owner_in_open_transaction(subject) end)
+    ban = start_ban(actor, subject)
+
+    await_lock_wait()
+    commit(holder)
+
+    assert {:error, :forbidden} = Task.await(ban, 10_000)
+  end
+
+  # Owners cannot be moderated through the API, so the holder deactivates the actor directly. The
+  # promotion must wait on the actor's row and then see that the actor is no longer an active owner.
+  test "a promotion waiting on an owner who is deactivated answers :forbidden" do
+    actor = register_user()
+    subject = register_user()
+    {:ok, _owner} = Accounts.promote_first_owner(actor.email)
+
+    holder = hold_open(fn -> deactivate_in_open_transaction(actor) end)
+
+    promotion =
+      Task.async(fn ->
+        on_own_connection(fn ->
+          Accounts.promote_to_owner(%Scope{user_id: actor.id}, subject.id)
+        end)
+      end)
+
+    await_lock_wait()
+    commit(holder)
+
+    assert {:error, :forbidden} = Task.await(promotion, 10_000)
+  end
+
+  defp start_ban(actor, subject) do
+    Task.async(fn ->
+      on_own_connection(fn -> Chat.ban_member(scope_for(actor), subject.id) end)
+    end)
+  end
+
+  # Two members with a role that grants ban_members and outranks the subject. The lower user id is
+  # the actor when `actor_first?` is true, otherwise the subject.
+  defp moderator_and_subject(actor_first?: actor_first?) do
+    first = register_user()
+    second = register_user()
+    {low, high} = if first.id < second.id, do: {first, second}, else: {second, first}
+    {actor, subject} = if actor_first?, do: {low, high}, else: {high, low}
+
+    role =
+      role_fixture(%{
+        name: "lock_role_#{System.unique_integer([:positive])}",
+        permissions: PermissionBits.combine([:ban_members]),
+        position: 50
+      })
+
+    member_role_fixture(actor, role)
+    {actor, subject}
+  end
+
+  defp make_owner_in_open_transaction(user) do
+    user.id
+    |> locked_membership()
+    |> Membership.ownership_changeset(true)
+    |> Repo.update!()
+  end
+
+  defp deactivate_in_open_transaction(user) do
+    user.id
+    |> locked_membership()
+    |> Membership.deactivate_changeset(DateTime.utc_now(), %{"banned" => true})
+    |> Repo.update!()
+  end
+
+  defp locked_membership(user_id) do
+    Repo.one!(from(m in Membership, where: m.user_id == ^user_id, lock: "FOR UPDATE"))
+  end
+
+  # Polls the waiting-lock count until one backend is blocked on a `FOR UPDATE`. Each poll is a
+  # network round trip, so the bound is in attempts rather than a sleep.
+  defp await_lock_wait(attempts \\ 100)
+
+  defp await_lock_wait(0), do: flunk("no backend waited on a membership row lock")
+
+  defp await_lock_wait(attempts) do
+    case Repo.query!(@waiting_sql).rows do
+      [[0]] -> await_lock_wait(attempts - 1)
+      [[_waiting]] -> :ok
+    end
   end
 
   # Runs `fun` inside a transaction on its own connection and keeps the transaction open until

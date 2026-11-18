@@ -26,7 +26,8 @@ defmodule Rfchat.Chat.PermissionBits do
     moderate_members: 1 <<< 19,
     administrator: 1 <<< 20,
     manage_bots: 1 <<< 21,
-    manage_server: 1 <<< 22
+    manage_server: 1 <<< 22,
+    view_audit_log: 1 <<< 23
   }
 
   def flags, do: @flags

@@ -83,7 +83,7 @@ defmodule RfchatWeb.GuildLive.State do
 
   def hydrate_members(socket) do
     socket
-    |> assign(:member_presence, Accounts.list_members_with_presence())
+    |> assign(:member_presence, Accounts.list_members(socket.assigns.current_scope))
     |> assign(:members_ready?, true)
   end
 
@@ -344,7 +344,7 @@ defmodule RfchatWeb.GuildLive.State do
 
   def refresh_member_presence(socket) do
     socket
-    |> assign(:member_presence, Accounts.list_members_with_presence())
+    |> assign(:member_presence, Accounts.list_members(socket.assigns.current_scope))
     |> assign(:members_ready?, true)
   end
 

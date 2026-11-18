@@ -465,7 +465,7 @@ defmodule RfchatWeb.SettingsLive do
       next_user_id = if socket.assigns.member_action_user_id == user_id, do: nil, else: user_id
 
       moderation_cases =
-        if next_user_id, do: Chat.list_moderation_cases_for_user(user_id), else: []
+        if next_user_id, do: moderation_cases(socket.assigns.current_scope, user_id), else: []
 
       {:noreply,
        socket
@@ -491,62 +491,71 @@ defmodule RfchatWeb.SettingsLive do
 
   @impl true
   def handle_event("promote_to_owner", %{"id" => user_id}, socket) do
-    actor = socket.assigns.current_user
-    subject = Accounts.get_user_with_membership!(user_id)
+    scope = socket.assigns.current_scope
 
-    case Accounts.promote_to_owner(actor, subject) do
-      {:ok, _membership} ->
-        {:noreply,
-         socket
-         |> State.refresh_member_presence()
-         |> put_flash(:info, "#{subject.display_name} is now an owner.")}
-
-      {:error, :forbidden} ->
-        {:noreply, put_flash(socket, :error, "Only owners can promote other users.")}
-
-      {:error, :self} ->
-        {:noreply, put_flash(socket, :error, "You cannot promote yourself.")}
-
-      {:error, _reason} ->
+    case Accounts.get_member(scope, user_id) do
+      nil ->
         {:noreply, put_flash(socket, :error, "Could not promote that user.")}
+
+      subject ->
+        case Accounts.promote_to_owner(scope, user_id) do
+          {:ok, _membership} ->
+            {:noreply,
+             socket
+             |> State.refresh_member_presence()
+             |> put_flash(:info, "#{subject.display_name} is now an owner.")}
+
+          {:error, :forbidden} ->
+            {:noreply, put_flash(socket, :error, "Only owners can promote other users.")}
+
+          {:error, :self} ->
+            {:noreply, put_flash(socket, :error, "You cannot promote yourself.")}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, "Could not promote that user.")}
+        end
     end
   end
 
   @impl true
   def handle_event("demote_from_owner", %{"id" => user_id}, socket) do
-    actor = socket.assigns.current_user
-    subject = Accounts.get_user_with_membership!(user_id)
+    scope = socket.assigns.current_scope
 
-    case Accounts.demote_from_owner(actor, subject) do
-      {:ok, _membership} ->
-        {:noreply,
-         socket
-         |> State.refresh_member_presence()
-         |> put_flash(:info, "#{subject.display_name} is no longer an owner.")}
-
-      {:error, :forbidden} ->
-        {:noreply, put_flash(socket, :error, "Only owners can demote other owners.")}
-
-      {:error, :self} ->
-        {:noreply, put_flash(socket, :error, "You cannot demote yourself.")}
-
-      {:error, _reason} ->
+    case Accounts.get_member(scope, user_id) do
+      nil ->
         {:noreply, put_flash(socket, :error, "Could not demote that user.")}
+
+      subject ->
+        case Accounts.demote_from_owner(scope, user_id) do
+          {:ok, _membership} ->
+            {:noreply,
+             socket
+             |> State.refresh_member_presence()
+             |> put_flash(:info, "#{subject.display_name} is no longer an owner.")}
+
+          {:error, :forbidden} ->
+            {:noreply, put_flash(socket, :error, "Only owners can demote other owners.")}
+
+          {:error, :self} ->
+            {:noreply, put_flash(socket, :error, "You cannot demote yourself.")}
+
+          {:error, _reason} ->
+            {:noreply, put_flash(socket, :error, "Could not demote that user.")}
+        end
     end
   end
 
   @impl true
   def handle_event("moderate_member", %{"user_id" => user_id, "moderation" => params}, socket) do
     if socket.assigns.can_moderate_members? do
-      actor = socket.assigns.current_user
-      subject = Accounts.get_user_with_membership!(user_id)
+      scope = socket.assigns.current_scope
 
-      case State.run_member_moderation(actor, subject, params) do
+      case State.run_member_moderation(scope, user_id, params) do
         {:ok, _subject, _case, message} ->
           {:noreply,
            socket
            |> State.refresh_member_presence()
-           |> assign(:moderation_cases, Chat.list_moderation_cases_for_user(user_id))
+           |> assign(:moderation_cases, moderation_cases(scope, user_id))
            |> assign(
              :member_action_form,
              to_form(Chat.change_moderation_action(%{}), as: :moderation)
@@ -569,6 +578,14 @@ defmodule RfchatWeb.SettingsLive do
       end
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to moderate members.")}
+    end
+  end
+
+  # A scope without `view_audit_log` reads no cases, and so does a malformed id.
+  defp moderation_cases(scope, user_id) do
+    case Chat.list_moderation_cases(scope, user_id) do
+      {:ok, moderation_cases} -> moderation_cases
+      {:error, _reason} -> []
     end
   end
 

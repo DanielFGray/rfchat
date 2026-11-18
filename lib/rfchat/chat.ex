@@ -64,10 +64,19 @@ defmodule Rfchat.Chat do
 
   defdelegate list_channel_tree(scope), to: Channels
 
-  def composer_mentions do
+  @doc """
+  The mention candidates for the composer: active members, then roles. A scope that is not an
+  active member gets none, and a banned, removed or deleted user is not a candidate.
+  """
+  def composer_mentions(%Scope{} = scope) do
+    if is_nil(Visibility.member(scope)), do: [], else: mention_candidates()
+  end
+
+  defp mention_candidates do
     users =
       User
-      |> where([user], is_nil(user.deleted_at))
+      |> join(:inner, [user], membership in Membership, on: membership.user_id == user.id)
+      |> where([user, membership], is_nil(user.deleted_at) and is_nil(membership.deactivated_at))
       |> order_by([user], asc: user.display_name, asc: user.username)
       |> limit(25)
       |> Repo.all()
@@ -256,59 +265,65 @@ defmodule Rfchat.Chat do
     end
   end
 
-  def list_moderation_cases_for_user(user_id) do
-    ModerationCase
-    |> where([moderation_case], moderation_case.subject_user_id == ^user_id)
-    |> order_by([moderation_case], desc: moderation_case.inserted_at)
-    |> preload([:actor_user, :subject_user])
-    |> Repo.all()
+  @doc """
+  The moderation cases against `subject_user_id`, newest first. A scope without `view_audit_log`
+  gets `{:error, :forbidden}`.
+  """
+  def list_moderation_cases(%Scope{} = scope, subject_user_id) do
+    if Visibility.can?(scope, :view_audit_log, :server) do
+      with {:ok, subject_user_id} <- cast_id(subject_user_id) do
+        cases =
+          ModerationCase
+          |> where([moderation_case], moderation_case.subject_user_id == ^subject_user_id)
+          |> order_by([moderation_case], desc: moderation_case.inserted_at)
+          |> preload([:actor_user, :subject_user])
+          |> Repo.all()
+
+        {:ok, cases}
+      end
+    else
+      {:error, :forbidden}
+    end
   end
 
-  def timeout_member(%User{} = actor, %User{} = subject, duration_minutes, reason \\ nil)
+  @doc """
+  Times out the member `subject_user_id` and records the case and the audit entry. Returns
+  `{:ok, subject, moderation_case}`; see `moderate/4` for the refusals.
+  """
+  def timeout_member(%Scope{} = scope, subject_user_id, duration_minutes, reason \\ nil)
       when is_integer(duration_minutes) and duration_minutes > 0 do
-    with :ok <- authorize_member_moderation(actor, subject, :moderate_members) do
+    moderate(scope, subject_user_id, :moderate_members, fn membership, subject_id ->
       timeout_until = DateTime.add(DateTime.utc_now(), duration_minutes * 60, :second)
 
-      Repo.transaction(fn ->
-        membership = Repo.preload(subject, [:membership]).membership || Repo.rollback(:not_member)
+      membership = Repo.update!(Membership.timeout_changeset(membership, timeout_until))
 
-        {:ok, membership} =
-          membership
-          |> Membership.timeout_changeset(timeout_until)
-          |> Repo.update()
+      moderation_case =
+        record_moderation_case(scope.user_id, subject_id, :timeout, reason,
+          expires_at: timeout_until,
+          executed_at: DateTime.utc_now(),
+          details: %{"duration_minutes" => duration_minutes}
+        )
 
-        moderation_case =
-          record_moderation_case(actor, subject, :timeout, reason,
-            expires_at: timeout_until,
-            executed_at: DateTime.utc_now(),
-            details: %{"duration_minutes" => duration_minutes}
-          )
+      record_audit_log!(scope.user_id, subject_id, "timeout_member", reason, %{
+        "duration_minutes" => duration_minutes,
+        "timeout_until" => timeout_until
+      })
 
-        record_audit_log!(actor, subject, "timeout_member", reason, %{
-          "duration_minutes" => duration_minutes,
-          "timeout_until" => timeout_until
-        })
-
-        {Repo.preload(subject, [:membership, member_roles: :role])
-         |> Map.put(:membership, membership), moderation_case}
-      end)
-      |> case do
-        {:ok, {updated_subject, moderation_case}} -> {:ok, updated_subject, moderation_case}
-        {:error, reason} -> {:error, reason}
-      end
-    end
+      {membership, moderation_case}
+    end)
   end
 
-  def kick_member(%User{} = actor, %User{} = subject, reason \\ nil) do
-    with :ok <- authorize_member_moderation(actor, subject, :kick_members) do
-      deactivate_member(actor, subject, :kick, reason, %{"kicked" => true})
-    end
+  @doc "Removes the member `subject_user_id` from the server. Returns `{:ok, subject, moderation_case}`."
+  def kick_member(%Scope{} = scope, subject_user_id, reason \\ nil) do
+    deactivate_member(scope, subject_user_id, :kick_members, :kick, reason, %{"kicked" => true})
   end
 
-  def ban_member(%User{} = actor, %User{} = subject, reason \\ nil) do
-    with :ok <- authorize_member_moderation(actor, subject, :ban_members) do
-      deactivate_member(actor, subject, :ban, reason, %{"banned" => true, "ban_reason" => reason})
-    end
+  @doc "Bans the member `subject_user_id`. Returns `{:ok, subject, moderation_case}`."
+  def ban_member(%Scope{} = scope, subject_user_id, reason \\ nil) do
+    deactivate_member(scope, subject_user_id, :ban_members, :ban, reason, %{
+      "banned" => true,
+      "ban_reason" => reason
+    })
   end
 
   @doc """
@@ -479,9 +494,6 @@ defmodule Rfchat.Chat do
   def can_send_messages?(channel, user),
     do: Visibility.can?(user_scope(user), :send_messages, channel)
 
-  def can_view_channel?(channel, user),
-    do: Visibility.can?(user_scope(user), :view_channel, channel)
-
   def can_create_public_threads?(channel, user),
     do: Visibility.can?(user_scope(user), :create_public_threads, channel)
 
@@ -560,48 +572,70 @@ defmodule Rfchat.Chat do
     |> Ecto.Changeset.add_error(:metadata, "must be valid JSON")
   end
 
-  defp deactivate_member(%User{} = actor, %User{} = subject, action_type, reason, extra_flags) do
-    Repo.transaction(fn ->
-      membership = Repo.preload(subject, [:membership]).membership || Repo.rollback(:not_member)
+  defp deactivate_member(scope, subject_user_id, bit, action_type, reason, extra_flags) do
+    moderate(scope, subject_user_id, bit, fn membership, subject_id ->
       now = DateTime.utc_now()
       flags = Map.merge(membership.flags || %{}, extra_flags)
 
-      {:ok, membership} =
+      membership =
         membership
         |> Membership.deactivate_changeset(now, flags)
-        |> Repo.update()
+        |> Repo.update!()
 
       moderation_case =
-        record_moderation_case(actor, subject, action_type, reason,
+        record_moderation_case(scope.user_id, subject_id, action_type, reason,
           executed_at: now,
           details: flags
         )
 
-      record_audit_log!(actor, subject, "#{action_type}_member", reason, flags)
+      record_audit_log!(scope.user_id, subject_id, "#{action_type}_member", reason, flags)
 
-      {Repo.preload(subject, [:membership, member_roles: :role])
-       |> Map.put(:membership, membership), moderation_case}
+      {membership, moderation_case}
     end)
-    |> case do
-      {:ok, {updated_subject, moderation_case}} -> {:ok, updated_subject, moderation_case}
-      {:error, reason} -> {:error, reason}
+  end
+
+  # Every moderation write runs here, in one transaction. `Visibility.authorize_write/3` takes the
+  # actor's and the subject's membership rows `FOR UPDATE` in user_id order, then decides, so the
+  # decision sees the subject's state as of the lock. `change` gets the subject's membership row,
+  # which that lock already holds, and returns the membership to keep and the moderation case. A
+  # subject with no membership row is `:not_found`; a subject the actor may not moderate is
+  # `:forbidden`, both from `Visibility`.
+  defp moderate(%Scope{} = scope, subject_user_id, bit, change) do
+    with {:ok, subject_user_id} <- cast_id(subject_user_id) do
+      Repo.transact(fn ->
+        with :ok <- Visibility.authorize_write(scope, {:moderate, bit}, subject_user_id),
+             {:ok, membership} <- subject_membership(subject_user_id) do
+          {membership, moderation_case} = change.(membership, subject_user_id)
+
+          subject =
+            User
+            |> Repo.get!(subject_user_id)
+            |> Repo.preload(member_roles: :role)
+            |> Map.put(:membership, membership)
+
+          {:ok, {subject, moderation_case}}
+        end
+      end)
+      |> case do
+        {:ok, {subject, moderation_case}} -> {:ok, subject, moderation_case}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
-  # The rule (owner, hierarchy, self and owner targets) lives in `Visibility`, which reads both
-  # members from the database for the decision.
-  defp authorize_member_moderation(%User{} = actor, %User{} = subject, permission_name) do
-    if Visibility.can?(user_scope(actor), {:moderate, permission_name}, subject.id),
-      do: :ok,
-      else: {:error, :forbidden}
+  defp subject_membership(subject_id) do
+    case Repo.get_by(Membership, user_id: subject_id) do
+      nil -> {:error, :not_found}
+      %Membership{} = membership -> {:ok, membership}
+    end
   end
 
-  defp record_moderation_case(%User{} = actor, %User{} = subject, action_type, reason, attrs) do
+  defp record_moderation_case(actor_id, subject_id, action_type, reason, attrs) do
     attrs = %{
       action_type: action_type,
       state: :executed,
-      actor_user_id: actor.id,
-      subject_user_id: subject.id,
+      actor_user_id: actor_id,
+      subject_user_id: subject_id,
       reason: reason,
       details: Keyword.get(attrs, :details, %{}),
       expires_at: Keyword.get(attrs, :expires_at),
@@ -640,14 +674,14 @@ defmodule Rfchat.Chat do
     end)
   end
 
-  defp record_audit_log!(%User{} = actor, %User{} = subject, action_type, reason, metadata) do
+  defp record_audit_log!(actor_id, subject_id, action_type, reason, metadata) do
     %AuditLogEntry{}
     |> AuditLogEntry.changeset(%{
       action_type: action_type,
-      actor_user_id: actor.id,
-      subject_user_id: subject.id,
+      actor_user_id: actor_id,
+      subject_user_id: subject_id,
       target_type: "user",
-      target_id: subject.id,
+      target_id: subject_id,
       reason: reason,
       metadata: metadata
     })

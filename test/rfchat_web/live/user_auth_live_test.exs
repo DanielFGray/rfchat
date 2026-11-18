@@ -189,7 +189,7 @@ defmodule RfchatWeb.UserAuthLiveTest do
         display_name: "Banned User"
       })
 
-    banned_user = Rfchat.Accounts.get_user_with_membership!(banned_user.id)
+    banned_user = user_with_membership!(banned_user.id)
 
     banned_user.membership
     |> Rfchat.Chat.Membership.deactivate_changeset(DateTime.utc_now(), %{

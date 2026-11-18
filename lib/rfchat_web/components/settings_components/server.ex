@@ -399,7 +399,11 @@ defmodule RfchatWeb.SettingsComponents.Server do
                   </div>
                 </.form>
 
-                <div class="mt-4 border-t border-base-300 pt-3">
+                <div
+                  :if={@can_view_audit_log?}
+                  id="moderation-cases"
+                  class="mt-4 border-t border-base-300 pt-3"
+                >
                   <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-base-content/50">
                     Recent cases
                   </p>

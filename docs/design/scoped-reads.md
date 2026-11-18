@@ -64,7 +64,7 @@ Visibility.timed_out?(membership)           # the one timeout rule, also read by
 | A channel needs its category visible | none | yes |
 | Send in a thread needs the parent's send | `thread_parent_allows_messages?` | yes |
 | A timeout blocks send, react, edit, thread create | `timed_out?` checks in each caller | yes, for those actions |
-| Role hierarchy for moderation | `top_role_position`, `authorize_member_moderation` | yes, `:moderate` actions |
+| Role hierarchy for moderation | `top_role_position`, `authorize_member_moderation` | yes, `:moderate` actions, decided by `can?/3` inside `Visibility.authorize_write/3` |
 | Bot grant authority | `Bots.Authority` | stays in `Bots.Authority`, which reads `authority/2`: owner, server bits, top role position and the bits in each named channel, from one load |
 | Owner and administrator | `expand_administrator`, owner checks | yes |
 
@@ -77,7 +77,7 @@ Cost:
 - A by-id read loads the target, its channel, that channel's parents (a thread's channel and category, a channel's category), their overwrites and the member, then decides. It does not build the whole visible set.
 - `channel_ids/1` is for list readers only: the channel sidebar, the bot stream and the event reader's context. It loads the inputs in batches (channels, threads under visible parents, their overwrites, the member) and decides each one with the same pure `Authorization` function and parent rule as a by-id read. There is one permission algorithm. Overwrite precedence (default role, then roles, then the user; allow after deny at each level; administrator first) is never restated in SQL.
 - No cache across calls. The event reader computes its read context once per page and keeps nothing between pages. Measure first: slice 1 counts the queries for each decision and benchmarks a server with 200 channels and 20,000 threads. If SQL filtering is ever needed, it must implement the full precedence, and a property test must prove it equal to the pure function.
-- Measured in slice 1: each by-id decision is one statement, except moderation, which reads the actor and then the subject (two); `authority/2` is one, and a role grant whose overwrites name channels reads those channels in a second; `channel_ids/1` is 3 statements and 435 to 507 ms on 200 channels and 20,000 threads; the GuildLive join runs 15 queries before its first connected render and 50 once hydrated. `channel_ids/1` is `visible_channels/1` mapped to ids, so a list reader that needs the structs does not load the channels twice.
+- Measured in slice 1: each by-id decision is one statement, except moderation, which reads the actor and then the subject (two); a moderation write takes both membership locks (two statements), loads its decision (one) and reads the subject's row (one), so four statements run before its writes; `authority/2` is one, and a role grant whose overwrites name channels reads those channels in a second; `channel_ids/1` is 3 statements and 435 to 507 ms on 200 channels and 20,000 threads; the GuildLive join runs 15 queries before its first connected render and 50 once hydrated. `channel_ids/1` is `visible_channels/1` mapped to ids, so a list reader that needs the structs does not load the channels twice.
 
 ## Read policy
 
@@ -90,7 +90,7 @@ Cost:
 | Bot tokens (metadata, never values) | members with `manage_bots` who also pass `Bots.Authority.control_bot` for that bot |
 | Message attachments | the same as the message they belong to; the upload route serves them only through that scoped check |
 | Avatars, banners, custom emojis, the server icon | anyone with the URL, as today (they appear in other members' views and, later, in federated copies) |
-| Moderation cases and the audit log | members with `kick_members`, `ban_members`, `moderate_members` or `administrator` (until slice 4 adds the `view_audit_log` bit, which then replaces this list; question 3) |
+| Moderation cases and the audit log | members with `view_audit_log`; the owner and administrators pass as for every bit (question 3) |
 | A message body inside a reply preview or thread starter | the same as the referenced message |
 
 Related data follows the row it hangs on only where an invariant makes that safe. Each invariant is checked on write:
@@ -109,10 +109,10 @@ Serializers become pure functions of already-loaded data. The `Repo.preload` cal
 - Lock protocol for membership rows. Each write names every membership row it needs before it starts, takes each one once, in the strongest mode it needs, in ascending user id order:
   - a write by a member that changes no membership: the actor's row, `FOR SHARE`;
   - a write that changes the actor's own membership (profile, nickname, leaving): the actor's row, `FOR UPDATE`;
-  - moderation (timeout, kick, ban) and ownership changes: the actor's and the subject's rows, `FOR UPDATE`, in id order.
+  - moderation (timeout, kick, ban) and ownership changes: the actor's and the subject's rows, `FOR UPDATE`, in id order. An ownership change takes its advisory lock before these rows, so ownership changes serialize on the lock first.
   A ban is then atomic with respect to the banned member's own writes: no write by them commits after the ban commits. Taking each row once, in id order, prevents lock upgrades and opposite-order deadlocks.
 - After the membership rows, a write locks channel rows (parent before child, then by id), then the message row; the event head comes last (event-log.md, "Deleted channels"). A message write locks its message row `FOR UPDATE` and reads it only while `deleted_at` is null. A deleted message takes no action: edit, delete and reaction answer `{:error, :not_found}`.
-- A role or overwrite change does not lock every member. A write whose one-statement load ran before such a change committed may still commit after it. It then acts on one coherent earlier decision. That overlap lasts at most one transaction. This is a proposed policy, pending owner question 4.
+- A role or overwrite change does not lock every member. A write whose one-statement load ran before such a change committed may still commit after it. It then acts on one coherent earlier decision. That overlap lasts at most one transaction. This policy is decided (question 4). Bans, kicks and timeouts stay exact anyway: their subject row lock is taken before the decision and the change, so a later write sees the new membership.
 - A read decides from one statement (the permission inputs, and the target when it names one), then loads the rows it returns. A read therefore returns only rows the scope could see at the moment of its decision, which is what a read one statement earlier would return. A decision never mixes inputs from two snapshots, because Visibility loads them in one statement. REPEATABLE READ adds nothing for these reads. The event reader still needs it: its snapshot and cursor must come from one moment (event-log.md, "Reading").
 - Live delivery is covered by the event log design. Each page an event reader pulls is authorized from current data, like any read.
 
@@ -168,6 +168,6 @@ Slices 2 to 5 share `chat.ex` (the facade), so they run in order.
 ## Questions for the owner
 
 1. **Managers and hidden channels.** Decided by the owner (2026-11-08): a member with `manage_channels` who cannot view a channel cannot see or edit it (as in Discord). The other option is that `manage_channels` sees every channel.
-2. **Member directory.** Proposed: every active member sees every member and bot (names, avatars, roles). The other option limits the directory to members who share a visible channel.
+2. **Member directory.** Decided (2026-11-18, delegated by the owner to the coordinator): every active member sees every member and bot (names, avatars, roles). A removed, banned or deleted user answers like a missing one. The other option limits the directory to members who share a visible channel.
 3. **Audit log access.** Decided by the owner (2026-11-08): add a `view_audit_log` permission bit, as Discord has, and give it to the moderator roles. The other option reuses the moderation bits.
-4. **Role changes and writes in flight.** Proposed: a write that loaded its permissions just before a role or overwrite change committed may still commit (an overlap of at most one transaction), as described under "Consistency". The other option locks every affected member on each role change, which makes role edits slow on a large server.
+4. **Role changes and writes in flight.** Decided (2026-11-18, delegated by the owner to the coordinator): a write that loaded its permissions just before a role or overwrite change committed may still commit (an overlap of at most one transaction), as described under "Consistency". The other option locks every affected member on each role change, which makes role edits slow on a large server.

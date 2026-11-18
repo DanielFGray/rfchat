@@ -11,6 +11,7 @@ defmodule Rfchat.Accounts do
   alias Rfchat.Chat.Membership
   alias Rfchat.Chat.User
   alias Rfchat.Chat.UserSession
+  alias Rfchat.Chat.Visibility
   alias Rfchat.Ephemeral
   alias Rfchat.Repo
 
@@ -22,26 +23,41 @@ defmodule Rfchat.Accounts do
     Repo.get_by(User, email: email)
   end
 
-  def get_user!(id), do: Repo.get!(User, id)
-
-  def get_user_with_membership!(id) do
-    User
-    |> Repo.get!(id)
-    |> Repo.preload([:membership, member_roles: :role])
+  @doc """
+  The active members of the server (not deleted, not deactivated), owners first, each with its
+  presence. A scope that is not an active member gets `[]`.
+  """
+  def list_members(%Scope{} = scope) do
+    if is_nil(Visibility.member(scope)),
+      do: [],
+      else: presence_entries(Repo.all(preload(active_members(), [:membership])))
   end
 
-  def list_members do
+  @doc """
+  The active member `user_id` with its membership and roles, or nil. A scope that is not an active
+  member gets nil, and so does a banned, removed or deleted user, or an id that is not a UUID.
+  """
+  def get_member(%Scope{} = scope, user_id) do
+    with {:ok, user_id} <- Ecto.UUID.cast(user_id),
+         %User{} <- Visibility.member(scope) do
+      active_members()
+      |> where([user], user.id == ^user_id)
+      |> preload([:membership, member_roles: :role])
+      |> Repo.one()
+    else
+      _ -> nil
+    end
+  end
+
+  defp active_members do
     User
     |> join(:inner, [user], membership in Membership, on: membership.user_id == user.id)
     |> where([user, membership], is_nil(user.deleted_at) and is_nil(membership.deactivated_at))
     |> order_by([_user, membership], desc: membership.is_owner, asc: membership.joined_at)
-    |> preload([user, _membership], [:membership])
-    |> Repo.all()
   end
 
-  def list_members_with_presence do
+  defp presence_entries(members) do
     now = DateTime.utc_now()
-    members = list_members()
 
     active_sessions =
       members
@@ -290,21 +306,21 @@ defmodule Rfchat.Accounts do
   def hash_token(token) when is_binary(token), do: :crypto.hash(:sha256, token)
 
   @doc """
-  Promote a user to owner. The `actor` must be an active owner now, in the database.
-  Returns `{:ok, membership}` or `{:error, reason}`.
+  Promote the member `subject_user_id` to owner. The scope must be an active owner now, in the
+  database. Returns `{:ok, membership}`, or `{:error, reason}`: `:forbidden` for a scope that is
+  not an owner, `:self`, or `:not_found` for a subject with no membership.
   """
-  def promote_to_owner(%User{} = actor, %User{} = subject) do
-    change_ownership(actor, subject, true)
+  def promote_to_owner(%Scope{} = scope, subject_user_id) do
+    change_ownership(scope, subject_user_id, true)
   end
 
   @doc """
-  Demote a user from owner. The `actor` must be an active owner now, in the database, and
+  Demote the owner `subject_user_id`. The scope must be an active owner now, in the database, and
   cannot demote themselves. So the actor is still an owner after every demotion, and the
-  server always keeps at least one owner.
-  Returns `{:ok, membership}` or `{:error, reason}`.
+  server always keeps at least one owner. Returns the same errors as `promote_to_owner/2`.
   """
-  def demote_from_owner(%User{} = actor, %User{} = subject) do
-    change_ownership(actor, subject, false)
+  def demote_from_owner(%Scope{} = scope, subject_user_id) do
+    change_ownership(scope, subject_user_id, false)
   end
 
   def owner?(%User{membership: %Membership{is_owner: true}}), do: true
@@ -313,21 +329,33 @@ defmodule Rfchat.Accounts do
   # Every ownership decision runs under one lock and reads memberships after taking it.
   # Without the lock, two owners who demote each other at the same time each see the
   # other as an owner, and both demotions commit.
-  defp change_ownership(%User{id: actor_id}, %User{id: subject_id}, is_owner) do
+  # The advisory lock comes first, then `Visibility.authorize_write/3` takes both membership rows
+  # `FOR UPDATE` and decides that the actor is an active owner. A non-owner is `:forbidden` before
+  # the self check. The subject's own state is read only after those locks are held.
+  defp change_ownership(%Scope{} = scope, subject_user_id, is_owner) do
+    case Ecto.UUID.cast(subject_user_id) do
+      {:ok, subject_id} -> run_change_ownership(scope, subject_id, is_owner)
+      :error -> {:error, :not_found}
+    end
+  end
+
+  defp run_change_ownership(%Scope{user_id: actor_id} = scope, subject_id, is_owner) do
     Repo.transaction(fn ->
       lock_ownership!()
-      actor_membership = current_membership(actor_id)
+
+      case Visibility.authorize_write(scope, :manage_ownership, subject_id) do
+        :ok -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+
       subject_membership = current_membership(subject_id)
 
       cond do
-        not active_owner?(actor_membership) ->
-          Repo.rollback(:forbidden)
-
         actor_id == subject_id ->
           Repo.rollback(:self)
 
-        is_nil(subject_membership) ->
-          Repo.rollback(:no_membership)
+        is_nil(subject_membership) or not is_nil(subject_membership.deactivated_at) ->
+          Repo.rollback(:not_found)
 
         subject_membership.is_owner == is_owner ->
           subject_membership
@@ -339,9 +367,6 @@ defmodule Rfchat.Accounts do
   end
 
   defp current_membership(user_id), do: Repo.get_by(Membership, user_id: user_id)
-
-  defp active_owner?(%Membership{is_owner: true, deactivated_at: nil}), do: true
-  defp active_owner?(_membership), do: false
 
   # A transaction-scoped Postgres advisory lock: it is released at commit or rollback.
   defp lock_ownership! do

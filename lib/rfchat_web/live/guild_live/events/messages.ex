@@ -412,7 +412,7 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
 
   defp maybe_refresh_typing_users(socket, channel_id, type, user_id) do
     if socket.assigns.active_channel && socket.assigns.active_channel.id == channel_id do
-      update_typing_assign(socket, :typing_users, socket.assigns.active_channel, type, user_id)
+      update_typing_assign(socket, :typing_users, type, user_id)
     else
       socket
     end
@@ -420,33 +420,29 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
 
   defp maybe_refresh_thread_typing_users(socket, channel_id, type, user_id) do
     if socket.assigns.active_thread && socket.assigns.active_thread.id == channel_id do
-      update_typing_assign(
-        socket,
-        :thread_typing_users,
-        socket.assigns.active_thread,
-        type,
-        user_id
-      )
+      update_typing_assign(socket, :thread_typing_users, type, user_id)
     else
       socket
     end
   end
 
-  defp update_typing_assign(socket, assign_key, channel, :typing_started, user_id) do
+  defp update_typing_assign(socket, assign_key, :typing_started, user_id) do
+    # The typer is decided by `Chat.start_typing`, and this socket subscribes only to channels it
+    # may view. A typer who is not an active member has no member row to show.
     if user_id == socket.assigns.current_user.id do
       socket
     else
-      user = Accounts.get_user_with_membership!(user_id)
+      case Accounts.get_member(socket.assigns.current_scope, user_id) do
+        nil ->
+          socket
 
-      if Chat.can_view_channel?(channel, user) do
-        assign(socket, assign_key, merge_typing_user(socket.assigns[assign_key] || [], user))
-      else
-        socket
+        user ->
+          assign(socket, assign_key, merge_typing_user(socket.assigns[assign_key] || [], user))
       end
     end
   end
 
-  defp update_typing_assign(socket, assign_key, _channel, :typing_stopped, user_id) do
+  defp update_typing_assign(socket, assign_key, :typing_stopped, user_id) do
     assign(socket, assign_key, Enum.reject(socket.assigns[assign_key] || [], &(&1.id == user_id)))
   end
 

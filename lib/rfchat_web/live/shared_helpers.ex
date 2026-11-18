@@ -20,6 +20,9 @@ defmodule RfchatWeb.Live.SharedHelpers do
   def can_manage_server?(nil), do: false
   def can_manage_server?(scope), do: Visibility.can?(scope, :manage_server, :server)
 
+  def can_view_audit_log?(nil), do: false
+  def can_view_audit_log?(scope), do: Visibility.can?(scope, :view_audit_log, :server)
+
   def can_moderate_members?(nil), do: false
 
   def can_moderate_members?(scope) do
@@ -74,14 +77,14 @@ defmodule RfchatWeb.Live.SharedHelpers do
     socket.assigns.uploads[name].entries |> List.first()
   end
 
-  def run_member_moderation(actor, subject, %{
+  def run_member_moderation(scope, subject_id, %{
         "action" => "timeout",
         "duration_minutes" => minutes,
         "reason" => reason
       }) do
     case Integer.parse(to_string(minutes || "")) do
       {duration_minutes, ""} when duration_minutes > 0 ->
-        case Chat.timeout_member(actor, subject, duration_minutes, blank_to_nil(reason)) do
+        case Chat.timeout_member(scope, subject_id, duration_minutes, blank_to_nil(reason)) do
           {:ok, updated_subject, moderation_case} ->
             {:ok, updated_subject, moderation_case, "Member timed out."}
 
@@ -94,8 +97,8 @@ defmodule RfchatWeb.Live.SharedHelpers do
     end
   end
 
-  def run_member_moderation(actor, subject, %{"action" => "kick", "reason" => reason}) do
-    case Chat.kick_member(actor, subject, blank_to_nil(reason)) do
+  def run_member_moderation(scope, subject_id, %{"action" => "kick", "reason" => reason}) do
+    case Chat.kick_member(scope, subject_id, blank_to_nil(reason)) do
       {:ok, updated_subject, moderation_case} ->
         {:ok, updated_subject, moderation_case, "Member kicked."}
 
@@ -104,8 +107,8 @@ defmodule RfchatWeb.Live.SharedHelpers do
     end
   end
 
-  def run_member_moderation(actor, subject, %{"action" => "ban", "reason" => reason}) do
-    case Chat.ban_member(actor, subject, blank_to_nil(reason)) do
+  def run_member_moderation(scope, subject_id, %{"action" => "ban", "reason" => reason}) do
+    case Chat.ban_member(scope, subject_id, blank_to_nil(reason)) do
       {:ok, updated_subject, moderation_case} ->
         {:ok, updated_subject, moderation_case, "Member banned."}
 
@@ -114,7 +117,7 @@ defmodule RfchatWeb.Live.SharedHelpers do
     end
   end
 
-  def run_member_moderation(_actor, _subject, _params), do: {:error, :invalid_action}
+  def run_member_moderation(_scope, _subject_id, _params), do: {:error, :invalid_action}
 
   def emoji_entries_for_picker(current_user) do
     Chat.list_available_emojis(current_user)

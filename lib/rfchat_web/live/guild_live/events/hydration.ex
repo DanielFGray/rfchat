@@ -26,7 +26,7 @@ defmodule RfchatWeb.GuildLive.Events.Hydration do
       )
       |> Phoenix.Component.assign(
         :composer_mentions_json,
-        Jason.encode!(Rfchat.Chat.composer_mentions())
+        Jason.encode!(Rfchat.Chat.composer_mentions(socket.assigns.current_scope))
       )
       |> Phoenix.Component.assign(
         :composer_commands_json,

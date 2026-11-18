@@ -39,16 +39,17 @@ defmodule Rfchat.ChatFixtures do
         owner
 
       {:error, :owner_exists} ->
-        existing_owner =
+        existing_owner_id =
           Repo.one!(
             from membership in Rfchat.Chat.Membership,
               where: membership.is_owner and is_nil(membership.deactivated_at),
               select: membership.user_id,
               limit: 1
           )
-          |> Accounts.get_user_with_membership!()
 
-        {:ok, membership} = Accounts.promote_to_owner(existing_owner, user)
+        {:ok, membership} =
+          Accounts.promote_to_owner(%Rfchat.Accounts.Scope{user_id: existing_owner_id}, user.id)
+
         %{user | membership: membership}
     end
   end
@@ -63,19 +64,26 @@ defmodule Rfchat.ChatFixtures do
         "position" => System.unique_integer([:positive])
       })
 
-    owner =
+    owner_id =
       case Repo.one(
              from membership in Rfchat.Chat.Membership,
                where: membership.is_owner and is_nil(membership.deactivated_at),
                select: membership.user_id,
                limit: 1
            ) do
-        nil -> owner_fixture()
-        user_id -> Accounts.get_user_with_membership!(user_id)
+        nil -> owner_fixture().id
+        user_id -> user_id
       end
 
-    {:ok, channel} = Chat.create_channel(scope_for(owner), attrs)
+    {:ok, channel} = Chat.create_channel(%Rfchat.Accounts.Scope{user_id: owner_id}, attrs)
     channel
+  end
+
+  @doc "The user row with its membership and roles, whatever the membership's state."
+  def user_with_membership!(user_id) do
+    Rfchat.Chat.User
+    |> Repo.get!(user_id)
+    |> Repo.preload([:membership, member_roles: :role])
   end
 
   def channel_by_slug!(slug) do

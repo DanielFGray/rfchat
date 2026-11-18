@@ -53,9 +53,9 @@ defmodule RfchatWeb.ServerBrandingTest do
   test "a demoted owner's stale struct cannot change branding" do
     owner = owner_fixture()
     second_owner = user_fixture()
-    {:ok, _} = Rfchat.Accounts.promote_to_owner(owner, second_owner)
-    stale_second_owner = Rfchat.Accounts.get_user_with_membership!(second_owner.id)
-    {:ok, _} = Rfchat.Accounts.demote_from_owner(owner, second_owner)
+    {:ok, _} = Rfchat.Accounts.promote_to_owner(scope_for(owner), second_owner.id)
+    stale_second_owner = user_with_membership!(second_owner.id)
+    {:ok, _} = Rfchat.Accounts.demote_from_owner(scope_for(owner), second_owner.id)
 
     assert {:error, :forbidden} =
              Chat.update_server_settings(%{"name" => "Stale"}, stale_second_owner)

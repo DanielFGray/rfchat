@@ -75,8 +75,38 @@ defmodule Rfchat.Chat.Visibility do
     :ok
   end
 
+  # A moderation or ownership write names a subject. Both membership rows are taken `FOR UPDATE`,
+  # each once, in ascending user id, so every such write takes them in the same order. The lock is
+  # chosen by the action, not by the target's shape. Every other write holds only the actor's row.
+  defp lock_membership_rows(%Scope{user_id: actor_id}, {:moderate, _bit}, subject_id),
+    do: lock_rows_for_update([actor_id, subject_id])
+
+  defp lock_membership_rows(%Scope{user_id: actor_id}, :manage_ownership, subject_id),
+    do: lock_rows_for_update([actor_id, subject_id])
+
+  defp lock_membership_rows(%Scope{user_id: actor_id}, _action, _target),
+    do: lock_membership(actor_id)
+
+  defp lock_rows_for_update(user_ids) do
+    user_ids
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(fn user_id ->
+      from(membership in Membership,
+        where: membership.user_id == ^user_id,
+        select: membership.id,
+        lock: "FOR UPDATE"
+      )
+      |> Repo.one()
+    end)
+
+    :ok
+  end
+
   @doc """
-  Takes the scope's membership row `FOR SHARE`, then decides the write. A hidden or missing
+  Takes the membership locks the action needs, then decides the write. Moderation and ownership
+  lock the actor's and the subject's rows `FOR UPDATE` in user id order; every other write takes
+  the actor's row `FOR SHARE`. A hidden or missing
   target returns `{:error, :not_found}`; a visible target without permission returns
   `{:error, :forbidden}`. This must run inside the write transaction.
   """
@@ -85,7 +115,7 @@ defmodule Rfchat.Chat.Visibility do
       raise ArgumentError, "authorize_write/3 must run inside a transaction"
     end
 
-    lock_membership(scope.user_id)
+    lock_membership_rows(scope, action, target)
 
     if can?(scope, action, target), do: :ok, else: refusal(scope, target)
   end
@@ -106,6 +136,20 @@ defmodule Rfchat.Chat.Visibility do
   end
 
   defp refusal(_scope, :server), do: {:error, :forbidden}
+
+  # A subject with no membership row, or whose user row is deleted, answers as a missing row. Any
+  # other subject the scope may not change is `:forbidden`, whatever its membership state.
+  defp refusal(_scope, subject_id) when is_binary(subject_id) do
+    query =
+      from(membership in Membership,
+        join: user in User,
+        on: user.id == membership.user_id,
+        where: membership.user_id == ^subject_id and is_nil(user.deleted_at),
+        select: membership.id
+      )
+
+    if Repo.exists?(query), do: {:error, :forbidden}, else: {:error, :not_found}
+  end
 
   @doc """
   The channels and threads the scope may view now, ordered by position then creation. Each is
@@ -348,6 +392,11 @@ defmodule Rfchat.Chat.Visibility do
   defp decide(action, ctx, :server) when is_atom(action) do
     Authorization.has_permission?(server_bits(ctx), action)
   end
+
+  # Ownership changes are decided by the actor alone: an active owner. The subject's state is
+  # checked by the caller after the lock is held.
+  defp decide(:manage_ownership, ctx, subject_id) when is_binary(subject_id),
+    do: owner?(ctx.member)
 
   defp decide({:moderate, bit}, ctx, subject_id) when is_binary(subject_id) do
     subject = load(%Scope{user_id: subject_id}, [])

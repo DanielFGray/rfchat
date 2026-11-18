@@ -275,9 +275,9 @@ defmodule Rfchat.Chat.VisibilityTest do
          %{actor: actor} do
       subject = user_fixture(%{email: "mod-kicked@example.com", username: "mod_kicked"})
 
-      assert {:ok, _kicked, _case} = Chat.kick_member(actor, subject)
+      assert {:ok, _kicked, _case} = Chat.kick_member(scope_for(actor), subject.id)
       assert can?(actor, {:moderate, :ban_members}, subject.id)
-      assert {:ok, _banned, _case} = Chat.ban_member(actor, subject)
+      assert {:ok, _banned, _case} = Chat.ban_member(scope_for(actor), subject.id)
     end
   end
 

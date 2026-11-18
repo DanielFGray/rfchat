@@ -52,11 +52,11 @@ defmodule Rfchat.Bots.Commands do
   def list_messages(_, _), do: {:error, :invalid_params}
 
   def timeout_member(%Scope{} = scope, %{"user_id" => user_id} = params) do
-    with {:ok, bot_user} <- Bots.acting_member(scope),
-         {:ok, subject} <- Params.fetch_member(user_id),
+    with {:ok, _bot_user} <- Bots.acting_member(scope),
+         {:ok, subject_id} <- Params.member_id(user_id),
          {:ok, duration_minutes} <-
            Params.parse_positive_integer(Map.get(params, "duration_minutes")) do
-      case Chat.timeout_member(bot_user, subject, duration_minutes, Map.get(params, "reason")) do
+      case Chat.timeout_member(scope, subject_id, duration_minutes, Map.get(params, "reason")) do
         {:ok, updated_subject, moderation_case} ->
           {:ok, Serializer.moderation_response(updated_subject, moderation_case, "timeout")}
 
@@ -69,9 +69,9 @@ defmodule Rfchat.Bots.Commands do
   def timeout_member(_, _), do: {:error, :invalid_params}
 
   def kick_member(%Scope{} = scope, %{"user_id" => user_id} = params) do
-    with {:ok, bot_user} <- Bots.acting_member(scope),
-         {:ok, subject} <- Params.fetch_member(user_id) do
-      case Chat.kick_member(bot_user, subject, Map.get(params, "reason")) do
+    with {:ok, _bot_user} <- Bots.acting_member(scope),
+         {:ok, subject_id} <- Params.member_id(user_id) do
+      case Chat.kick_member(scope, subject_id, Map.get(params, "reason")) do
         {:ok, updated_subject, moderation_case} ->
           {:ok, Serializer.moderation_response(updated_subject, moderation_case, "kick")}
 
@@ -84,9 +84,9 @@ defmodule Rfchat.Bots.Commands do
   def kick_member(_, _), do: {:error, :invalid_params}
 
   def ban_member(%Scope{} = scope, %{"user_id" => user_id} = params) do
-    with {:ok, bot_user} <- Bots.acting_member(scope),
-         {:ok, subject} <- Params.fetch_member(user_id) do
-      case Chat.ban_member(bot_user, subject, Map.get(params, "reason")) do
+    with {:ok, _bot_user} <- Bots.acting_member(scope),
+         {:ok, subject_id} <- Params.member_id(user_id) do
+      case Chat.ban_member(scope, subject_id, Map.get(params, "reason")) do
         {:ok, updated_subject, moderation_case} ->
           {:ok, Serializer.moderation_response(updated_subject, moderation_case, "ban")}
 
