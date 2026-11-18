@@ -83,6 +83,42 @@ defmodule Rfchat.ChatTest do
       assert {:error, :not_found} = Chat.move_channel(scope, hidden.id, :up)
     end
 
+    test "a hidden category hides its channels and their threads, even where they allow view" do
+      %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+      owner = owner_fixture()
+      member = channel_manager_fixture()
+      scope = scope_for(member)
+      category = channel_fixture(%{name: "Hidden group", slug: unique_slug(), kind: :category})
+
+      child =
+        channel_fixture(%{name: "Child", slug: unique_slug(), parent_channel_id: category.id})
+
+      starter = message_fixture(child, owner)
+      thread = thread_fixture(child, starter, owner)
+      reply = message_fixture(thread, owner)
+
+      channel_permission_overwrite_fixture(category, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      channel_permission_overwrite_fixture(child, %{
+        user_id: member.id,
+        allow_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      visible_ids = scope |> Chat.list_channels() |> Enum.map(& &1.id)
+
+      for hidden <- [category, child, thread], do: refute(hidden.id in visible_ids)
+      assert Chat.get_channel(scope, child.id) == nil
+      assert Chat.get_thread(scope, thread.id) == nil
+      assert Chat.get_message(scope, reply.id) == nil
+      assert {:error, :not_found} = Chat.update_channel(scope, child.id, %{name: "changed"})
+
+      assert {:error, :not_found} =
+               Chat.create_message(scope, child.id, %{body: "into the hidden channel"})
+    end
+
     test "moving a visible channel skips a hidden sibling and leaves its position intact" do
       %{default_role: default_role} = Bootstrap.ensure_seed_data!()
       manager = channel_manager_fixture()

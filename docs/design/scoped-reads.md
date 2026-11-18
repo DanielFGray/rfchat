@@ -61,17 +61,20 @@ Visibility.timed_out?(membership)           # the one timeout rule, also read by
 |---|---|---|
 | Channel bits and overwrites | `Authorization.channel_permissions/3` | yes, through Authorization |
 | A thread needs its parent visible | `can_view_thread_channel?` | yes |
+| A channel needs its category visible | none | yes |
 | Send in a thread needs the parent's send | `thread_parent_allows_messages?` | yes |
 | A timeout blocks send, react, edit, thread create | `timed_out?` checks in each caller | yes, for those actions |
 | Role hierarchy for moderation | `top_role_position`, `authorize_member_moderation` | yes, `:moderate` actions |
 | Bot grant authority | `Bots.Authority` | stays in `Bots.Authority`, which reads `authority/2`: owner, server bits, top role position and the bits in each named channel, from one load |
 | Owner and administrator | `expand_administrator`, owner checks | yes |
 
+A category's view deny hides every channel under it; an allow overwrite on a child does not reopen it. Discord differs: there a child's own overwrite wins.
+
 Old `Permissions.can_*?` functions are deleted, not kept beside `can?/3`.
 
 Cost:
 
-- A by-id read loads the target, its channel (and its parent channel, for a thread), their overwrites and the member, then decides. It does not build the whole visible set.
+- A by-id read loads the target, its channel, that channel's parents (a thread's channel and category, a channel's category), their overwrites and the member, then decides. It does not build the whole visible set.
 - `channel_ids/1` is for list readers only: the channel sidebar, the bot stream and the event reader's context. It loads the inputs in batches (channels, threads under visible parents, their overwrites, the member) and decides each one with the same pure `Authorization` function and parent rule as a by-id read. There is one permission algorithm. Overwrite precedence (default role, then roles, then the user; allow after deny at each level; administrator first) is never restated in SQL.
 - No cache across calls. The event reader computes its read context once per page and keeps nothing between pages. Measure first: slice 1 counts the queries for each decision and benchmarks a server with 200 channels and 20,000 threads. If SQL filtering is ever needed, it must implement the full precedence, and a property test must prove it equal to the pure function.
 - Measured in slice 1: each by-id decision is one statement, except moderation, which reads the actor and then the subject (two); `authority/2` is one, and a role grant whose overwrites name channels reads those channels in a second; `channel_ids/1` is 3 statements and 435 to 507 ms on 200 channels and 20,000 threads; the GuildLive join runs 15 queries before its first connected render and 50 once hydrated. `channel_ids/1` is `visible_channels/1` mapped to ids, so a list reader that needs the structs does not load the channels twice.
@@ -80,7 +83,7 @@ Cost:
 
 | Data | Who may read |
 |---|---|
-| Channels, threads, messages, reactions | members who can view the channel (and the thread's parent) |
+| Channels, threads, messages, reactions | members who can view the channel and every parent: a thread's channel, a channel's category |
 | Server name, icon, custom emojis | every active member |
 | Member directory (names, avatars, roles, bots) | every active member |
 | A member's notification settings and read state | that member only |
@@ -102,7 +105,7 @@ Serializers become pure functions of already-loaded data. The `Repo.preload` cal
 
 ## Consistency
 
-- The permission check and the change run in one transaction at READ COMMITTED. The transaction locks first and loads after: it takes its membership locks, then loads all the inputs of one decision (member, roles, the channel and its parent, their overwrites) in one statement. One statement at READ COMMITTED sees one snapshot, so a decision never mixes role bits from before a change with overwrites from after it.
+- The permission check and the change run in one transaction at READ COMMITTED. The transaction locks first and loads after: it takes its membership locks, then loads all the inputs of one decision (member, roles, the channel and its parents, their overwrites) in one statement. One statement at READ COMMITTED sees one snapshot, so a decision never mixes role bits from before a change with overwrites from after it.
 - Lock protocol for membership rows. Each write names every membership row it needs before it starts, takes each one once, in the strongest mode it needs, in ascending user id order:
   - a write by a member that changes no membership: the actor's row, `FOR SHARE`;
   - a write that changes the actor's own membership (profile, nickname, leaving): the actor's row, `FOR UPDATE`;

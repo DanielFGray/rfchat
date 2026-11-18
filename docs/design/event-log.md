@@ -170,7 +170,7 @@ The envelope keeps `v`, `kind` and `id`. The federation design can choose to sig
 
 ## Deleted channels
 
-Channels stay hard-deleted, as they are today. A deleted category takes its channels with it, and a deleted channel takes its threads (the foreign keys cascade). The delete transaction:
+Channels stay hard-deleted, as they are today. A deleted category moves its channels to the root level in the same transaction and deletes none of them. A deleted channel takes its threads (the foreign key cascades). The delete transaction:
 
 1. locks the deleted set, one level at a time: it locks the channel row `FOR UPDATE`, then runs `select ... where parent_id = any(<locked ids>) order by id for update` until a level returns no rows. A level waits for any creation that still holds its parent, and the next statement then sees the new row, so no child escapes the set;
 2. rewrites the payload of every event whose `channel_id` is in that set to the redaction envelope; the rows and their `seq` stay, so the log has no gap;

@@ -244,37 +244,50 @@ defmodule Rfchat.Chat.Visibility do
       on: channel.id in ^channel_ids or channel.id == target.channel_id,
       left_join: parent in Channel,
       on: parent.id == channel.parent_channel_id,
+      left_join: grandparent in Channel,
+      on: grandparent.id == parent.parent_channel_id,
       left_join: channel_overwrite in ChannelPermissionOverwrite,
       on: channel_overwrite.channel_id == channel.id,
       left_join: parent_overwrite in ChannelPermissionOverwrite,
       on: parent_overwrite.channel_id == parent.id,
-      select:
-        {user, membership, member_role, role, default_role, target, channel, channel_overwrite,
-         parent, parent_overwrite}
+      left_join: grandparent_overwrite in ChannelPermissionOverwrite,
+      on: grandparent_overwrite.channel_id == grandparent.id,
+      select: %{
+        user: user,
+        membership: membership,
+        member_role: member_role,
+        role: role,
+        default_role: default_role,
+        target: target,
+        channel: channel,
+        channel_overwrite: channel_overwrite,
+        parent: parent,
+        parent_overwrite: parent_overwrite,
+        grandparent: grandparent,
+        grandparent_overwrite: grandparent_overwrite
+      }
     )
   end
 
   # The joined rows repeat the account once per role and overwrite. This folds them back into one
   # account with its roles, one default role, the target message, and each loaded channel with
-  # its overwrites.
+  # its overwrites. A visibility decision walks up to two parents (thread, channel, category),
+  # so each target is loaded with both.
   defp assemble([]),
     do: %{account: nil, member: nil, default_role: nil, message: nil, channels: %{}}
 
-  defp assemble([{user, _, _, _, _, _, _, _, _, _} | _] = rows) do
-    membership =
-      rows |> Enum.find_value(fn {_, membership, _, _, _, _, _, _, _, _} -> membership end)
+  defp assemble([%{user: user} | _] = rows) do
+    membership = Enum.find_value(rows, & &1.membership)
 
     member_roles =
       rows
-      |> Enum.flat_map(fn {_, _, member_role, role, _, _, _, _, _, _} ->
-        if member_role, do: [%{member_role | role: role}], else: []
+      |> Enum.flat_map(fn row ->
+        if row.member_role, do: [%{row.member_role | role: row.role}], else: []
       end)
       |> Enum.uniq_by(& &1.id)
 
-    default_role =
-      Enum.find_value(rows, fn {_, _, _, _, default_role, _, _, _, _, _} -> default_role end)
-
-    message = Enum.find_value(rows, fn {_, _, _, _, _, target, _, _, _, _} -> target end)
+    default_role = Enum.find_value(rows, & &1.default_role)
+    message = Enum.find_value(rows, & &1.target)
 
     account = if membership, do: %{user | membership: membership, member_roles: member_roles}
 
@@ -282,12 +295,11 @@ defmodule Rfchat.Chat.Visibility do
 
     channels =
       rows
-      |> Enum.reduce(%{}, fn {_, _, _, _, _, _, channel, channel_overwrite, parent,
-                              parent_overwrite},
-                             acc ->
+      |> Enum.reduce(%{}, fn row, acc ->
         acc
-        |> add_channel(channel, channel_overwrite)
-        |> add_channel(parent, parent_overwrite)
+        |> add_channel(row.channel, row.channel_overwrite)
+        |> add_channel(row.parent, row.parent_overwrite)
+        |> add_channel(row.grandparent, row.grandparent_overwrite)
       end)
       |> Map.new(fn {id, {channel, overwrites}} ->
         {id, %{channel | permission_overwrites: Map.values(overwrites)}}
@@ -396,14 +408,13 @@ defmodule Rfchat.Chat.Visibility do
   defp channel_decision(:mention_everyone, ctx, channel),
     do: view?(ctx, channel) and bit?(ctx, channel, :mention_everyone)
 
-  # A thread is visible when its parent is visible and the thread itself grants view.
-  defp view?(ctx, %Channel{} = channel) do
-    if Channel.thread?(channel) do
-      parent_visible?(ctx, channel) and bit?(ctx, channel, :view_channel)
-    else
-      bit?(ctx, channel, :view_channel)
-    end
-  end
+  # A channel is visible when it grants view and its parent is visible: a thread needs its
+  # channel, and a channel needs its category. A thread always has a parent.
+  defp view?(ctx, %Channel{parent_channel_id: nil} = channel),
+    do: not Channel.thread?(channel) and bit?(ctx, channel, :view_channel)
+
+  defp view?(ctx, %Channel{} = channel),
+    do: parent_visible?(ctx, channel) and bit?(ctx, channel, :view_channel)
 
   defp parent_visible?(ctx, channel) do
     case parent(ctx, channel) do
