@@ -227,7 +227,7 @@ Slice 1 of [scoped-reads.md](scoped-reads.md) (`Visibility` and the read context
 ## Questions for the owner
 
 1. **Retention window** for message, reaction and per-user events. Decided by the owner (2026-11-08): 7 days. Longer lets clients resume after longer outages, and costs disk.
-2. **Redaction on delete.** Proposed: yes. The other option keeps the body in old events until the window expires.
+2. **Redaction on delete.** Decided by the owner (2026-11-18): yes, in the delete transaction. The other option kept the body in old events until the window expires.
 3. **History on gaining access.** Decided by the owner (2026-11-08): a member who gains a channel sees its full current history, as in Discord. The other option shows only messages sent after they gained it, and then the event reader must check access at each event's `seq`, which costs much more.
-4. **Revocation delay.** Proposed: a ban, role change or token revocation reaches a connected reader within 20 seconds (sockets of a banned member are closed at once). Shorter means more polling queries.
-5. **Deleted channels.** Proposed: members see only "a channel was deleted" (an id). Moderators see who deleted it and when.
+4. **Revocation delay.** Decided by the owner (2026-11-18): a ban, role change or token revocation reaches a connected reader at its next pull, within 20 seconds; sockets of a banned member are closed at once. Shorter means more polling queries.
+5. **Deleted channels.** Decided by the owner (2026-11-18): members see only "a channel was deleted" (an id). Moderators see who deleted it and when.
