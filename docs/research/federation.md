@@ -1,10 +1,10 @@
-# Federation design options for rfchat
+# Federation design options for Tavern
 
 Research date: 2026-11-08. Task: research federation design options (`ts-520427`).
 
 ## Question
 
-Each rfchat installation hosts one guild. The owner wants a user on server A to take part in a guild on server B. This file compares (a) Matrix, (b) ActivityPub with group extensions, (c) XMPP MUC and MIX, and (d) a custom host-authoritative protocol. In (d), the guild's home server orders all events and enforces permissions, and members on other servers join through their own home server, which relays for them.
+Each Tavern installation hosts one guild. The owner wants a user on server A to take part in a guild on server B. This file compares (a) Matrix, (b) ActivityPub with group extensions, (c) XMPP MUC and MIX, and (d) a custom host-authoritative protocol. In (d), the guild's home server orders all events and enforces permissions, and members on other servers join through their own home server, which relays for them.
 
 Then it designs one guild event log for the bot gateway and federation, and ends with a recommendation and the owner's decisions. Each claim cites the document that owns it. Text marked "estimate" or "design" is my reasoning, not a sourced fact.
 
@@ -15,7 +15,7 @@ Then it designs one guild event log for the bot gateway and federation, and ends
 - **Authority model.** Which server puts events in order, and which server decides if an event is permitted.
 - **Backfill.** Fetching history that a server did not receive live.
 - **Resume token.** A value a consumer sends after a disconnect, so the producer can send only what the consumer missed.
-- **SSE.** Server-sent events, the HTTP streaming format rfchat's bot gateway uses.
+- **SSE.** Server-sent events, the HTTP streaming format Tavern's bot gateway uses.
 - **Ed25519.** A public-key signature algorithm. **OTP** is the Erlang runtime library set. **Hex** is the Elixir package registry.
 
 Matrix terms (S2S and CS are the Matrix server-server and client-server API documents):
@@ -46,11 +46,11 @@ The grid gives short answers. The sections after it give the detail and the cita
 |---|---|---|---|---|
 | Who orders events | No single server. Each server orders a shared event graph | The `Group` actor's server | The service that hosts the room | The host server |
 | Who enforces permissions | Every server | The group's server | The room's service | The host server |
-| Fit for roles, bits and overwrites | Poor. One integer per user per room | Poor. Fixed affiliations (FEP-5219, DRAFT) | Poor. Fixed affiliations and roles | Full. The host runs rfchat's own rules |
+| Fit for roles, bits and overwrites | Poor. One integer per user per room | Poor. Fixed affiliations (FEP-5219, DRAFT) | Poor. Fixed affiliations and roles | Full. The host runs Tavern's own rules |
 | Event signing | Every event, by its origin server | Optional, DRAFT | Not in core MUC | User's server and host (design) |
 | Elixir or Erlang libraries | No server-side library | Pleroma, Akkoma, Bonfire | ejabberd | OTP `:crypto` |
-| Interop reach | Matrix clients and bridges | Forum servers such as Lemmy | XMPP clients | rfchat only |
-| Size for one small team (estimate) | Very large in-process. Medium as an application service | Medium | Medium if you run ejabberd beside rfchat | Small to medium |
+| Interop reach | Matrix clients and bridges | Forum servers such as Lemmy | XMPP clients | Tavern only |
+| Size for one small team (estimate) | Very large in-process. Medium as an application service | Medium | Medium if you run ejabberd beside Tavern | Small to medium |
 
 ## Authority model
 
@@ -78,13 +78,13 @@ MUC handles network breaks badly. XEP-0410 (Stable 1.1.0) says MUC "was not desi
 
 ### (d) Host-authoritative (design)
 
-The host server orders every guild event and checks every permission with the rules rfchat already has. A member server authenticates its own users, signs what they send, and forwards it to the host. The host checks permissions, gives the event the next sequence number, signs it, and sends it to the member servers that have a member who can view the channel.
+The host server orders every guild event and checks every permission with the rules Tavern already has. A member server authenticates its own users, signs what they send, and forwards it to the host. The host checks permissions, gives the event the next sequence number, signs it, and sends it to the member servers that have a member who can view the channel.
 
 A malicious host can drop, reorder or refuse events in its own guild, as a MUC service or FEP-1b12 group server can. If user events carry the member server's signature, other servers can detect a forged message, but not a dropped one. A malicious member server can act only as its own users, as in Matrix. If the host goes offline, the guild stops, and member servers keep their cached history.
 
 ## Roles, permission bits and overwrites
 
-rfchat's model is a set of roles with permission bits, a role order, and per-channel allow and deny overwrites for roles and members (`lib/rfchat/chat/authorization.ex`, `lib/rfchat/chat/channel_permission_overwrite.ex`).
+Tavern's model is a set of roles with permission bits, a role order, and per-channel allow and deny overwrites for roles and members (`lib/tavern/chat/authorization.ex`, `lib/tavern/chat/channel_permission_overwrite.ex`).
 
 ### Matrix power levels
 
@@ -101,7 +101,7 @@ What is lost:
 
 - **Roles.** The spec has no role object. Each room lists users and their levels. A role change rewrites the power levels event in every room the role touches.
 - **Bits that do not nest.** All thresholds sit on one integer line. Take user A who can manage emojis but cannot kick, and user B who can kick but cannot manage emojis. A needs emoji ≤ a < kick. B needs kick ≤ b < emoji. Both cannot hold, so the model cannot express this pair.
-- **Deny overwrites for a role.** An overwrite such as "the Muted role cannot send in #announcements" becomes per-user levels in that room, which rfchat must rewrite each time the role's members change.
+- **Deny overwrites for a role.** An overwrite such as "the Muted role cannot send in #announcements" becomes per-user levels in that room, which Tavern must rewrite each time the role's members change.
 - **View permission.** Viewing a channel is room membership. A `restricted` join rule can admit space members, but the conditions "are only checked/evaluated during the join process" ([CS §Restricted rooms][cs-restricted]). Removing `view_channel` means kicking the user from that room.
 - **Owner transfer.** See room version 12 above.
 
@@ -115,7 +115,7 @@ MUC has two fixed ladders. Affiliations (`owner`, `admin`, `member`, `outcast`) 
 
 ### Host-authoritative
 
-Nothing is lost. The host runs rfchat's existing `Authorization` code on remote users, who get roles, overwrites and bans like local users. Member servers only show what the host sends.
+Nothing is lost. The host runs Tavern's existing `Authorization` code on remote users, who get roles, overwrites and bans like local users. Member servers only show what the host sends.
 
 ## Identity, mentions and bans
 
@@ -143,7 +143,7 @@ Nothing is lost. The host runs rfchat's existing `Authorization` code on remote 
 - **Matrix.** `m.room.server_acl` lists allowed and denied server names. Every server in the room must enforce it, and servers that do not "MUST be manually appended to the denied hosts list" ([CS §Server ACLs][cs-acl], [S2S §Server ACLs][s2s-acl]). Policy lists carry `m.ban` rules for users, servers and rooms, and "enforcement of this is deliberately left as an implementation detail" ([CS §Moderation policy lists][cs-policy]). Since v1.18 a room can name a Policy Server that must sign each event, or other servers soft fail it ([S2S §Policy Servers][s2s-ps]).
 - **ActivityPub.** The group SHOULD validate incoming activities, "such as checking for domain and user blocks" ([FEP-1b12][1b12]). The spec offers no spam mechanism and recommends filters ([AP §B.6][ap-b6]).
 - **XMPP.** Room bans are covered above. Moderated message retraction is XEP-0425, Experimental 0.3.1 ([XEP-0425][x425]).
-- **Host-authoritative (design).** The host checks bans, timeouts and rate limits before it numbers an event. A banned server's requests are refused at ingress. Abuse reports from remote users go to the host's existing report queue (`lib/rfchat/chat/message_report.ex`).
+- **Host-authoritative (design).** The host checks bans, timeouts and rate limits before it numbers an event. A banned server's requests are refused at ingress. Abuse reports from remote users go to the host's existing report queue (`lib/tavern/chat/message_report.ex`).
 
 ## Media
 
@@ -156,10 +156,10 @@ Nothing is lost. The host runs rfchat's existing `Authorization` code on remote 
 
 No source states sizes. These estimates assume one or two people working part time.
 
-- **(a) Matrix, inside rfchat.** The v1.19 S2S page has about 35 endpoints. The hard parts are the authorisation rules, state resolution, soft failure, keys and canonical JSON. Matrix clients would also need the client-server API. Estimate: more than a year. A bug in state resolution splits a room between servers.
-- **(a') Matrix through an application service.** Run an existing homeserver and connect rfchat as an application service. An application service is a process that a homeserver pushes events to, and that can act as users in its namespace. Estimate: weeks to two months. But application services "cannot prevent events from being sent, nor can they modify the content" ([AS API §Application Services][as-api]). rfchat could not enforce its permissions on Matrix users. This is a bridge, not federation of rfchat guilds.
+- **(a) Matrix, inside Tavern.** The v1.19 S2S page has about 35 endpoints. The hard parts are the authorisation rules, state resolution, soft failure, keys and canonical JSON. Matrix clients would also need the client-server API. Estimate: more than a year. A bug in state resolution splits a room between servers.
+- **(a') Matrix through an application service.** Run an existing homeserver and connect Tavern as an application service. An application service is a process that a homeserver pushes events to, and that can act as users in its namespace. Estimate: weeks to two months. But application services "cannot prevent events from being sent, nor can they modify the content" ([AS API §Application Services][as-api]). Tavern could not enforce its permissions on Matrix users. This is a bridge, not federation of Tavern guilds.
 - **(b) ActivityPub groups.** Actors, inboxes, HTTP signatures in two formats, `Announce` wrapping, and FEP-5219 affiliations. Estimate: two to four months. No other server renders these forum objects as chat.
-- **(c) XMPP.** Run ejabberd beside rfchat and bridge rooms to it. Estimate: two to four months. The hard parts are MUC presence rules and MAM. Permissions do not map, so XMPP users see a reduced room.
+- **(c) XMPP.** Run ejabberd beside Tavern and bridge rooms to it. Estimate: two to four months. The hard parts are MUC presence rules and MAM. Permissions do not map, so XMPP users see a reduced room.
 - **(d) Host-authoritative.** Signed requests, key publishing, a relay endpoint, the event log, remote user rows and media fetching. Estimate: one to three months. The hard parts are sequence commit order, retries, and remote media.
 
 ## Elixir and Erlang libraries
@@ -169,16 +169,16 @@ Figures are from the Hex API (`https://hex.pm/api/packages?search=...`) and repo
 - **Matrix.** matrix.org lists one Elixir homeserver, Matrex, as "Obsolete" and "A WIP toy" ([Matrix servers][m-servers]). The client libraries `polyjuice_client` 0.4.4 (2021), `polyjuice_util` 0.2.2 (2021, [GitLab][polyjuice]) and `matrix_sdk` 0.2.0 (2020) do not implement federation.
 - **ActivityPub.** Pleroma ([git.pleroma.social/pleroma/pleroma][pleroma]) and Akkoma ([akkoma.dev][akkoma], updated 2026-11-03) are full Elixir servers. Pleroma publishes `http_signatures` 0.1.3 (2026-05-11). Bonfire's `activity_pub` library is AGPL-3.0 and active ([GitHub][bonfire]).
 - **XMPP.** ejabberd 26.9.0 is on Hex (2026-10-05). It is GPL-2.0 ([COPYING][ejabberd-lic]), and its `mod_mix` declares XEP-0369 0.14.1 as "complete" ([source][ejabberd-mix]). MongooseIM is also GPL-2.0 ([COPYING][mongoose-lic]). The `xmpp` parser 1.13.5 is Apache-2.0.
-- **Host-authoritative.** OTP `:crypto` (Ed25519), `rfc8785` 1.0.0, and Req, which rfchat already uses for HTTP.
+- **Host-authoritative.** OTP `:crypto` (Ed25519), `rfc8785` 1.0.0, and Req, which Tavern already uses for HTTP.
 
-rfchat has no `licenses` entry in `mix.exs` and no LICENSE file, so GPL and AGPL compatibility is an open question.
+Tavern has no `licenses` entry in `mix.exs` and no LICENSE file, so GPL and AGPL compatibility is an open question.
 
 ## Interop reach
 
 - **Matrix.** matrix.org lists 48 clients ([Matrix clients][m-clients]). Bridges to other networks run as application services ([AS API][as-api]).
 - **ActivityPub.** FEP-1b12 groups federate between Lemmy, Friendica, Hubzilla, Lotide and PeerTube. Moderation "is only implemented by Lemmy" ([FEP-1b12 §Implementations][1b12]). Mastodon's ActivityPub spec does not mention `Group` actors ([Mastodon ActivityPub spec][masto-ap]). FEP-1970 (DRAFT) only links to a chat room elsewhere ([FEP-1970][1970]). I found no FEP for real-time channel chat.
 - **XMPP.** xmpp.org lists clients and servers ([XMPP software][x-soft]). I did not check per-client MUC or MIX support. MIX is Experimental, and its admin XEP is Deferred.
-- **Host-authoritative.** rfchat servers only. A bridge can come later.
+- **Host-authoritative.** Tavern servers only. A bridge can come later.
 
 ## One numbered, signed guild event log
 
@@ -238,11 +238,11 @@ With both signatures, a server can check that the user's server sent this conten
 
 ## Recommendation
 
-Build option (d), the host-authoritative protocol, as rfchat-to-rfchat federation on one numbered, signed guild event log that the bot gateway also uses.
+Build option (d), the host-authoritative protocol, as Tavern-to-Tavern federation on one numbered, signed guild event log that the bot gateway also uses.
 
 The reasons:
 
-1. It keeps rfchat's permission model whole. Matrix power levels cannot express bits that do not nest, and MUC and FEP-5219 have fixed ladders.
+1. It keeps Tavern's permission model whole. Matrix power levels cannot express bits that do not nest, and MUC and FEP-5219 have fixed ladders.
 2. Its authority model is the one MUC and FEP-1b12 groups already use, so it is a known design, not a new one.
 3. It is the smallest option that gives real federation. One event log serves bot resume and federation.
 
@@ -252,13 +252,13 @@ The cost is that the guild depends on its host. If the host dies, the guild stop
 
 ## Decisions for the owner
 
-1. **Interop or rfchat only.** Do we accept that version one talks only to other rfchat servers?
+1. **Interop or Tavern only.** Do we accept that version one talks only to other Tavern servers?
 2. **Host failure.** When a host dies, is the guild gone, or do we build export and migration to a new host?
 3. **Remote moderators.** Can remote users hold roles with moderation or admin bits?
 4. **Remote media.** Does the host copy attachments into its own store, or do member servers fetch from the uploader's server?
 5. **Replay window.** How long does the log keep events for resume: hours, days, or all history?
-6. **End-to-end encryption.** Out of scope? Matrix has it. rfchat and option (d) do not.
-7. **Licenses.** rfchat declares no license. Is a GPL-2.0 (ejabberd) or AGPL-3.0 (Bonfire) dependency acceptable for a future bridge?
+6. **End-to-end encryption.** Out of scope? Matrix has it. Tavern and option (d) do not.
+7. **Licenses.** Tavern declares no license. Is a GPL-2.0 (ejabberd) or AGPL-3.0 (Bonfire) dependency acceptable for a future bridge?
 8. **Canonical JSON.** RFC 8785, or Matrix canonical JSON so that Matrix tools can check signatures?
 
 ## Sources

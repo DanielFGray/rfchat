@@ -1,4 +1,4 @@
-defmodule Rfchat.Repo.Migrations.AddDiscordLikeStructure do
+defmodule Tavern.Repo.Migrations.AddDiscordLikeStructure do
   use Ecto.Migration
 
   def change do

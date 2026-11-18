@@ -1,4 +1,4 @@
-defmodule Rfchat.Repo.Migrations.GrantViewAuditLogToModerators do
+defmodule Tavern.Repo.Migrations.GrantViewAuditLogToModerators do
   @moduledoc """
   Adds the `view_audit_log` bit (1 << 23) to every role that already holds a moderation bit
   (`kick_members`, `ban_members` or `moderate_members`, bits 17 to 19). Those roles could read

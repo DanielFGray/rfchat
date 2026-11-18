@@ -1,4 +1,4 @@
-defmodule Rfchat.Repo.Migrations.AddServerSettings do
+defmodule Tavern.Repo.Migrations.AddServerSettings do
   use Ecto.Migration
 
   def change do

@@ -1,4 +1,4 @@
-defmodule RfchatWeb.TestStreamAdapter do
+defmodule TavernWeb.TestStreamAdapter do
   @moduledoc false
 
   @behaviour Plug.Conn.Adapter

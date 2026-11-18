@@ -1,7 +1,7 @@
-defmodule RfchatWeb.GuildLiveFixtures do
+defmodule TavernWeb.GuildLiveFixtures do
   @moduledoc false
 
-  import Rfchat.ChatFixtures
+  import Tavern.ChatFixtures
 
   def log_in_member_user(conn, suffix \\ "default") do
     _owner =
@@ -18,7 +18,7 @@ defmodule RfchatWeb.GuildLiveFixtures do
         display_name: "Guildlive User #{suffix}"
       })
 
-    token = Rfchat.Accounts.generate_user_session_token(user)
+    token = Tavern.Accounts.generate_user_session_token(user)
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
@@ -34,7 +34,7 @@ defmodule RfchatWeb.GuildLiveFixtures do
         display_name: "Guildlive Owner"
       })
 
-    token = Rfchat.Accounts.generate_user_session_token(user)
+    token = Tavern.Accounts.generate_user_session_token(user)
 
     conn
     |> Phoenix.ConnTest.init_test_session(%{})
@@ -55,7 +55,7 @@ defmodule RfchatWeb.GuildLiveFixtures do
   defmacro live_hydrated(conn, path) do
     quote do
       with {:ok, view, _loading_html} <- Phoenix.LiveViewTest.live(unquote(conn), unquote(path)) do
-        {:ok, view, RfchatWeb.GuildLiveFixtures.await_hydration(view)}
+        {:ok, view, TavernWeb.GuildLiveFixtures.await_hydration(view)}
       end
     end
   end
@@ -79,7 +79,7 @@ defmodule RfchatWeb.GuildLiveFixtures do
 
   def current_user_from_conn(conn) do
     token = Plug.Conn.get_session(conn, :user_token)
-    Rfchat.Accounts.get_user_by_session_token(token)
+    Tavern.Accounts.get_user_by_session_token(token)
   end
 
   def category_id(slug), do: channel_by_slug!(slug).id

@@ -1,9 +1,9 @@
-defmodule Rfchat.MixProject do
+defmodule Tavern.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :rfchat,
+      app: :tavern,
       version: "0.1.0",
       elixir: "~> 1.15",
       elixirc_paths: elixirc_paths(Mix.env()),
@@ -20,7 +20,7 @@ defmodule Rfchat.MixProject do
   # Type `mix help compile.app` for more information.
   def application do
     [
-      mod: {Rfchat.Application, []},
+      mod: {Tavern.Application, []},
       extra_applications: [:logger, :runtime_tools]
     ]
   end
@@ -83,10 +83,10 @@ defmodule Rfchat.MixProject do
       "ecto.setup": ["ecto.migrate", "run priv/repo/seeds.exs"],
       test: ["ecto.migrate --quiet", "test"],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
-      "assets.build": ["compile", "tailwind rfchat", "esbuild rfchat"],
+      "assets.build": ["compile", "tailwind tavern", "esbuild tavern"],
       "assets.deploy": [
-        "tailwind rfchat --minify",
-        "esbuild rfchat --minify",
+        "tailwind tavern --minify",
+        "esbuild tavern --minify",
         "phx.digest"
       ],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]

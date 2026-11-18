@@ -1,11 +1,11 @@
-defmodule Rfchat.TestDatabase do
+defmodule Tavern.TestDatabase do
   @moduledoc """
   The platform gives a checkout one test database, and the ExUnit suite and the Playwright
   suite share it. Each suite empties it when it starts, so neither depends on the other to
   clean up after itself.
   """
 
-  alias Rfchat.Repo
+  alias Tavern.Repo
 
   @doc """
   Truncates every table except `schema_migrations` and restarts the sequences. It runs

@@ -1,23 +1,8 @@
 services:
-  valkey:
-    image: valkey/valkey:8
-    container_name: rfchat-valkey
-    restart: unless-stopped
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - valkey-data:/data
-    command: ["valkey-server", "--appendonly", "yes"]
-    healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
   # The local S3 store for uploads. It runs without authentication.
   s3:
     image: chrislusf/seaweedfs:4.50
-    container_name: rfchat-s3
+    container_name: tavern-s3
     restart: unless-stopped
     command: ["server", "-s3", "-dir=/data"]
     ports:
@@ -36,9 +21,8 @@ services:
     depends_on:
       s3:
         condition: service_healthy
-    entrypoint: ["sh", "-c", "echo 's3.bucket.create -name rfchat' | weed shell -master=s3:9333"]
+    entrypoint: ["sh", "-c", "echo 's3.bucket.create -name tavern' | weed shell -master=s3:9333"]
     restart: "no"
 
 volumes:
-  valkey-data:
   s3-data:

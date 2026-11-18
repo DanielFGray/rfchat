@@ -1,19 +1,19 @@
-defmodule Rfchat.ChatFixtures do
+defmodule Tavern.ChatFixtures do
   @moduledoc false
 
   import Ecto.Query
 
-  alias Rfchat.Accounts
-  alias Rfchat.Bots
-  alias Rfchat.Chat
-  alias Rfchat.Chat.ChannelPermissionOverwrite
-  alias Rfchat.Chat.Emoji
-  alias Rfchat.Chat.MemberRole
-  alias Rfchat.Chat.MediaAsset
-  alias Rfchat.Chat.Reaction
-  alias Rfchat.Chat.Role
-  alias Rfchat.Chat.ServerSettings
-  alias Rfchat.Repo
+  alias Tavern.Accounts
+  alias Tavern.Bots
+  alias Tavern.Chat
+  alias Tavern.Chat.ChannelPermissionOverwrite
+  alias Tavern.Chat.Emoji
+  alias Tavern.Chat.MemberRole
+  alias Tavern.Chat.MediaAsset
+  alias Tavern.Chat.Reaction
+  alias Tavern.Chat.Role
+  alias Tavern.Chat.ServerSettings
+  alias Tavern.Repo
 
   def unique_username, do: "user_#{System.unique_integer([:positive])}"
   def unique_slug, do: "channel-#{System.unique_integer([:positive])}"
@@ -41,14 +41,14 @@ defmodule Rfchat.ChatFixtures do
       {:error, :owner_exists} ->
         existing_owner_id =
           Repo.one!(
-            from membership in Rfchat.Chat.Membership,
+            from membership in Tavern.Chat.Membership,
               where: membership.is_owner and is_nil(membership.deactivated_at),
               select: membership.user_id,
               limit: 1
           )
 
         {:ok, membership} =
-          Accounts.promote_to_owner(%Rfchat.Accounts.Scope{user_id: existing_owner_id}, user.id)
+          Accounts.promote_to_owner(%Tavern.Accounts.Scope{user_id: existing_owner_id}, user.id)
 
         %{user | membership: membership}
     end
@@ -66,7 +66,7 @@ defmodule Rfchat.ChatFixtures do
 
     owner_id =
       case Repo.one(
-             from membership in Rfchat.Chat.Membership,
+             from membership in Tavern.Chat.Membership,
                where: membership.is_owner and is_nil(membership.deactivated_at),
                select: membership.user_id,
                limit: 1
@@ -75,31 +75,31 @@ defmodule Rfchat.ChatFixtures do
         user_id -> user_id
       end
 
-    {:ok, channel} = Chat.create_channel(%Rfchat.Accounts.Scope{user_id: owner_id}, attrs)
+    {:ok, channel} = Chat.create_channel(%Tavern.Accounts.Scope{user_id: owner_id}, attrs)
     channel
   end
 
   @doc "The user row with its membership and roles, whatever the membership's state."
   def user_with_membership!(user_id) do
-    Rfchat.Chat.User
+    Tavern.Chat.User
     |> Repo.get!(user_id)
     |> Repo.preload([:membership, member_roles: :role])
   end
 
   def channel_by_slug!(slug) do
-    Repo.get_by!(Rfchat.Chat.Channel, slug: slug)
+    Repo.get_by!(Tavern.Chat.Channel, slug: slug)
   end
 
   @doc "The messages in a channel, oldest first, as stored. Tests read rows here, not through the access check."
   def messages_in(channel_id) do
-    Rfchat.Chat.Message
+    Tavern.Chat.Message
     |> Ecto.Query.where([message], message.channel_id == ^channel_id)
     |> Ecto.Query.order_by([message], asc: message.inserted_at, asc: message.id)
-    |> Rfchat.Repo.all()
+    |> Tavern.Repo.all()
   end
 
   @doc "The scope that acts as `user`, for the scoped Chat functions."
-  def scope_for(user), do: %Rfchat.Accounts.Scope{user_id: user.id}
+  def scope_for(user), do: %Tavern.Accounts.Scope{user_id: user.id}
 
   def message_fixture(channel, author, attrs \\ %{}) do
     attrs = Enum.into(attrs, %{body: "hello world"})
@@ -134,7 +134,7 @@ defmodule Rfchat.ChatFixtures do
     role =
       role_fixture(%{
         name: "Channel manager #{System.unique_integer([:positive])}",
-        permissions: Rfchat.Chat.PermissionBits.combine([:manage_channels])
+        permissions: Tavern.Chat.PermissionBits.combine([:manage_channels])
       })
 
     user = user_fixture(attrs)

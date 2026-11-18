@@ -4,9 +4,9 @@ How a member manages roles and gives roles to members, and why.
 
 ## Summary
 
-- `Rfchat.Chat.Roles` holds every role operation. Each takes a `%Scope{}` first and decides inside its own transaction: `list_roles/1`, `role_controls/1`, `member_roles/2`, `create_role/2`, `update_role/3`, `delete_role/2`, `move_role/3`, `add_member_role/3`, `remove_member_role/3`. `Rfchat.Chat` delegates to it.
-- `Rfchat.Chat.RoleAuthority` holds the one rule for which roles an actor may change or give. People (through `Roles`) and bot management (through `Rfchat.Bots.Authority`) both use it.
-- `Rfchat.Chat.ChannelOverwrites` holds the channel and category permission overwrites: `list_overwrites/2`, `overwrite_controls/2`, `put_overwrite/5`, `delete_overwrite/3`. The channel editor in Settings has a Permissions section (see "Channel overwrites").
+- `Tavern.Chat.Roles` holds every role operation. Each takes a `%Scope{}` first and decides inside its own transaction: `list_roles/1`, `role_controls/1`, `member_roles/2`, `create_role/2`, `update_role/3`, `delete_role/2`, `move_role/3`, `add_member_role/3`, `remove_member_role/3`. `Tavern.Chat` delegates to it.
+- `Tavern.Chat.RoleAuthority` holds the one rule for which roles an actor may change or give. People (through `Roles`) and bot management (through `Tavern.Bots.Authority`) both use it.
+- `Tavern.Chat.ChannelOverwrites` holds the channel and category permission overwrites: `list_overwrites/2`, `overwrite_controls/2`, `put_overwrite/5`, `delete_overwrite/3`. The channel editor in Settings has a Permissions section (see "Channel overwrites").
 - The Settings page has a Roles tab for members who hold `manage_roles`, and the member list has role controls.
 
 Terms:
@@ -80,7 +80,7 @@ A moderation write (timeout, kick, ban) and a role assignment (giving or taking 
 
 Then the write loads the actor's authority (`Visibility.authority/2`) and decides. The protocol is in docs/design/scoped-reads.md, "Consistency".
 
-Bot role grants (`Rfchat.Bots.create_bot/2` and `update_bot/3`) follow the same order: the role-list lock (exclusive), the actor's membership row, then the actor's authority, and they decide and write `member_roles` in that one transaction.
+Bot role grants (`Tavern.Bots.create_bot/2` and `update_bot/3`) follow the same order: the role-list lock (exclusive), the actor's membership row, then the actor's authority, and they decide and write `member_roles` in that one transaction.
 
 An overwrite write changes what role writes (rule 4) and channel writes (who sees the channel) both decide from, so it takes both advisory locks: the role-list lock (exclusive), then the channel-tree lock, then the membership rows (the actor's `FOR SHARE`; for a user target the actor's and the subject's `FOR UPDATE`, in user id order), then the channel row, then the overwrite row. Every write that takes both advisory locks takes the role-list lock first.
 
@@ -88,7 +88,7 @@ A role change does not lock every member who holds the role. A write that loaded
 
 ## Effects
 
-- Default permissions: `Rfchat.Bootstrap.ensure_default_role!/0` sets the default role's permissions only when it creates the role. `Release.migrate` runs it on every deploy, so it never writes them again: a deploy keeps edits to `@everyone`. A new default bit reaches existing servers through a data migration, as `20261118165602_grant_view_audit_log_to_moderators` does.
+- Default permissions: `Tavern.Bootstrap.ensure_default_role!/0` sets the default role's permissions only when it creates the role. `Release.migrate` runs it on every deploy, so it never writes them again: a deploy keeps edits to `@everyone`. A new default bit reaches existing servers through a data migration, as `20261118165602_grant_view_audit_log_to_moderators` does.
 - Delete: the foreign keys from `member_roles`, `channel_permission_overwrites`, `emoji_roles` and `message_role_mentions` to `roles` are `ON DELETE CASCADE`, so those rows go with the role.
 - Audit: each write that changes something inserts one `audit_log_entries` row with `target_type: "role"`, the role id, and for give and take the subject's user id. Action types: `role_created`, `role_updated`, `role_moved`, `role_deleted`, `member_role_added`, `member_role_removed`. A move at the edge, giving a held role or taking one not held changes nothing, and is neither audited nor broadcast.
 - Overwrite audit: each overwrite write that changes something inserts one row with `target_type: "channel"`, the channel id in `target_id` and `channel_id`, the subject's user id for a user target, and `role_id`, `allow`, `deny`, `previous_allow`, `previous_deny` in `metadata`. Action types: `channel_overwrite_updated`, `channel_overwrite_deleted`. A put of the bits already stored is neither audited nor broadcast.

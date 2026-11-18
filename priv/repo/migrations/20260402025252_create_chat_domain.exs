@@ -1,4 +1,4 @@
-defmodule Rfchat.Repo.Migrations.CreateChatDomain do
+defmodule Tavern.Repo.Migrations.CreateChatDomain do
   use Ecto.Migration
 
   def change do

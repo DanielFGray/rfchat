@@ -58,7 +58,7 @@ test.beforeEach(async ({ page }) => {
     })
 
     window.Notification = FakeNotification
-    window.__rfchatNotifications = notifications
+    window.__tavernNotifications = notifications
   })
 })
 
@@ -142,7 +142,7 @@ test('settings trigger is visible and navigates to authenticated settings route'
 })
 
 test('server branding updates settings and shell surfaces', async ({ page }) => {
-  await runServerCommand(page, 'set_server_name', { name: 'RFChat' })
+  await runServerCommand(page, 'set_server_name', { name: 'Tavern' })
   await loginAsSeedUser(page)
 
   await page.locator('#open-settings-link').click()
@@ -226,7 +226,7 @@ test('inactive channel mention triggers browser notification', async ({ browser 
     })
 
     window.Notification = FakeNotification
-    window.__rfchatNotifications = notifications
+    window.__tavernNotifications = notifications
   })
 
   await loginViaTestSupport(author, { email: authorEmail, username: authorUsername, password, display_name: authorDisplayName })
@@ -243,7 +243,7 @@ test('inactive channel mention triggers browser notification', async ({ browser 
   await expect(receiver.locator('#channel-mention-engineering')).toBeVisible()
 
   await expect.poll(async () => {
-    return await receiver.evaluate(() => window.__rfchatNotifications || [])
+    return await receiver.evaluate(() => window.__tavernNotifications || [])
   }).toContainEqual(
     expect.objectContaining({
       title: expect.stringContaining('mentioned you in #Engineering'),

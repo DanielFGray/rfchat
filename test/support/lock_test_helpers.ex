@@ -1,4 +1,4 @@
-defmodule Rfchat.LockTestHelpers do
+defmodule Tavern.LockTestHelpers do
   @moduledoc """
   Helpers for tests that prove a write waits on a row lock. The sandbox shares one connection, so
   these tests use real connections that commit. A holder takes a lock in an open transaction, the
@@ -8,7 +8,7 @@ defmodule Rfchat.LockTestHelpers do
 
   import ExUnit.Assertions
 
-  alias Rfchat.Repo
+  alias Tavern.Repo
 
   # Backends blocked on a lock. The first waiter on a row waits on the holder's transaction id, a
   # later one on the row's tuple lock, and a waiter on an advisory lock on that lock. Every role may

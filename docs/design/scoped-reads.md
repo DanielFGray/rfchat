@@ -14,9 +14,9 @@ Three kinds of function are not domain operations and take no Scope:
 
 - **Authentication** builds a Scope from a credential: `Accounts.get_user_by_session_token/1` and `Bots.get_bot_scope_by_token/1`.
 - **Pure helpers** read no rows: `asset_url/1`, `default_reaction_emojis/0`, serializers.
-- **Provisioning** runs from `Rfchat.Bootstrap` and `Rfchat.Release` only. It reads and writes through its own queries in those modules. There is no "system scope": a scope that sees everything is one argument away from a web handler.
+- **Provisioning** runs from `Tavern.Bootstrap` and `Tavern.Release` only. It reads and writes through its own queries in those modules. There is no "system scope": a scope that sees everything is one argument away from a web handler.
 
-The web layer (`lib/rfchat_web`) calls only domain operations, authentication and pure helpers. It calls `Repo` nowhere.
+The web layer (`lib/tavern_web`) calls only domain operations, authentication and pure helpers. It calls `Repo` nowhere.
 
 Terms:
 
@@ -30,10 +30,10 @@ The contexts take `%User{}` or no actor, so each handler must remember its own c
 
 ## The Scope struct
 
-One struct for people and bots. It replaces `Rfchat.Accounts.Scope` (`user, membership, roles, base_permissions`) and `Rfchat.Bots.BotScope` (`bot_user, token, roles, base_permissions`):
+One struct for people and bots. It replaces `Tavern.Accounts.Scope` (`user, membership, roles, base_permissions`) and `Tavern.Bots.BotScope` (`bot_user, token, roles, base_permissions`):
 
 ```elixir
-defmodule Rfchat.Accounts.Scope do
+defmodule Tavern.Accounts.Scope do
   defstruct [:user_id, :bot_token_id]
 end
 ```
@@ -44,7 +44,7 @@ end
 
 ## Decisions: one module
 
-`Rfchat.Chat.Visibility` makes every access decision. It replaces `Rfchat.Chat.Permissions` and the permission copy in `RfchatWeb.Live.SharedHelpers.scope_permissions`. `Rfchat.Chat.Authorization` stays as the pure bitmask math under it. This design absorbs the task "Compute channel permissions once, in one module".
+`Tavern.Chat.Visibility` makes every access decision. It replaces `Tavern.Chat.Permissions` and the permission copy in `TavernWeb.Live.SharedHelpers.scope_permissions`. `Tavern.Chat.Authorization` stays as the pure bitmask math under it. This design absorbs the task "Compute channel permissions once, in one module".
 
 ```elixir
 Visibility.member(scope)                    # the fresh member, or nil (deleted, banned, kicked, bad token)
@@ -107,7 +107,7 @@ Related data follows the row it hangs on only where an invariant makes that safe
 
 The policies in this table that are marked by an owner question below are proposals until the owner answers.
 
-Serializers become pure functions of already-loaded data. The `Repo.preload` calls in `Rfchat.Bots.Serializer` move into the scoped read that feeds it, so a serializer can never be a second read path.
+Serializers become pure functions of already-loaded data. The `Repo.preload` calls in `Tavern.Bots.Serializer` move into the scoped read that feeds it, so a serializer can never be a second read path.
 
 ## Consistency
 
@@ -151,7 +151,7 @@ UI rules stay in the web layer. A scoped read answers "may this person see it". 
 
 ## Enforcement
 
-1. A test runs `rg 'Repo\.' lib/rfchat_web` and expects no match.
+1. A test runs `rg 'Repo\.' lib/tavern_web` and expects no match.
 2. Each domain operation pattern-matches `%Scope{}` in its first argument, so a forgotten scope fails loudly.
 3. One test per LiveView and API surface sends each event or request with two ids: a row in a channel the actor cannot view, and a row in a visible channel that is not open. The first never appears in any response. The second is ignored by events that act on the open conversation. The GuildLive test in the commit "fix(guild): act only on messages in the open conversation" is the model.
 

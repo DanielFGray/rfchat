@@ -1,4 +1,4 @@
-defmodule Rfchat.Repo.Migrations.GrantVisitorRole do
+defmodule Tavern.Repo.Migrations.GrantVisitorRole do
   @moduledoc """
   Gives the database's visitor role, which the app's runtime login switches to, read and
   write access to every table and sequence, now and in later migrations.

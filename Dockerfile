@@ -71,7 +71,7 @@ WORKDIR "/app"
 
 ENV MIX_ENV="prod"
 
-COPY --from=builder /app/_build/${MIX_ENV}/rel/rfchat ./
+COPY --from=builder /app/_build/${MIX_ENV}/rel/tavern ./
 
 # No USER line: Nomad runs this image under rootless Podman, where container root is already
 # the unprivileged host nomad user.

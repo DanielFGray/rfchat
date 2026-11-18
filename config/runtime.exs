@@ -12,32 +12,32 @@ import Config
 # If you use `mix release`, you need to explicitly enable the server
 # by passing the PHX_SERVER=true when you start it:
 #
-#     PHX_SERVER=true bin/rfchat start
+#     PHX_SERVER=true bin/tavern start
 #
 # Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
 # script that automatically sets the env var above.
 if System.get_env("PHX_SERVER") do
-  config :rfchat, RfchatWeb.Endpoint, server: true
+  config :tavern, TavernWeb.Endpoint, server: true
 end
 
-config :rfchat,
-  guild_name: System.get_env("RFCHAT_GUILD_NAME", "RFChat"),
-  redis_url: System.get_env("REDIS_URL", "redis://localhost:6379/0"),
-  # The platform gives each deploy its own prefix, colon included: `rfchat:` live,
-  # `rfchat-staged:` in a staged copy. The Valkey login may touch only keys under it.
-  valkey_key_prefix: System.get_env("VALKEY_KEY_PREFIX", "rfchat:"),
+config :tavern,
+  guild_name: System.get_env("TAVERN_GUILD_NAME", "Tavern"),
+  valkey_url: System.get_env("VALKEY_URL", "redis://localhost:6379/0"),
+  # The platform gives each deploy its own prefix, colon included: `tavern:` live,
+  # `tavern-staged:` in a staged copy. The Valkey login may touch only keys under it.
+  valkey_key_prefix: System.get_env("VALKEY_KEY_PREFIX", "tavern:"),
   trusted_proxy_header: System.get_env("TRUSTED_PROXY_HEADER"),
   # The platform sets the short commit of each deploy; a checkout has none.
   git_commit: System.get_env("GIT_COMMIT")
 
-config :rfchat, RfchatWeb.Endpoint,
+config :tavern, TavernWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
 # A checkout gets both URLs from `ops dev db up`, which writes them to .env. A deploy
 # gets DATABASE_URL from the cartridge's PostgresCredentials secret.
 database_url_env = if config_env() == :test, do: "TEST_DATABASE_URL", else: "DATABASE_URL"
 
-config :rfchat, Rfchat.Repo,
+config :tavern, Tavern.Repo,
   url:
     System.get_env(database_url_env) ||
       raise("""
@@ -48,7 +48,7 @@ config :rfchat, Rfchat.Repo,
 if config_env() == :prod do
   maybe_ipv6 = if System.get_env("ECTO_IPV6") in ~w(true 1), do: [:inet6], else: []
 
-  config :rfchat, Rfchat.Repo,
+  config :tavern, Tavern.Repo,
     # ssl: true,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10"),
     # For machines with several cores, consider starting multiple pools of `pool_size`
@@ -80,7 +80,7 @@ if config_env() == :prod do
     System.get_env(name) || raise("environment variable #{name} is missing")
   end
 
-  config :rfchat, Rfchat.ObjectStore,
+  config :tavern, Tavern.ObjectStore,
     endpoint: fetch_s3_env!.("S3_ENDPOINT"),
     bucket: fetch_s3_env!.("S3_BUCKET"),
     region: fetch_s3_env!.("S3_REGION"),
@@ -89,20 +89,20 @@ if config_env() == :prod do
 
   # The api login holds no grants and does not inherit the visitor role, so each server
   # connection switches to it. The migrate step logs in as the migration login, which cannot
-  # take that role; `Rfchat.Release.migrate/0` starts the Repo without this callback.
+  # take that role; `Tavern.Release.migrate/0` starts the Repo without this callback.
   visitor_role = System.get_env("DATABASE_VISITOR")
 
   if visitor_role do
     quoted_role = ~s("#{String.replace(visitor_role, ~s("), ~s(""))}")
 
-    config :rfchat, Rfchat.Repo,
+    config :tavern, Tavern.Repo,
       after_connect: {Postgrex, :query!, ["SET ROLE #{quoted_role}", []]}
   end
 
-  config :rfchat, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
+  config :tavern, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
   # Phoenix's default `check_origin: true` accepts a socket only from a page on this url's host.
-  config :rfchat, RfchatWeb.Endpoint,
+  config :tavern, TavernWeb.Endpoint,
     url: [host: public_url.host, port: public_url.port, scheme: public_url.scheme],
     http: [
       # Enable IPv6 and bind on all interfaces.

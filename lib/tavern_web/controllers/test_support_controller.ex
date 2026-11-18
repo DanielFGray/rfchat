@@ -1,0 +1,68 @@
+defmodule TavernWeb.TestSupportController do
+  use TavernWeb, :controller
+
+  alias Tavern.TestSupport
+
+  def command(conn, params) do
+    ensure_enabled!()
+
+    command = params["command"] || raise "command is required"
+    payload = extract_payload(conn, params)
+
+    case TestSupport.run_command(command, payload, conn) do
+      {:json, data} ->
+        json(conn, %{data: data})
+
+      {:conn, conn} ->
+        # The command handled the response itself (e.g. login redirect).
+        conn
+    end
+  rescue
+    error ->
+      conn
+      |> put_status(:internal_server_error)
+      |> json(%{
+        error: %{
+          message: Exception.message(error),
+          stack: Exception.format_stacktrace(__STACKTRACE__)
+        }
+      })
+  end
+
+  defp ensure_enabled! do
+    unless test_support_enabled?() do
+      raise "test support commands are disabled"
+    end
+
+    if Application.get_env(:tavern, :env) == :prod do
+      raise "test support commands must never run in production"
+    end
+  end
+
+  defp test_support_enabled? do
+    Application.get_env(:tavern, :env) in [:dev, :test] and
+      System.get_env("ENABLE_TEST_SUPPORT_COMMANDS") == "1"
+  end
+
+  defp decode_payload(nil), do: %{}
+  defp decode_payload(""), do: %{}
+
+  defp decode_payload(payload) when is_binary(payload) do
+    Jason.decode!(payload)
+  end
+
+  # For POST requests, the body is parsed as JSON params directly.
+  # For GET requests, payload is a query string parameter.
+  defp extract_payload(conn, params) do
+    if conn.method == "POST" do
+      params
+      |> Map.drop(["command"])
+      |> case do
+        empty when map_size(empty) == 0 -> decode_payload(params["payload"])
+        body_params -> body_params
+      end
+    else
+      decode_payload(params["payload"])
+    end
+  end
+end

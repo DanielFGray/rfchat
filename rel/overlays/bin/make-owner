@@ -2,4 +2,4 @@
 set -eu
 
 cd -P -- "$(dirname -- "$0")"
-OWNER_EMAIL="$1" exec ./rfchat eval 'Rfchat.Release.make_owner(System.fetch_env!("OWNER_EMAIL"))'
+OWNER_EMAIL="$1" exec ./tavern eval 'Tavern.Release.make_owner(System.fetch_env!("OWNER_EMAIL"))'

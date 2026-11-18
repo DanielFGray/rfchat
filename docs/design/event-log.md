@@ -68,7 +68,7 @@ create table events (
 
 ## Event catalogue
 
-`Rfchat.Events.Catalogue` lists every kind with its visibility predicate, its retention class and its local-only flag. A test checks that every kind any context appends is in the catalogue, and that no kind is a wildcard. Each predicate is a pure function of (read context, event). It applies the read policy of [scoped-reads.md](scoped-reads.md), so the event log has no second permission algorithm.
+`Tavern.Events.Catalogue` lists every kind with its visibility predicate, its retention class and its local-only flag. A test checks that every kind any context appends is in the catalogue, and that no kind is a wildcard. Each predicate is a pure function of (read context, event). It applies the read policy of [scoped-reads.md](scoped-reads.md), so the event log has no second permission algorithm.
 
 | Kinds | Who receives it (predicate) | Retention | Local only |
 |---|---|---|---|
@@ -107,7 +107,7 @@ Ecto.Multi.new()
 
 ## Reading
 
-Every reader runs the same loop, through `Rfchat.Events.Reader`:
+Every reader runs the same loop, through `Tavern.Events.Reader`:
 
 1. **Subscribe first.** The reader subscribes to the `events_committed` topic.
 2. **Open.** `Reader.open(scope, snapshot_fun)` runs, in one REPEATABLE READ transaction: `Visibility.member(scope)`, the consumer's snapshot function, and a read of `epoch` and `head`. It returns `{:ok, snapshot, cursor}` or `{:closed, reason}`. The consumer installs the snapshot and the cursor in the same handler. GuildLive's snapshot function is its hydration. A bot stream's is its visible channel list.
@@ -203,7 +203,7 @@ Precondition for deploy: every old instance of the app is stopped before the mig
 
 ## Testing
 
-- `Rfchat.TestDatabase.truncate!/0` empties every table before the suite. It keeps the `event_log_head` row and calls `Events.new_generation!/0`, because emptying `events` is a restore to an empty log: the same path as production.
+- `Tavern.TestDatabase.truncate!/0` empties every table before the suite. It keeps the `event_log_head` row and calls `Events.new_generation!/0`, because emptying `events` is a restore to an empty log: the same path as production.
 - The Ecto sandbox wraps each test in a transaction that never commits, and rolls back the head row after it. Readers are the test's own LiveViews and processes, which already share the test's sandbox connection, so no reader outlives its test. A test that writes events holds the head row lock until it ends, so such tests cannot run `async: true` together. Today only the two error-page tests are async. DataCase documents the rule.
 - Commit order and rollback are proved by one integration test outside the sandbox. It uses its own connections and commits for real. It writes window-kind events, asserts order and density over the `seq` range it wrote, and then cleans up through the retention prune with a window of zero. That advances `pruned_through` past its rows, so the committed log stays consistent with the rule above. The shared test database lock already keeps other suites from running at the same time.
 

@@ -4,10 +4,10 @@
 #
 # The ExUnit suite shares this database and empties it again when it starts.
 
-alias Rfchat.Accounts
-alias Rfchat.Bootstrap
+alias Tavern.Accounts
+alias Tavern.Bootstrap
 
-Rfchat.TestDatabase.truncate!()
+Tavern.TestDatabase.truncate!()
 
 Bootstrap.ensure_seed_data!()
 

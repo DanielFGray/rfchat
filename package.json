@@ -1,7 +1,7 @@
 {
-  "name": "@danielfgray/rfchat",
+  "name": "@danielfgray/tavern",
   "version": "0.1.0",
-  "description": "Rfchat is a self-hostable chat app, with each deployment representing exactly one guild/server.",
+  "description": "Tavern is a self-hostable chat app, with each deployment representing exactly one guild/server.",
   "main": "index.js",
   "directories": {
     "lib": "lib",

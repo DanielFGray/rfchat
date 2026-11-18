@@ -1,4 +1,4 @@
-defmodule Rfchat.Repo.Migrations.AllowMultipleOwners do
+defmodule Tavern.Repo.Migrations.AllowMultipleOwners do
   use Ecto.Migration
 
   def change do

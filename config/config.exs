@@ -7,26 +7,26 @@
 # General application configuration
 import Config
 
-config :rfchat,
+config :tavern,
   env: config_env(),
-  ecto_repos: [Rfchat.Repo],
+  ecto_repos: [Tavern.Repo],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
 # Configure the endpoint
-config :rfchat, RfchatWeb.Endpoint,
+config :tavern, TavernWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
   render_errors: [
-    formats: [html: RfchatWeb.ErrorHTML, json: RfchatWeb.ErrorJSON],
+    formats: [html: TavernWeb.ErrorHTML, json: TavernWeb.ErrorJSON],
     layout: false
   ],
-  pubsub_server: Rfchat.PubSub,
+  pubsub_server: Tavern.PubSub,
   live_view: [signing_salt: "f78x3xGk"]
 
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",
-  rfchat: [
+  tavern: [
     args:
       ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
@@ -36,7 +36,7 @@ config :esbuild,
 # Configure tailwind (the version is required)
 config :tailwind,
   version: "4.1.12",
-  rfchat: [
+  tavern: [
     args: ~w(
       --input=assets/css/app.css
       --output=priv/static/assets/css/app.css

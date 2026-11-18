@@ -1,6 +1,8 @@
-# Rfchat
+# Tavern
 
-Rfchat is a self-hostable chat app, with each deployment representing exactly one guild/server.
+Tavern is a self-hostable chat app, with each deployment representing exactly one guild/server.
+
+The repository directory, the GitHub repository and the task-store project are still named `rfchat`.
 
 This repo currently contains the Phoenix bootstrap plus local infrastructure for:
 
@@ -12,7 +14,7 @@ This repo currently contains the Phoenix bootstrap plus local infrastructure for
 
 ## Local bootstrap
 
-Postgres comes from the platform (`server-ansible`), which reads `cartridge.json`. Valkey runs locally in Docker.
+Postgres comes from the platform (`server-ansible`), which reads `cartridge.json`. `ops dev db up` starts a local Valkey; the S3 store for uploads runs in Docker.
 
 1. Copy the env file, then add the database URLs to it:
 
@@ -21,9 +23,9 @@ Postgres comes from the platform (`server-ansible`), which reads `cartridge.json
    ops dev db up
    ```
 
-   `ops dev db up` creates `rfchat_dev` and `rfchat_dev_test` and writes `DATABASE_URL`, `TEST_DATABASE_URL` and `DATABASE_VISITOR` to `.env`.
+   `ops dev db up` creates `tavern_dev` and `tavern_dev_test`, starts the local Valkey, and writes `DATABASE_URL`, `TEST_DATABASE_URL`, `DATABASE_VISITOR`, `VALKEY_URL` and `VALKEY_KEY_PREFIX` to `.env`.
 
-2. Start Valkey and load the env:
+2. Start the S3 store and load the env:
 
    ```bash
    docker compose up -d
@@ -44,22 +46,22 @@ Postgres comes from the platform (`server-ansible`), which reads `cartridge.json
 
 Then visit [`localhost:4000`](http://localhost:4000).
 
-The dev logins cannot create or drop databases. To start again from an empty dev database, run `ops dev db reset rfchat_dev`.
+The dev logins cannot create or drop databases. To start again from an empty dev database, run `ops dev db reset tavern_dev`.
 
 ## Environment
 
 In dev and test, Phoenix reads:
 
 - `DATABASE_URL`, `TEST_DATABASE_URL`, `DATABASE_VISITOR`: written by `ops dev db up`
-- `REDIS_URL`, `REDIS_PORT`: the local Valkey
+- `VALKEY_URL`, `VALKEY_KEY_PREFIX`: the local Valkey, written by `ops dev db up`
 - `S3_PORT`: the local S3 store (SeaweedFS) that holds uploads; `config/dev.exs` points at it
-- `PORT`, `POOL_SIZE`, `RFCHAT_GUILD_NAME`
+- `PORT`, `POOL_SIZE`, `TAVERN_GUILD_NAME`
 
-A deploy gets its environment from `cartridge.json`: `DATABASE_URL`, `REDIS_URL`, `SECRET_KEY_BASE`, `DATABASE_VISITOR` (the role each server connection switches to with `SET ROLE`), `PHX_URL` (the service's route URL), `VALKEY_KEY_PREFIX`, and the upload bucket: `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Tests keep the bucket in memory.
+A deploy gets its environment from `cartridge.json`: `DATABASE_URL`, `VALKEY_URL`, `SECRET_KEY_BASE`, `DATABASE_VISITOR` (the role each server connection switches to with `SET ROLE`), `PHX_URL` (the service's route URL), `VALKEY_KEY_PREFIX`, and the upload bucket: `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Tests keep the bucket in memory.
 
 ## Deploy
 
-A push to main is the only release. Before you push, run `ops promote [branch]` from a clean checkout on main. It merges the branch, runs `scripts/verify`, signs off, and prints the push command. The push builds the `Dockerfile` from the committed `HEAD` and deploys the image as `cartridge.json` declares. Its migrate step, `/app/bin/migrate`, runs the migrations and adds the seed data before the server starts. The platform generates the session secret, `SECRET_KEY_BASE`, on the first deploy or stage and keeps it at `secret/data/rfchat/generated`; a staged copy reads the live value. The bucket comes from the platform's object store (`"objectStore": {}` in `cartridge.json`). The migrate step also gets the bucket key, because it loads `config/runtime.exs`, which requires the bucket variables in prod. A staged copy uses the live bucket with its own key, so deleting an upload in a staged copy deletes the live file.
+A push to main is the only release. Before you push, run `ops promote [branch]` from a clean checkout on main. It merges the branch, runs `scripts/verify`, signs off, and prints the push command. The push builds the `Dockerfile` from the committed `HEAD` and deploys the image as `cartridge.json` declares. Its migrate step, `/app/bin/migrate`, runs the migrations and adds the seed data before the server starts. The platform generates the session secret, `SECRET_KEY_BASE`, on the first deploy or stage and keeps it at `secret/data/tavern/generated`; a staged copy reads the live value. The bucket comes from the platform's object store (`"objectStore": {}` in `cartridge.json`). The migrate step also gets the bucket key, because it loads `config/runtime.exs`, which requires the bucket variables in prod. A staged copy uses the live bucket with its own key, so deleting an upload in a staged copy deletes the live file.
 
 ## Initial architecture direction
 
@@ -75,8 +77,8 @@ Current bootstrap assumption:
 
 ```bash
 ops dev db up                  # create the dev and test databases, write their URLs to .env
-ops dev db reset rfchat_dev    # empty the dev database
-docker compose up -d           # start Valkey
+ops dev db reset tavern_dev    # empty the dev database
+docker compose up -d           # start the local S3 store
 mix ecto.migrate
 mix test
 npm run test:e2e
@@ -88,7 +90,7 @@ ops promote [branch]           # from a clean main: merge, verify, sign off, pri
 
 ## Playwright E2E
 
-Rfchat now includes a Playwright smoke test that proves the main chat path works end to end:
+Tavern now includes a Playwright smoke test that proves the main chat path works end to end:
 
 - log in
 - open the guild shell
@@ -110,7 +112,7 @@ The root route now serves a minimal guild chat shell:
 - seeded channels: `general`, `engineering`, `random`
 - owners can open an in-app channel manager to create/edit categories and text channels
 - channel list now renders grouped sections when channels belong to categories
-- seeded system poster: `rfchat_system`
+- seeded system poster: `tavern_system`
 - an operator assigns the first server owner after registration
 - default `@everyone` role grants baseline channel visibility + messaging
 - channel switching via LiveView patch params
@@ -127,7 +129,7 @@ Login is rate limited, session metadata stores IP/user-agent, and channel render
 Register the account that should own the server, then run this command from a development checkout:
 
 ```bash
-mix run -e 'Rfchat.Accounts.promote_first_owner("you@example.com")'
+mix run -e 'Tavern.Accounts.promote_first_owner("you@example.com")'
 ```
 
 In a release install, run `bin/make-owner you@example.com` from the release directory.

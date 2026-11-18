@@ -1,4 +1,4 @@
-defmodule Rfchat.Repo.Migrations.AddBotsApiSupport do
+defmodule Tavern.Repo.Migrations.AddBotsApiSupport do
   use Ecto.Migration
 
   def change do

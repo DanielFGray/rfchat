@@ -1,7 +1,7 @@
 import Config
 
 # config/runtime.exs sets the database URL from TEST_DATABASE_URL.
-config :rfchat, Rfchat.Repo,
+config :tavern, Tavern.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   # Test modules run one at a time, so a small pool is enough; the dev login allows 32.
   pool_size: 8,
@@ -14,7 +14,7 @@ config :rfchat, Rfchat.Repo,
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
-config :rfchat, RfchatWeb.Endpoint,
+config :tavern, TavernWeb.Endpoint,
   url: [host: "127.0.0.1", port: 4001],
   http: [ip: {127, 0, 0, 1}, port: 4002],
   check_origin: false,
@@ -36,10 +36,10 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 # Requests go to an in-memory bucket through Req's plug transport; signing still runs.
-config :rfchat, Rfchat.ObjectStore,
+config :tavern, Tavern.ObjectStore,
   endpoint: "http://object-store.test",
-  bucket: "rfchat-test",
+  bucket: "tavern-test",
   region: "us-east-1",
   access_key_id: "test",
   secret_access_key: "test",
-  req_options: [plug: Rfchat.TestObjectStore, retry: false]
+  req_options: [plug: Tavern.TestObjectStore, retry: false]

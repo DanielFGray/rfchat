@@ -5,11 +5,11 @@
 # Inside the script, you can read and write to any of your
 # repositories directly:
 #
-#     Rfchat.Repo.insert!(%Rfchat.SomeSchema{})
+#     Tavern.Repo.insert!(%Tavern.SomeSchema{})
 #
 # We recommend using the bang functions (`insert!`, `update!`
 # and so on) as they will fail if something goes wrong.
 
-alias Rfchat.Bootstrap
+alias Tavern.Bootstrap
 
 Bootstrap.ensure_seed_data!()

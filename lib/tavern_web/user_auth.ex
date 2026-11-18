@@ -1,0 +1,234 @@
+defmodule TavernWeb.UserAuth do
+  use TavernWeb, :verified_routes
+
+  import Plug.Conn
+  import Phoenix.Controller
+
+  alias Phoenix.LiveView
+  alias Tavern.Accounts
+  alias Tavern.Chat
+
+  @remember_me_cookie "_tavern_user_remember_me"
+  @remember_me_options [
+    sign: true,
+    max_age: 60 * 60 * 24 * 30,
+    same_site: "Lax",
+    http_only: true,
+    secure: Application.compile_env(:tavern, :secure_cookies, false)
+  ]
+
+  def init(action), do: action
+
+  def call(conn, action) do
+    apply(__MODULE__, action, [conn, []])
+  end
+
+  def log_in_user(conn, user, params \\ %{}) do
+    token = Accounts.generate_user_session_token(user, session_metadata(conn))
+    user_return_to = get_session(conn, :user_return_to)
+
+    conn
+    |> renew_session()
+    |> put_user_token(token)
+    |> maybe_write_remember_me_cookie(token, params)
+    |> redirect(to: user_return_to || signed_in_path(user))
+  end
+
+  def log_out_user(conn) do
+    user_token = get_session(conn, :user_token)
+    user_token && Accounts.delete_user_session_token(user_token)
+
+    if user_token do
+      TavernWeb.Endpoint.broadcast(Accounts.live_socket_id(user_token), "disconnect", %{})
+    end
+
+    conn
+    |> renew_session()
+    |> delete_resp_cookie(@remember_me_cookie)
+    |> redirect(to: ~p"/login")
+  end
+
+  def fetch_current_scope_for_user(conn, _opts) do
+    {user_token, conn} = ensure_user_token(conn)
+    user = user_token && Accounts.get_user_by_session_token(user_token)
+
+    conn
+    |> Plug.Conn.assign(:current_user, user)
+    |> Plug.Conn.assign(:current_scope, user && Accounts.user_scope(user))
+    |> Plug.Conn.assign(:current_server, Chat.get_server_settings())
+  end
+
+  def require_authenticated_user(conn, _opts) do
+    if conn.assigns.current_user && not Accounts.excluded?(conn.assigns.current_user) do
+      conn
+    else
+      conn
+      |> maybe_redirect_banned_user()
+      |> maybe_require_login()
+    end
+  end
+
+  def require_banned_user(conn, _opts) do
+    if conn.assigns.current_user && Accounts.excluded?(conn.assigns.current_user) do
+      conn
+    else
+      conn
+      |> redirect(to: signed_in_path(conn))
+      |> halt()
+    end
+  end
+
+  def redirect_if_user_is_authenticated(conn, _opts) do
+    if conn.assigns.current_user do
+      conn
+      |> redirect(to: signed_in_path(conn))
+      |> halt()
+    else
+      conn
+    end
+  end
+
+  def on_mount(:mount_current_scope, _params, session, socket) do
+    {:cont, mount_current_scope(socket, session)}
+  end
+
+  def on_mount(:ensure_authenticated, _params, session, socket) do
+    socket = mount_current_scope(socket, session)
+
+    if socket.assigns.current_user && not Accounts.excluded?(socket.assigns.current_user) do
+      {:cont, socket}
+    else
+      {:halt, redirect_authenticated_mount(socket)}
+    end
+  end
+
+  def on_mount(:ensure_banned_user, _params, session, socket) do
+    socket = mount_current_scope(socket, session)
+
+    if socket.assigns.current_user && Accounts.excluded?(socket.assigns.current_user) do
+      {:cont, socket}
+    else
+      {:halt, LiveView.redirect(socket, to: signed_in_path(socket))}
+    end
+  end
+
+  def on_mount(:redirect_if_user_is_authenticated, _params, session, socket) do
+    socket = mount_current_scope(socket, session)
+
+    if socket.assigns.current_user do
+      {:halt, LiveView.redirect(socket, to: signed_in_path(socket))}
+    else
+      {:cont, socket}
+    end
+  end
+
+  defp mount_current_scope(socket, session) do
+    user =
+      Map.get(session, "user_token") && Accounts.get_user_by_session_token(session["user_token"])
+
+    socket
+    |> Phoenix.Component.assign(:current_user, user)
+    |> Phoenix.Component.assign(:current_scope, user && Accounts.user_scope(user))
+    |> Phoenix.Component.assign(:current_server, Chat.get_server_settings())
+  end
+
+  defp maybe_require_login(%Plug.Conn{halted: true} = conn), do: conn
+
+  defp maybe_require_login(conn) do
+    conn
+    |> put_flash(:error, "Please log in to continue.")
+    |> maybe_store_return_to()
+    |> redirect(to: ~p"/login")
+    |> halt()
+  end
+
+  defp maybe_redirect_banned_user(%Plug.Conn{assigns: %{current_user: user}} = conn)
+       when not is_nil(user) do
+    if Accounts.excluded?(user) do
+      conn
+      |> redirect(to: ~p"/banned")
+      |> halt()
+    else
+      conn
+    end
+  end
+
+  defp maybe_redirect_banned_user(conn), do: conn
+
+  defp redirect_authenticated_mount(socket) do
+    if socket.assigns.current_user && Accounts.excluded?(socket.assigns.current_user) do
+      LiveView.redirect(socket, to: ~p"/banned")
+    else
+      socket
+      |> LiveView.put_flash(:error, "Please log in to continue.")
+      |> LiveView.redirect(to: ~p"/login")
+    end
+  end
+
+  defp maybe_store_return_to(%Plug.Conn{method: "GET"} = conn) do
+    put_session(conn, :user_return_to, current_path(conn))
+  end
+
+  defp maybe_store_return_to(conn), do: conn
+
+  defp signed_in_path(%Plug.Conn{assigns: %{current_user: user}}) when not is_nil(user) do
+    if Accounts.excluded?(user), do: ~p"/banned", else: ~p"/"
+  end
+
+  defp signed_in_path(%Phoenix.LiveView.Socket{assigns: %{current_user: user}})
+       when not is_nil(user) do
+    if Accounts.excluded?(user), do: ~p"/banned", else: ~p"/"
+  end
+
+  defp signed_in_path(%Tavern.Chat.User{} = user) do
+    if Accounts.excluded?(user), do: ~p"/banned", else: ~p"/"
+  end
+
+  defp signed_in_path(_), do: ~p"/"
+
+  defp maybe_write_remember_me_cookie(conn, token, %{"remember_me" => "true"}) do
+    put_resp_cookie(conn, @remember_me_cookie, token, @remember_me_options)
+  end
+
+  defp maybe_write_remember_me_cookie(conn, _token, _params), do: conn
+
+  defp ensure_user_token(conn) do
+    if token = get_session(conn, :user_token) do
+      {token, put_user_token(conn, token)}
+    else
+      conn = fetch_cookies(conn, signed: [@remember_me_cookie])
+
+      if token = conn.cookies[@remember_me_cookie] do
+        {token, put_user_token(conn, token)}
+      else
+        {nil, conn}
+      end
+    end
+  end
+
+  defp renew_session(conn) do
+    delete_csrf_token()
+
+    conn
+    |> configure_session(renew: true)
+    |> clear_session()
+  end
+
+  # The LiveView socket id comes from the token, so the server can disconnect the sockets of any
+  # stored session (see `Accounts.revoke_user_sessions/1`).
+  defp put_user_token(conn, token) do
+    conn
+    |> put_session(:user_token, token)
+    |> put_session(:live_socket_id, Accounts.live_socket_id(token))
+  end
+
+  defp session_metadata(conn) do
+    %{
+      user_agent: conn |> get_req_header("user-agent") |> List.first(),
+      ip_address: remote_ip_to_string(conn.remote_ip)
+    }
+  end
+
+  defp remote_ip_to_string(nil), do: nil
+  defp remote_ip_to_string(remote_ip), do: remote_ip |> :inet.ntoa() |> to_string()
+end

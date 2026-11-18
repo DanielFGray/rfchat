@@ -50,7 +50,7 @@ export function setup() {
     const setupJar = new http.CookieJar();
     const cookies = loginUser(email, null, { jar: setupJar, returnCookies: true });
 
-    if (!cookies || !cookies._rfchat_key) {
+    if (!cookies || !cookies._tavern_key) {
       throw new Error(`setup login failed for ${email}`);
     }
 

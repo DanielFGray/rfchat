@@ -1,4 +1,4 @@
-defmodule Rfchat.Repo.Migrations.AddAuthToUsersAndSessions do
+defmodule Tavern.Repo.Migrations.AddAuthToUsersAndSessions do
   use Ecto.Migration
 
   def change do

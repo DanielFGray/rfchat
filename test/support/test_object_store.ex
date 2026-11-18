@@ -1,6 +1,6 @@
-defmodule Rfchat.TestObjectStore do
+defmodule Tavern.TestObjectStore do
   @moduledoc """
-  An in-memory S3 bucket for the test environment, used as `Rfchat.ObjectStore`'s Req
+  An in-memory S3 bucket for the test environment, used as `Tavern.ObjectStore`'s Req
   `plug:` transport. It answers PUT, GET and DELETE on object paths.
 
   The bucket is a named Agent that the first request starts, unlinked, so it outlives

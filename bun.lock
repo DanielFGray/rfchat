@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@danielfgray/rfchat",
+      "name": "@danielfgray/tavern",
       "dependencies": {
         "@tiptap/core": "^3.22.0",
         "@tiptap/extension-mention": "^3.22.0",

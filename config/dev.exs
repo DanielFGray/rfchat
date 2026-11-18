@@ -3,7 +3,7 @@ import Config
 port = String.to_integer(System.get_env("PORT", "4000"))
 
 # config/runtime.exs sets the database URL.
-config :rfchat, Rfchat.Repo,
+config :tavern, Tavern.Repo,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true
 
@@ -13,15 +13,15 @@ config :rfchat, Rfchat.Repo,
 # The watchers configuration can be used to run external
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
-config :rfchat, RfchatWeb.Endpoint,
+config :tavern, TavernWeb.Endpoint,
   http: [ip: {0, 0, 0, 0}, port: port],
   check_origin: false,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "sSe5tnIjoNi2OgPUn4JTeqhda80YPoy52mujaH2IgPdTDxS3fg0OE2a2o10ap8Rg",
   watchers: [
-    esbuild: {Esbuild, :install_and_run, [:rfchat, ~w(--sourcemap=inline --watch)]},
-    tailwind: {Tailwind, :install_and_run, [:rfchat, ~w(--watch)]}
+    esbuild: {Esbuild, :install_and_run, [:tavern, ~w(--sourcemap=inline --watch)]},
+    tailwind: {Tailwind, :install_and_run, [:tavern, ~w(--watch)]}
   ]
 
 # ## SSL Support
@@ -48,7 +48,7 @@ config :rfchat, RfchatWeb.Endpoint,
 # different ports.
 
 # Reload browser tabs when matching files change.
-config :rfchat, RfchatWeb.Endpoint,
+config :tavern, TavernWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
@@ -56,18 +56,18 @@ config :rfchat, RfchatWeb.Endpoint,
       # Gettext translations
       ~r"priv/gettext/.*\.po$"E,
       # Router, Controllers, LiveViews and LiveComponents
-      ~r"lib/rfchat_web/router\.ex$"E,
-      ~r"lib/rfchat_web/(controllers|live|components)/.*\.(ex|heex)$"E
+      ~r"lib/tavern_web/router\.ex$"E,
+      ~r"lib/tavern_web/(controllers|live|components)/.*\.(ex|heex)$"E
     ]
   ]
 
 # Enable dev routes for dashboard and mailbox
-config :rfchat, dev_routes: true
+config :tavern, dev_routes: true
 
 # The local S3 store from docker-compose.yml. It runs without authentication, so any key works.
-config :rfchat, Rfchat.ObjectStore,
+config :tavern, Tavern.ObjectStore,
   endpoint: "http://localhost:#{System.get_env("S3_PORT", "8333")}",
-  bucket: "rfchat",
+  bucket: "tavern",
   region: "us-east-1",
   access_key_id: "dev",
   secret_access_key: "dev"

@@ -1,13 +1,13 @@
 {
   "apiVersion": "roamancer/v2",
-  "name": "rfchat",
-  "postgres": [{ "database": "rfchat", "extensions": ["citext"], "shadow": false }],
+  "name": "tavern",
+  "postgres": [{ "database": "tavern", "extensions": ["citext"], "shadow": false }],
   "valkey": {},
   "objectStore": {},
   "services": [
     {
-      "name": "rfchat",
-      "image": "registry.cluster:5000/rfchat",
+      "name": "tavern",
+      "image": "registry.cluster:5000/tavern",
       "hostPort": "dynamic",
       "containerPort": 4000,
       "healthCheck": { "type": "http", "path": "/healthz" },
@@ -18,8 +18,8 @@
       "environment": [
         { "name": "PHX_SERVER", "value": "true" },
         { "name": "PORT", "value": "4000" },
-        { "name": "DATABASE_VISITOR", "database": "rfchat", "role": "visitor" },
-        { "name": "PHX_URL", "route": "rfchat" },
+        { "name": "DATABASE_VISITOR", "database": "tavern", "role": "visitor" },
+        { "name": "PHX_URL", "route": "tavern" },
         { "name": "VALKEY_KEY_PREFIX", "valkey": "keyPrefix" },
         { "name": "TRUSTED_PROXY_HEADER", "value": "x-forwarded-for" }
       ],
@@ -29,7 +29,7 @@
         "secrets": [
           {
             "_tag": "PostgresCredentials",
-            "database": "rfchat",
+            "database": "tavern",
             "login": "migration",
             "urlEnv": "DATABASE_URL"
           },
@@ -52,11 +52,11 @@
       "secrets": [
         {
           "_tag": "PostgresCredentials",
-          "database": "rfchat",
+          "database": "tavern",
           "login": "api",
           "urlEnv": "DATABASE_URL"
         },
-        { "_tag": "ValkeyCredentials", "urlEnv": "REDIS_URL" },
+        { "_tag": "ValkeyCredentials", "urlEnv": "VALKEY_URL" },
         {
           "_tag": "GeneratedSecret",
           "key": "secret_key_base",
