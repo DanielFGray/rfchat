@@ -75,7 +75,7 @@ defmodule TavernWeb.Router do
 
     live_session :require_authenticated_user,
       on_mount: [{TavernWeb.UserAuth, :ensure_authenticated}] do
-      live("/", GuildLive, :index)
+      live("/", ServerLive, :index)
       live("/settings", SettingsLive, :index)
     end
   end

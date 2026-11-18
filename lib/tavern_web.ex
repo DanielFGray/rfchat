@@ -89,7 +89,7 @@ defmodule TavernWeb do
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS
-      alias TavernWeb.GuildComponents
+      alias TavernWeb.ServerComponents
       alias TavernWeb.Layouts
       alias TavernWeb.SettingsComponents
 

@@ -1,42 +1,42 @@
-defmodule TavernWeb.GuildComponents.Composer do
+defmodule TavernWeb.ServerComponents.Composer do
   @moduledoc false
 
   use TavernWeb, :html
 
-  import TavernWeb.GuildComponents.Helpers
+  import TavernWeb.ServerComponents.Helpers
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def channel_composer(assigns) do
     ~H"""
     <div class="border-t border-base-300 bg-base-200 px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
       <%= cond do %>
-        <% not @guild.channel_ready? -> %>
+        <% not @server.channel_ready? -> %>
           <div class="rounded-lg border border-base-300 bg-base-100 px-4 py-3 text-sm text-base-content/65">
             Loading channel...
           </div>
-        <% @guild.can_send_messages? -> %>
+        <% @server.can_send_messages? -> %>
           <.form
-            for={@guild.message_form}
+            for={@server.message_form}
             id="message-form"
             phx-submit="send_message"
             phx-hook="RichComposerHook"
             data-composer-target="channel"
             data-placeholder="Message channel"
-            data-mentions={@guild.composer_mentions_json}
-            data-commands={@guild.composer_commands_json}
+            data-mentions={@server.composer_mentions_json}
+            data-commands={@server.composer_commands_json}
           >
             <div class="rounded-lg border border-base-300 bg-base-100 shadow-sm">
               <div
-                :if={@guild.reply_to_message}
+                :if={@server.reply_to_message}
                 id="replying-to-banner"
                 class="flex items-center justify-between border-b border-base-300 bg-primary/10 px-3 py-2 text-xs text-primary"
               >
                 <div class="min-w-0">
                   Replying to
-                  <span class="font-semibold">{@guild.reply_to_message.author.display_name}</span>
+                  <span class="font-semibold">{@server.reply_to_message.author.display_name}</span>
                   <p class="truncate text-[11px] text-primary/70">
-                    {@guild.reply_to_message.body}
+                    {@server.reply_to_message.body}
                   </p>
                 </div>
                 <button
@@ -79,7 +79,7 @@ defmodule TavernWeb.GuildComponents.Composer do
                       </.composer_button>
                     </div>
 
-                    <p :if={!@guild.can_mention_everyone?} class="m-0 text-[11px] text-amber-200">
+                    <p :if={!@server.can_mention_everyone?} class="m-0 text-[11px] text-amber-200">
                       @everyone and locked roles need extra permission
                     </p>
                   </div>
@@ -88,12 +88,12 @@ defmodule TavernWeb.GuildComponents.Composer do
 
                   <textarea
                     data-rich-composer-body
-                    name={@guild.message_form[:body].name}
+                    name={@server.message_form[:body].name}
                     class="hidden"
-                  >{@guild.message_form[:body].value || ""}</textarea>
+                  >{@server.message_form[:body].value || ""}</textarea>
                   <textarea
                     data-rich-composer-metadata
-                    name={@guild.message_form[:metadata].name}
+                    name={@server.message_form[:metadata].name}
                     class="hidden"
                   ></textarea>
                 </div>
@@ -130,31 +130,31 @@ defmodule TavernWeb.GuildComponents.Composer do
     """
   end
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def thread_composer(assigns) do
     ~H"""
     <.form
-      for={@guild.thread_message_form}
+      for={@server.thread_message_form}
       id="thread-message-form"
       phx-submit="send_thread_message"
       phx-hook="RichComposerHook"
       data-composer-target="thread"
       data-placeholder="Reply in thread"
-      data-mentions={@guild.composer_mentions_json}
-      data-commands={@guild.composer_commands_json}
+      data-mentions={@server.composer_mentions_json}
+      data-commands={@server.composer_commands_json}
     >
       <div class="rounded-xl border border-base-300 bg-base-200/70 shadow-sm">
         <div
-          :if={@guild.thread_reply_to_message}
+          :if={@server.thread_reply_to_message}
           id="thread-replying-to-banner"
           class="flex items-center justify-between border-b border-base-300 bg-primary/10 px-3 py-2 text-xs text-primary"
         >
           <div class="min-w-0">
             Replying to
-            <span class="font-semibold">{@guild.thread_reply_to_message.author.display_name}</span>
+            <span class="font-semibold">{@server.thread_reply_to_message.author.display_name}</span>
             <p class="truncate text-[11px] text-primary/70">
-              {@guild.thread_reply_to_message.body}
+              {@server.thread_reply_to_message.body}
             </p>
           </div>
           <button
@@ -195,12 +195,12 @@ defmodule TavernWeb.GuildComponents.Composer do
 
             <textarea
               data-rich-composer-body
-              name={@guild.thread_message_form[:body].name}
+              name={@server.thread_message_form[:body].name}
               class="hidden"
-            >{@guild.thread_message_form[:body].value || ""}</textarea>
+            >{@server.thread_message_form[:body].value || ""}</textarea>
             <textarea
               data-rich-composer-metadata
-              name={@guild.thread_message_form[:metadata].name}
+              name={@server.thread_message_form[:metadata].name}
               class="hidden"
             ></textarea>
           </div>

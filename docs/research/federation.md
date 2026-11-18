@@ -4,14 +4,14 @@ Research date: 2026-11-08. Task: research federation design options (`ts-520427`
 
 ## Question
 
-Each Tavern installation hosts one guild. The owner wants a user on server A to take part in a guild on server B. This file compares (a) Matrix, (b) ActivityPub with group extensions, (c) XMPP MUC and MIX, and (d) a custom host-authoritative protocol. In (d), the guild's home server orders all events and enforces permissions, and members on other servers join through their own home server, which relays for them.
+Each Tavern installation hosts one chat server. The owner wants a user on host A to take part in the chat server on host B. This file compares (a) Matrix, (b) ActivityPub with group extensions, (c) XMPP MUC and MIX, and (d) a custom host-authoritative protocol. In (d), the host of that chat server orders all events and enforces permissions, and members on other installations join through their own host, which relays for them.
 
-Then it designs one guild event log for the bot gateway and federation, and ends with a recommendation and the owner's decisions. Each claim cites the document that owns it. Text marked "estimate" or "design" is my reasoning, not a sourced fact.
+Then it designs one server event log for the bot gateway and federation, and ends with a recommendation and the owner's decisions. Each claim cites the document that owns it. Text marked "estimate" or "design" is my reasoning, not a sourced fact.
 
 ## Terms
 
-- **Host server.** The installation that owns a guild.
-- **Member server.** Another installation whose users are members of that guild.
+- **Host.** The installation that hosts the chat server.
+- **Member host.** Another installation whose users are members of that chat server.
 - **Authority model.** Which server puts events in order, and which server decides if an event is permitted.
 - **Backfill.** Fetching history that a server did not receive live.
 - **Resume token.** A value a consumer sends after a disconnect, so the producer can send only what the consumer missed.
@@ -44,8 +44,8 @@ The grid gives short answers. The sections after it give the detail and the cita
 
 | Dimension | (a) Matrix | (b) ActivityPub groups | (c) XMPP MUC / MIX | (d) Host-authoritative |
 |---|---|---|---|---|
-| Who orders events | No single server. Each server orders a shared event graph | The `Group` actor's server | The service that hosts the room | The host server |
-| Who enforces permissions | Every server | The group's server | The room's service | The host server |
+| Who orders events | No single server. Each server orders a shared event graph | The `Group` actor's server | The service that hosts the room | The host |
+| Who enforces permissions | Every server | The group's server | The room's service | The host |
 | Fit for roles, bits and overwrites | Poor. One integer per user per room | Poor. Fixed affiliations (FEP-5219, DRAFT) | Poor. Fixed affiliations and roles | Full. The host runs Tavern's own rules |
 | Event signing | Every event, by its origin server | Optional, DRAFT | Not in core MUC | User's server and host (design) |
 | Elixir or Erlang libraries | No server-side library | Pleroma, Akkoma, Bonfire | ejabberd | OTP `:crypto` |
@@ -62,13 +62,13 @@ No server is the authority. Every server checks each PDU's signature, hashes and
 
 When a server goes offline, the room continues on the servers that remain. A malicious server can sign events for its own users only. It can also send events that cite old parts of the graph, for example to post after a ban. The spec cannot reject these, "as it is impossible to distinguish such an event from a legitimate one which has been delayed". Servers "soft fail" them instead: they keep the event but do not show it to clients ([S2S §Soft failure][s2s-soft]).
 
-In room version 12, room creators "have infinitely high power level and cannot be specified in the `m.room.power_levels` event, nor can they be changed after the room is created" ([v12 §Client considerations][v12]). A guild owner transfer cannot remove the old owner from any channel's room.
+In room version 12, room creators "have infinitely high power level and cannot be specified in the `m.room.power_levels` event, nor can they be changed after the room is created" ([v12 §Client considerations][v12]). A server owner transfer cannot remove the old owner from any channel's room.
 
 ### (b) ActivityPub groups
 
 ActivityPub servers send activities by POST to an actor's inbox ([AP §7][ap-7]). `Group` is a core actor type ([AS Vocabulary §3.2, Group][as-group]). FEP-1b12 (FINAL) describes how forums work. The group receives an activity, validates it, and "MUST wrap it in an `Announce` activity". Followers "use the outer `Announce` activity to verify that the content was really approved by the group" ([FEP-1b12][1b12]).
 
-This is already a host-authoritative model. FEP-5219 (DRAFT) says it directly: "The operators of the server where a group actor is hosted have super-admin privileges" ([FEP-5219 §Affiliation][5219]). If the group's server goes offline, nobody can post. Each object is hosted "on the server of the actor that created it" ([FEP-db0e §Summary][db0e]), so a member server keeps its own users' posts.
+This is already a host-authoritative model. FEP-5219 (DRAFT) says it directly: "The operators of the server where a group actor is hosted have super-admin privileges" ([FEP-5219 §Affiliation][5219]). If the group's server goes offline, nobody can post. Each object is hosted "on the server of the actor that created it" ([FEP-db0e §Summary][db0e]), so a member host keeps its own users' posts.
 
 ### (c) XMPP MUC and MIX
 
@@ -78,9 +78,9 @@ MUC handles network breaks badly. XEP-0410 (Stable 1.1.0) says MUC "was not desi
 
 ### (d) Host-authoritative (design)
 
-The host server orders every guild event and checks every permission with the rules Tavern already has. A member server authenticates its own users, signs what they send, and forwards it to the host. The host checks permissions, gives the event the next sequence number, signs it, and sends it to the member servers that have a member who can view the channel.
+The host orders every server event and checks every permission with the rules Tavern already has. A member host authenticates its own users, signs what they send, and forwards it to the host. The host checks permissions, gives the event the next sequence number, signs it, and sends it to the member hosts that have a member who can view the channel.
 
-A malicious host can drop, reorder or refuse events in its own guild, as a MUC service or FEP-1b12 group server can. If user events carry the member server's signature, other servers can detect a forged message, but not a dropped one. A malicious member server can act only as its own users, as in Matrix. If the host goes offline, the guild stops, and member servers keep their cached history.
+A malicious host can drop, reorder or refuse events in its own chat server, as a MUC service or FEP-1b12 group server can. If user events carry the member host's signature, other hosts can detect a forged message, but not a dropped one. A malicious member host can act only as its own users, as in Matrix. If the host goes offline, the chat server stops, and member hosts keep their cached history.
 
 ## Roles, permission bits and overwrites
 
@@ -95,7 +95,7 @@ What maps:
 - Role order maps to integer order.
 - Each permission bit can become a threshold for an event type or action (`kick`, `ban`, `redact`, or a custom state event).
 - A per-channel overwrite becomes a different `m.room.power_levels` in that channel's room.
-- A guild maps to a space. A space is a room with type `m.space` that lists child rooms ([CS §Spaces][cs-spaces]).
+- A server maps to a space. A space is a room with type `m.space` that lists child rooms ([CS §Spaces][cs-spaces]).
 
 What is lost:
 
@@ -115,11 +115,11 @@ MUC has two fixed ladders. Affiliations (`owner`, `admin`, `member`, `outcast`) 
 
 ### Host-authoritative
 
-Nothing is lost. The host runs Tavern's existing `Authorization` code on remote users, who get roles, overwrites and bans like local users. Member servers only show what the host sends.
+Nothing is lost. The host runs Tavern's existing `Authorization` code on remote users, who get roles, overwrites and bans like local users. Member hosts only show what the host sends.
 
 ## Identity, mentions and bans
 
-- **Matrix.** Remote users are ordinary room members with power levels. Mentions use `m.mentions` with user IDs ([CS §User and room mentions][cs-mentions]). A ban is per room, so a guild-wide ban is one ban in each room.
+- **Matrix.** Remote users are ordinary room members with power levels. Mentions use `m.mentions` with user IDs ([CS §User and room mentions][cs-mentions]). A ban is per room, so a server-wide ban is one ban in each room.
 - **ActivityPub.** Users are actor URIs. Mentions use the `Mention` link type ([AS Vocabulary, Mention][as-mention]). A group bans with `Block` ([FEP-5219 §Privileges][5219]).
 - **XMPP.** A ban gives a JID the `outcast` affiliation. A room's ban list SHOULD also match a bare domain, which bans every user of that server from that room. Banning a domain from all rooms on a service "is a service-level feature and is therefore out of scope for this document" ([XEP-0045 §9.2][x45-ban]).
 - **Host-authoritative (design).** The ID is `localpart@server`. The host stores a remote user as a `users` row with a UUID, like a local user. Mentions carry both. Bans apply to a user or to a whole server.
@@ -136,7 +136,7 @@ Nothing is lost. The host runs Tavern's existing `Authorization` code on remote 
 - **Matrix.** A server that joins late fetches older events with `/backfill` from another server in the room, and fills holes with `/get_missing_events` ([S2S §Backfilling][s2s-backfill]). Servers push live events in transactions of at most 50 PDUs and 100 EDUs. A transaction "is meaningful only to the pair of homeservers that exchanged it" ([S2S §Transactions][s2s-txn]).
 - **ActivityPub.** An outbox is an `OrderedCollection` "presented consistently in reverse chronological order" ([AP §5][ap-5]). There is no resume token. FEP-f228 (DRAFT) proposes `context` collections for backfill ([FEP-f228][f228]).
 - **XMPP.** MUC sends a service-chosen amount of history on join, stamped with a delay ([XEP-0045 §7.2.13][x45-hist]). With MAM (XEP-0313, Stable 1.1.3), the room exposes an archive at its bare JID and tags each message with a `stanza-id`, so a client can page from the last ID it saw ([XEP-0313 §3.3.2, §3.5][x313-muc]). MIX uses MAM for "quick resync" ([XEP-0369 §4.3][x369-core]). XEP-0198 (Stable 1.6.3) resumes a broken stream ([XEP-0198 §5][x198]).
-- **Host-authoritative (design).** The host is the archive. A member server pulls `GET /events?after=<seq>`. See the event log section.
+- **Host-authoritative (design).** The host is the archive. A member host pulls `GET /events?after=<seq>`. See the event log section.
 
 ## Moderation across servers
 
@@ -150,14 +150,14 @@ Nothing is lost. The host runs Tavern's existing `Authorization` code on remote 
 - **Matrix.** Content has an `mxc://<server-name>/<media-id>` URI. The user's own server downloads it from the origin and serves it to the client ([CS §Content repository][cs-media]). Since v1.11, both the federation and client download endpoints require authentication ([S2S §Content Repository][s2s-media]).
 - **ActivityPub.** Uploading media is "out of scope for this version" ([AP §6.12][ap-612]). Objects link to URLs on the author's server.
 - **XMPP.** XEP-0363 (Stable 1.2.0) gives the uploader an HTTP slot. It recommends "long randomized parts in their URLs", so access control is an unguessable URL ([XEP-0363 §9][x363-sec]).
-- **Host-authoritative.** Owner decision. Either the host copies each attachment into its own store, or member servers fetch from the uploader's server with signed requests, as Matrix does.
+- **Host-authoritative.** Owner decision. Either the host copies each attachment into its own store, or member hosts fetch from the uploader's server with signed requests, as Matrix does.
 
 ## Implementation size and hard parts (estimates)
 
 No source states sizes. These estimates assume one or two people working part time.
 
 - **(a) Matrix, inside Tavern.** The v1.19 S2S page has about 35 endpoints. The hard parts are the authorisation rules, state resolution, soft failure, keys and canonical JSON. Matrix clients would also need the client-server API. Estimate: more than a year. A bug in state resolution splits a room between servers.
-- **(a') Matrix through an application service.** Run an existing homeserver and connect Tavern as an application service. An application service is a process that a homeserver pushes events to, and that can act as users in its namespace. Estimate: weeks to two months. But application services "cannot prevent events from being sent, nor can they modify the content" ([AS API §Application Services][as-api]). Tavern could not enforce its permissions on Matrix users. This is a bridge, not federation of Tavern guilds.
+- **(a') Matrix through an application service.** Run an existing homeserver and connect Tavern as an application service. An application service is a process that a homeserver pushes events to, and that can act as users in its namespace. Estimate: weeks to two months. But application services "cannot prevent events from being sent, nor can they modify the content" ([AS API §Application Services][as-api]). Tavern could not enforce its permissions on Matrix users. This is a bridge, not federation of Tavern servers.
 - **(b) ActivityPub groups.** Actors, inboxes, HTTP signatures in two formats, `Announce` wrapping, and FEP-5219 affiliations. Estimate: two to four months. No other server renders these forum objects as chat.
 - **(c) XMPP.** Run ejabberd beside Tavern and bridge rooms to it. Estimate: two to four months. The hard parts are MUC presence rules and MAM. Permissions do not map, so XMPP users see a reduced room.
 - **(d) Host-authoritative.** Signed requests, key publishing, a relay endpoint, the event log, remote user rows and media fetching. Estimate: one to three months. The hard parts are sequence commit order, retries, and remote media.
@@ -180,20 +180,20 @@ Tavern has no `licenses` entry in `mix.exs` and no LICENSE file, so GPL and AGPL
 - **XMPP.** xmpp.org lists clients and servers ([XMPP software][x-soft]). I did not check per-client MUC or MIX support. MIX is Experimental, and its admin XEP is Deferred.
 - **Host-authoritative.** Tavern servers only. A bridge can come later.
 
-## One numbered, signed guild event log
+## One numbered, signed server event log
 
 This section is design. It serves the resumable bot gateway task (`ts-6fa2ae`) and federation with one table.
 
 ### Shape
 
-One append-only table, `guild_events`:
+One append-only table, `server_events`:
 
 | Column | Meaning |
 |---|---|
 | `seq` | Strictly increasing integer, the order the host gives |
 | `id` | UUID of the event |
 | `kind` | `message.created`, `role.updated`, `member.banned`, and so on |
-| `channel_id` | Channel or thread, or null for guild-wide events |
+| `channel_id` | Channel or thread, or null for server-wide events |
 | `actor_id` | User who caused it, local or remote |
 | `origin_server` | Server that signed the user's submission |
 | `payload` | Canonical JSON body |
@@ -204,33 +204,33 @@ One append-only table, `guild_events`:
 
 ### Sequence numbers
 
-A Postgres sequence can commit out of order. Transaction 1 takes seq 10, transaction 2 takes seq 11, and transaction 2 commits first. A consumer that reads 11 and later resumes "after 11" never sees 10. Assign `seq` under a row lock on a single log head row, inside the same transaction as the domain write. With one guild per installation this is one lock, and a small server will not reach its limit.
+A Postgres sequence can commit out of order. Transaction 1 takes seq 10, transaction 2 takes seq 11, and transaction 2 commits first. A consumer that reads 11 and later resumes "after 11" never sees 10. Assign `seq` under a row lock on a single log head row, inside the same transaction as the domain write. With one server per installation this is one lock, and a small deployment will not reach its limit.
 
 ### What goes in the log
 
-- **Federated.** Messages and their edits, deletes and reactions. Channel, thread, role and overwrite changes. Member join, leave, update, timeout and ban. Guild settings. Emoji changes.
+- **Federated.** Messages and their edits, deletes and reactions. Channel, thread, role and overwrite changes. Member join, leave, update, timeout and ban. Server settings. Emoji changes.
 - **Local only.** Bot token changes, sessions, read states, notification settings, audit details that name local staff. These get a `seq` so local bots can resume, but they never leave the host.
 - **Not logged.** Typing and presence. These are like Matrix EDUs: they are sent live and dropped on a disconnect.
 
 ### Deletes and redaction
 
-A deleted message must not come back in a replay, and the signatures must still verify. Use the Matrix method ([S2S §Signing Events][s2s-sign]). Each signature covers the redacted event: the event with its content removed, plus `content_hash`. A `message.deleted` event makes the host blank the `payload` of the earlier rows for that message. The signatures still check, and a replay sends the blank form. Member servers must apply each redaction they receive to their own copies.
+A deleted message must not come back in a replay, and the signatures must still verify. Use the Matrix method ([S2S §Signing Events][s2s-sign]). Each signature covers the redacted event: the event with its content removed, plus `content_hash`. A `message.deleted` event makes the host blank the `payload` of the earlier rows for that message. The signatures still check, and a replay sends the blank form. Member hosts must apply each redaction they receive to their own copies.
 
 ### Filtering and gaps
 
-Each consumer sees a filtered view. A bot sees the channels it can view and the kinds it asked for (intents). A member server sees federated events for channels where at least one of its users can view. So a consumer sees gaps in `seq`, and gaps are normal. The resume protocol must not read a gap as lost data.
+Each consumer sees a filtered view. A bot sees the channels it can view and the kinds it asked for (intents). A member host sees federated events for channels where at least one of its users can view. So a consumer sees gaps in `seq`, and gaps are normal. The resume protocol must not read a gap as lost data.
 
 ### Resume
 
 - **Bots.** The SSE `id:` field is `seq`. On reconnect, the browser or bot sends `Last-Event-ID` ([WHATWG HTML §9.2.4][sse]). The server replays filtered events after that number. The order matters. The stream subscribes to live Phoenix PubSub first, then replays from the database, then drops live events with a `seq` at or below the last replayed one. Any other order can lose or repeat events. The replay filters by the bot's permissions now, not when the event happened, so a bot that lost `view_channel` gets no backlog from that channel.
-- **Member servers.** The host keeps one outbound cursor per destination: the last `seq` that destination confirmed. It pushes batches with a transaction ID made from the destination and the batch range. A retry resends the same batch, so the receiver can ignore a duplicate. A member server can also pull `GET /events?after=<seq>`.
+- **Member hosts.** The host keeps one outbound cursor per destination: the last `seq` that destination confirmed. It pushes batches with a transaction ID made from the destination and the batch range. A retry resends the same batch, so the receiver can ignore a duplicate. A member host can also pull `GET /events?after=<seq>`.
 - **Too old.** The log keeps a bounded window. If a resume token is older than the window, the server answers with a `resync` that points to a state snapshot. This is the same idea as a Matrix `limited` timeline with a state delta ([CS §Syncing][cs-sync]).
 
 ### Comparison with Matrix
 
 Matrix `/sync` returns a `next_batch` token, and the client long-polls with it. Its order is "the arrival time of the event on the homeserver", which "can conflict with other APIs which order events based on their partial ordering in the event graph", so clients must remove duplicates by event ID ([CS §Syncing][cs-sync]). Federation transactions are separate, pairwise and retried with the same `txnId` ([S2S §Transactions][s2s-txn]). Neither stream has one global order, because no server owns the order of the graph.
 
-In design (d) the host owns the order. One `seq` is the order, the bot resume token and the federation cursor. Member servers store the host's `seq` with their copy, so their bots resume on the same numbers.
+In design (d) the host owns the order. One `seq` is the order, the bot resume token and the federation cursor. Member hosts store the host's `seq` with their copy, so their bots resume on the same numbers.
 
 ### Integrity
 
@@ -238,7 +238,7 @@ With both signatures, a server can check that the user's server sent this conten
 
 ## Recommendation
 
-Build option (d), the host-authoritative protocol, as Tavern-to-Tavern federation on one numbered, signed guild event log that the bot gateway also uses.
+Build option (d), the host-authoritative protocol, as Tavern-to-Tavern federation on one numbered, signed server event log that the bot gateway also uses.
 
 The reasons:
 
@@ -246,16 +246,16 @@ The reasons:
 2. Its authority model is the one MUC and FEP-1b12 groups already use, so it is a known design, not a new one.
 3. It is the smallest option that gives real federation. One event log serves bot resume and federation.
 
-Borrow proven Matrix parts: Ed25519 server keys, signed requests, signed and redactable events, per-destination retried transactions, server deny lists, and authenticated remote media. If other networks matter later, a Matrix application service or an XMPP bridge can show a reduced view of a guild.
+Borrow proven Matrix parts: Ed25519 server keys, signed requests, signed and redactable events, per-destination retried transactions, server deny lists, and authenticated remote media. If other networks matter later, a Matrix application service or an XMPP bridge can show a reduced view of a server.
 
-The cost is that the guild depends on its host. If the host dies, the guild stops, and only an export can save it.
+The cost is that the server depends on its host. If the host dies, the server stops, and only an export can save it.
 
 ## Decisions for the owner
 
 1. **Interop or Tavern only.** Do we accept that version one talks only to other Tavern servers?
-2. **Host failure.** When a host dies, is the guild gone, or do we build export and migration to a new host?
+2. **Host failure.** When a host dies, is the server gone, or do we build export and migration to a new host?
 3. **Remote moderators.** Can remote users hold roles with moderation or admin bits?
-4. **Remote media.** Does the host copy attachments into its own store, or do member servers fetch from the uploader's server?
+4. **Remote media.** Does the host copy attachments into its own store, or do member hosts fetch from the uploader's server?
 5. **Replay window.** How long does the log keep events for resume: hours, days, or all history?
 6. **End-to-end encryption.** Out of scope? Matrix has it. Tavern and option (d) do not.
 7. **Licenses.** Tavern declares no license. Is a GPL-2.0 (ejabberd) or AGPL-3.0 (Bonfire) dependency acceptable for a future bridge?

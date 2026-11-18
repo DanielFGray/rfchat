@@ -1,6 +1,6 @@
 defmodule Tavern.Bootstrap do
   @moduledoc """
-  Bootstrap helpers for provisioning a fresh single-guild tavern instance.
+  Bootstrap helpers for provisioning a fresh single-server tavern instance.
   """
 
   alias Tavern.Chat.Channel
@@ -32,7 +32,7 @@ defmodule Tavern.Bootstrap do
 
       channels =
         [
-          %{name: "General", slug: "general", position: 0, topic: "Default lobby for the guild"},
+          %{name: "General", slug: "general", position: 0, topic: "Default lobby for the server"},
           %{
             name: "Engineering",
             slug: "engineering",
@@ -88,7 +88,7 @@ defmodule Tavern.Bootstrap do
     %Role{}
     |> Role.changeset(%{
       name: "@everyone",
-      description: "Default permissions for all members of this single guild.",
+      description: "Default permissions for all members of this single server.",
       permissions: PermissionBits.combine(@default_seed_permissions),
       position: 0,
       mentionable: false,
@@ -100,7 +100,7 @@ defmodule Tavern.Bootstrap do
       on_conflict: [
         set: [
           name: "@everyone",
-          description: "Default permissions for all members of this single guild.",
+          description: "Default permissions for all members of this single server.",
           position: 0,
           mentionable: false,
           hoist: false,
@@ -154,12 +154,12 @@ defmodule Tavern.Bootstrap do
     %ServerSettings{}
     |> ServerSettings.changeset(%{
       singleton: true,
-      name: Application.get_env(:tavern, :guild_name, "Tavern")
+      name: Application.get_env(:tavern, :server_name, "Tavern")
     })
     |> Repo.insert!(
       on_conflict: [
         set: [
-          name: Application.get_env(:tavern, :guild_name, "Tavern"),
+          name: Application.get_env(:tavern, :server_name, "Tavern"),
           updated_at: now
         ]
       ],

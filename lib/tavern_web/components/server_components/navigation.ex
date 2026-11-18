@@ -1,12 +1,12 @@
-defmodule TavernWeb.GuildComponents.Navigation do
+defmodule TavernWeb.ServerComponents.Navigation do
   @moduledoc false
 
   use TavernWeb, :html
 
-  import TavernWeb.GuildComponents.Helpers
+  import TavernWeb.ServerComponents.Helpers
 
   attr :section, :map, required: true
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def channel_nav_section(assigns) do
     ~H"""
@@ -27,9 +27,9 @@ defmodule TavernWeb.GuildComponents.Navigation do
           patch={channel_path(channel)}
           class={[
             "group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm font-medium transition",
-            channel_active?(@guild.active_channel, channel) &&
+            channel_active?(@server.active_channel, channel) &&
               "bg-base-100 text-base-content shadow-[inset_3px_0_0_color-mix(in_oklab,var(--color-primary)_32%,transparent)]",
-            !channel_active?(@guild.active_channel, channel) &&
+            !channel_active?(@server.active_channel, channel) &&
               "text-base-content/70 hover:bg-base-100 hover:text-base-content"
           ]}
         >
@@ -41,14 +41,14 @@ defmodule TavernWeb.GuildComponents.Navigation do
             {channel_kind_badge(channel.kind)}
           </span>
           <span
-            :if={unread_count_for(channel, @guild.unread_counts) > 0}
+            :if={unread_count_for(channel, @server.unread_counts) > 0}
             id={"channel-unread-#{channel.slug}"}
             class="rounded-full bg-violet-500/90 px-1.5 py-0.5 text-[10px] font-bold text-white"
           >
-            {unread_count_for(channel, @guild.unread_counts)}
+            {unread_count_for(channel, @server.unread_counts)}
           </span>
           <span
-            :if={unread_mentions_for(channel, @guild.unread_mentions) > 0}
+            :if={unread_mentions_for(channel, @server.unread_mentions) > 0}
             id={"channel-mention-#{channel.slug}"}
             class="flex size-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-[0_0_0_2px_var(--color-base-200)]"
             title="Unread mentions"

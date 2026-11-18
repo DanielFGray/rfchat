@@ -1,4 +1,4 @@
-defmodule TavernWeb.GuildLive.Events.Messages do
+defmodule TavernWeb.ServerLive.Events.Messages do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3, to_form: 1, to_form: 2]
@@ -6,8 +6,8 @@ defmodule TavernWeb.GuildLive.Events.Messages do
 
   alias Tavern.Accounts
   alias Tavern.Chat
-  alias TavernWeb.GuildLive.Events.Helpers
-  alias TavernWeb.GuildLive.State
+  alias TavernWeb.ServerLive.Events.Helpers
+  alias TavernWeb.ServerLive.State
 
   def handle_info({:message_created, message}, socket) do
     socket =

@@ -1,9 +1,9 @@
-defmodule TavernWeb.GuildLiveThreadsTest do
+defmodule TavernWeb.ServerLiveThreadsTest do
   use TavernWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   alias Tavern.Bootstrap
   alias Tavern.Chat

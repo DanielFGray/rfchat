@@ -1,6 +1,6 @@
 <Layouts.app flash={@flash} current_scope={@current_scope}>
   <div
-    id="guild-shell"
+    id="server-shell"
     data-hydrated={
       to_string(
         @navigation_ready? and @members_ready? and (is_nil(@active_channel) or @channel_ready?)
@@ -8,13 +8,13 @@
     }
     class="flex min-h-dvh flex-col overflow-x-clip overflow-y-hidden bg-base-300 text-base-content transition-colors duration-200 xl:flex-row"
   >
-    <TavernWeb.GuildComponents.mobile_overlays guild={assigns} />
-    <TavernWeb.GuildComponents.mobile_channel_drawer guild={assigns} />
+    <TavernWeb.ServerComponents.mobile_overlays server={assigns} />
+    <TavernWeb.ServerComponents.mobile_channel_drawer server={assigns} />
 
     <section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-200 transition-colors duration-200">
-      <TavernWeb.GuildComponents.active_channel_view :if={@active_channel} guild={assigns} />
+      <TavernWeb.ServerComponents.active_channel_view :if={@active_channel} server={assigns} />
     </section>
 
-    <TavernWeb.GuildComponents.members_drawer guild={assigns} />
+    <TavernWeb.ServerComponents.members_drawer server={assigns} />
   </div>
 </Layouts.app>

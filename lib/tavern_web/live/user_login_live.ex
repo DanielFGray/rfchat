@@ -36,7 +36,7 @@ defmodule TavernWeb.UserLoginLive do
           <section class="rounded-[2rem] border border-base-content/10 bg-base-100/90 p-8 shadow-xl lg:p-12">
             <Layouts.server_identity server={@server_settings} class="mb-6" />
             <h1 class="mt-5 text-4xl font-semibold tracking-tight text-base-content lg:text-5xl">
-              Log in to your guild.
+              Log in to your server.
             </h1>
             <p class="mt-5 max-w-xl text-base leading-7 text-base-content/70">
               Sign in with your own identity and chat as a real member of this self-hosted server.

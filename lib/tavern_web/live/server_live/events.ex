@@ -1,13 +1,13 @@
-defmodule TavernWeb.GuildLive.Events do
+defmodule TavernWeb.ServerLive.Events do
   @moduledoc false
 
-  alias TavernWeb.GuildLive.Events.Hydration
-  alias TavernWeb.GuildLive.Events.Messages
-  alias TavernWeb.GuildLive.Events.Mobile
-  alias TavernWeb.GuildLive.Events.Navigation
-  alias TavernWeb.GuildLive.Events.Notifications
-  alias TavernWeb.GuildLive.Events.Reactions
-  alias TavernWeb.GuildLive.Events.Threads
+  alias TavernWeb.ServerLive.Events.Hydration
+  alias TavernWeb.ServerLive.Events.Messages
+  alias TavernWeb.ServerLive.Events.Mobile
+  alias TavernWeb.ServerLive.Events.Navigation
+  alias TavernWeb.ServerLive.Events.Notifications
+  alias TavernWeb.ServerLive.Events.Reactions
+  alias TavernWeb.ServerLive.Events.Threads
 
   def handle_params(params, uri, socket) do
     socket = Phoenix.Component.assign(socket, :url_params, params)

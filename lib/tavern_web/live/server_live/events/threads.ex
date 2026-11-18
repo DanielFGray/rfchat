@@ -1,12 +1,12 @@
-defmodule TavernWeb.GuildLive.Events.Threads do
+defmodule TavernWeb.ServerLive.Events.Threads do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3, to_form: 2]
   import Phoenix.LiveView, only: [put_flash: 3, push_event: 3]
 
   alias Tavern.Chat
-  alias TavernWeb.GuildLive.Events.Helpers
-  alias TavernWeb.GuildLive.State
+  alias TavernWeb.ServerLive.Events.Helpers
+  alias TavernWeb.ServerLive.State
 
   def handle_event("create_thread", %{"id" => message_id}, socket) do
     with {:ok, thread} <-

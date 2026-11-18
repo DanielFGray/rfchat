@@ -67,7 +67,7 @@ defmodule TavernWeb.Layouts do
           {server_name(@server)}
         </p>
         <p class="mt-0.5 text-[11px] font-medium uppercase tracking-[0.18em] text-base-content/50">
-          single guild
+          single server
         </p>
       </div>
     </div>

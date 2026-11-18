@@ -1,11 +1,11 @@
-defmodule TavernWeb.GuildComponents.Shell do
+defmodule TavernWeb.ServerComponents.Shell do
   @moduledoc false
 
   use TavernWeb, :html
 
-  import TavernWeb.GuildComponents.Helpers
+  import TavernWeb.ServerComponents.Helpers
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def mobile_overlays(assigns) do
     ~H"""
@@ -15,7 +15,7 @@ defmodule TavernWeb.GuildComponents.Shell do
       id="mobile-sidebar-overlay"
       class={[
         "fixed inset-0 z-30 bg-black/65 transition xl:hidden",
-        mobile_sidebar_overlay_class(@guild.mobile_sidebar_open?)
+        mobile_sidebar_overlay_class(@server.mobile_sidebar_open?)
       ]}
       aria-label="Close channel list"
     />
@@ -26,14 +26,14 @@ defmodule TavernWeb.GuildComponents.Shell do
       id="mobile-members-overlay"
       class={[
         "fixed inset-0 z-30 bg-black/65 transition xl:hidden",
-        mobile_sidebar_overlay_class(@guild.mobile_members_open?)
+        mobile_sidebar_overlay_class(@server.mobile_members_open?)
       ]}
       aria-label="Close members list"
     />
     """
   end
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def mobile_channel_drawer(assigns) do
     ~H"""
@@ -41,11 +41,11 @@ defmodule TavernWeb.GuildComponents.Shell do
       id="mobile-channel-drawer"
       class={[
         "fixed inset-y-0 left-0 z-40 flex w-[85vw] max-w-72 shrink-0 flex-col border-r border-base-300 bg-base-200 transition-transform duration-200 ease-out xl:static xl:z-auto xl:w-64 xl:max-w-none xl:border-b-0 xl:border-r-base-300",
-        mobile_sidebar_class(@guild.mobile_sidebar_open?)
+        mobile_sidebar_class(@server.mobile_sidebar_open?)
       ]}
     >
       <div class="flex items-center justify-between border-b border-base-300 px-4 py-3 shadow-sm">
-        <Layouts.server_identity server={@guild.server_settings} />
+        <Layouts.server_identity server={@server.server_settings} />
 
         <div class="flex items-center gap-2">
           <button
@@ -67,7 +67,7 @@ defmodule TavernWeb.GuildComponents.Shell do
           </p>
           <div class="flex items-center gap-2">
             <span class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/60">
-              {length(@guild.channels)}
+              {length(@server.channels)}
             </span>
 
             <.link
@@ -80,17 +80,17 @@ defmodule TavernWeb.GuildComponents.Shell do
           </div>
         </div>
 
-        <%= if @guild.navigation_ready? do %>
-          <%= if @guild.channel_sections == [] do %>
+        <%= if @server.navigation_ready? do %>
+          <%= if @server.channel_sections == [] do %>
             <p id="no-visible-channels" class="px-2 py-3 text-xs text-base-content/55">
               No channels you can view yet.
             </p>
           <% else %>
-            <nav class="space-y-3" aria-label="Guild channels">
-              <TavernWeb.GuildComponents.Navigation.channel_nav_section
-                :for={section <- @guild.channel_sections}
+            <nav class="space-y-3" aria-label="Server channels">
+              <TavernWeb.ServerComponents.Navigation.channel_nav_section
+                :for={section <- @server.channel_sections}
                 section={section}
-                guild={@guild}
+                server={@server}
               />
             </nav>
           <% end %>
@@ -107,15 +107,17 @@ defmodule TavernWeb.GuildComponents.Shell do
           <div class="flex min-w-0 items-center gap-2">
             <div class="relative">
               <div class="flex size-9 items-center justify-center rounded-full bg-base-300 text-xs font-semibold text-base-content">
-                {@guild.current_user.display_name |> String.first()}
+                {@server.current_user.display_name |> String.first()}
               </div>
               <span class="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-base-100 bg-emerald-400" />
             </div>
             <div class="min-w-0">
               <p class="truncate text-[13px] font-semibold leading-4 text-base-content">
-                {@guild.current_user.display_name}
+                {@server.current_user.display_name}
               </p>
-              <p class="truncate text-[11px] text-base-content/65">@{@guild.current_user.username}</p>
+              <p class="truncate text-[11px] text-base-content/65">
+                @{@server.current_user.username}
+              </p>
             </div>
           </div>
 
@@ -141,7 +143,7 @@ defmodule TavernWeb.GuildComponents.Shell do
     """
   end
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def members_drawer(assigns) do
     ~H"""
@@ -149,7 +151,7 @@ defmodule TavernWeb.GuildComponents.Shell do
       id="mobile-members-drawer"
       class={[
         "fixed inset-y-0 right-0 z-40 flex h-dvh w-[82vw] max-w-72 shrink-0 flex-col border-l border-base-300 bg-base-200 transition-transform duration-200 ease-out xl:static xl:z-auto xl:h-auto xl:w-60 xl:max-w-none",
-        mobile_members_class(@guild.mobile_members_open?)
+        mobile_members_class(@server.mobile_members_open?)
       ]}
     >
       <div class="border-b border-base-300 px-4 py-3">
@@ -167,10 +169,10 @@ defmodule TavernWeb.GuildComponents.Shell do
           </button>
         </div>
         <div class="mt-2 flex items-center justify-between text-xs text-base-content/65">
-          <%= if @guild.members_ready? do %>
-            <span>{length(@guild.member_presence)} visible</span>
+          <%= if @server.members_ready? do %>
+            <span>{length(@server.member_presence)} visible</span>
             <span class="rounded bg-base-300 px-1.5 py-0.5 text-[10px] font-semibold text-base-content/80">
-              {Enum.count(@guild.member_presence, &(&1.status == :online))} online
+              {Enum.count(@server.member_presence, &(&1.status == :online))} online
             </span>
           <% else %>
             <span>Loading members...</span>
@@ -185,9 +187,9 @@ defmodule TavernWeb.GuildComponents.Shell do
         id="member-sidebar"
         class={["flex-1 space-y-0.5 overflow-y-auto px-2 py-3", scrollbar_classes()]}
       >
-        <%= if @guild.members_ready? do %>
-          <TavernWeb.GuildComponents.Navigation.member_presence_item
-            :for={entry <- @guild.member_presence}
+        <%= if @server.members_ready? do %>
+          <TavernWeb.ServerComponents.Navigation.member_presence_item
+            :for={entry <- @server.member_presence}
             entry={entry}
           />
         <% else %>

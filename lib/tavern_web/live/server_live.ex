@@ -1,4 +1,4 @@
-defmodule TavernWeb.GuildLive do
+defmodule TavernWeb.ServerLive do
   use TavernWeb, :live_view
 
   import Phoenix.LiveView, only: [connected?: 1, stream: 4]
@@ -6,8 +6,8 @@ defmodule TavernWeb.GuildLive do
   alias Tavern.Chat
   alias Tavern.Chat.Topics
   alias Tavern.Chat.UserNotificationSetting
-  alias TavernWeb.GuildLive.Events
-  alias TavernWeb.GuildLive.State
+  alias TavernWeb.ServerLive.Events
+  alias TavernWeb.ServerLive.State
   alias TavernWeb.Live.SharedHelpers
 
   @impl true
@@ -15,7 +15,7 @@ defmodule TavernWeb.GuildLive do
     current_user = socket.assigns.current_user
 
     if connected?(socket) do
-      Topics.subscribe_guild()
+      Topics.subscribe_server()
     end
 
     server_settings = Chat.get_server_settings()
@@ -23,7 +23,7 @@ defmodule TavernWeb.GuildLive do
     socket =
       socket
       |> assign(:server_settings, server_settings)
-      |> assign(:guild_name, server_settings.name)
+      |> assign(:server_name, server_settings.name)
       |> assign(:current_server, server_settings)
       |> assign(:page_title, server_settings.name)
       |> assign(:current_user, current_user)

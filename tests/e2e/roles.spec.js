@@ -15,7 +15,7 @@ async function login(page) {
   url.searchParams.set('command', 'login')
   url.searchParams.set('payload', JSON.stringify({ email: 'e2e@example.com', username: 'e2e_user', password: 'supersecurepass', next: '/' }))
   await page.goto(url.toString())
-  await expect(page.locator('#guild-shell[data-hydrated="true"]')).toBeVisible()
+  await expect(page.locator('#server-shell[data-hydrated="true"]')).toBeVisible()
 }
 
 // Role ids are server-generated, so a row is found by its name and its id read from the DOM.

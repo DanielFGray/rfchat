@@ -155,21 +155,21 @@ defmodule Tavern.ChatTest do
         deny_permissions: PermissionBits.combine([:view_channel])
       })
 
-      # The guild broadcast skips the process that made the change, so another process listens.
+      # The server broadcast skips the process that made the change, so another process listens.
       test_pid = self()
 
       spawn_link(fn ->
-        Tavern.Chat.Topics.subscribe_guild()
+        Tavern.Chat.Topics.subscribe_server()
         send(test_pid, :subscribed)
 
         receive do
-          event -> send(test_pid, {:guild_event, event})
+          event -> send(test_pid, {:server_event, event})
         end
       end)
 
       assert_receive :subscribed
       assert {:ok, %Tavern.Chat.Channel{position: 3}} = Chat.move_channel(scope, first.id, :down)
-      assert_receive {:guild_event, :channels_reordered}
+      assert_receive {:server_event, :channels_reordered}
       assert Repo.get!(Tavern.Chat.Channel, first.id).position == 3
       assert Repo.get!(Tavern.Chat.Channel, hidden.id).position == 2
       assert Repo.get!(Tavern.Chat.Channel, last.id).position == 1

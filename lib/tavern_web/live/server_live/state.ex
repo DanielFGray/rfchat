@@ -1,4 +1,4 @@
-defmodule TavernWeb.GuildLive.State do
+defmodule TavernWeb.ServerLive.State do
   @moduledoc false
 
   use TavernWeb, :html

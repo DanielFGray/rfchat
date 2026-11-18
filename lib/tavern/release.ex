@@ -4,7 +4,7 @@ defmodule Tavern.Release do
   """
   @app :tavern
 
-  @doc "Runs every pending migration, then provisions the seed data a fresh guild needs."
+  @doc "Runs every pending migration, then provisions the seed data a fresh server needs."
   def migrate do
     with_repo(fn repo ->
       Ecto.Migrator.run(repo, :up, all: true)

@@ -2,8 +2,8 @@ defmodule Tavern.Chat.Topics do
   @moduledoc """
   Owns the PubSub topics for chat events.
 
-  Guild-structure events (`:channel_created`, `:channel_updated`, `:channel_deleted`,
-  `:channels_reordered`, `:roles_changed`) go to one guild topic. Message, reaction and typing
+  Server-structure events (`:channel_created`, `:channel_updated`, `:channel_deleted`,
+  `:channels_reordered`, `:roles_changed`) go to one server topic. Message, reaction and typing
   events go to the topic of the channel or thread they happen in, so only processes subscribed
   to that channel receive them. A subscriber is responsible for subscribing only to channels its
   user can view.
@@ -12,12 +12,12 @@ defmodule Tavern.Chat.Topics do
   """
 
   @pubsub Tavern.PubSub
-  @guild_topic "chat:guild"
+  @server_topic "chat:server"
 
-  def subscribe_guild, do: Phoenix.PubSub.subscribe(@pubsub, @guild_topic)
+  def subscribe_server, do: Phoenix.PubSub.subscribe(@pubsub, @server_topic)
 
-  def broadcast_guild(event),
-    do: Phoenix.PubSub.broadcast_from(@pubsub, self(), @guild_topic, event)
+  def broadcast_server(event),
+    do: Phoenix.PubSub.broadcast_from(@pubsub, self(), @server_topic, event)
 
   def broadcast_channel(channel_id, event) do
     Phoenix.PubSub.broadcast_from(@pubsub, self(), channel_topic(channel_id), event)

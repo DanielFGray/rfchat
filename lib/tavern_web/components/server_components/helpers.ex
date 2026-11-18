@@ -1,4 +1,4 @@
-defmodule TavernWeb.GuildComponents.Helpers do
+defmodule TavernWeb.ServerComponents.Helpers do
   @moduledoc false
 
   use TavernWeb, :html

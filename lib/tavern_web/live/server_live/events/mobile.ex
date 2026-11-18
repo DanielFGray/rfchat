@@ -1,9 +1,9 @@
-defmodule TavernWeb.GuildLive.Events.Mobile do
+defmodule TavernWeb.ServerLive.Events.Mobile do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias TavernWeb.GuildLive.State
+  alias TavernWeb.ServerLive.State
 
   def handle_event("toggle_mobile_sidebar", _params, socket) do
     next_open? = !socket.assigns.mobile_sidebar_open?

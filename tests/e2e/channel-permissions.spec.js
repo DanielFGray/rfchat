@@ -15,7 +15,7 @@ async function login(page, credentials) {
   url.searchParams.set('command', 'login')
   url.searchParams.set('payload', JSON.stringify({ ...credentials, next: '/' }))
   await page.goto(url.toString())
-  await expect(page.locator('#guild-shell[data-hydrated="true"]')).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('#server-shell[data-hydrated="true"]')).toBeVisible({ timeout: 60_000 })
 }
 
 // Act only once the socket has connected: the live mount resets what was done before it. The
@@ -83,7 +83,7 @@ test('an owner makes a channel private to one role', async ({ page, browser, req
   // The member's open sidebar drops the channel without a reload, and it stays gone after one.
   await expect(memberPage.locator('#channel-link-random')).toHaveCount(0)
   await memberPage.reload()
-  await expect(memberPage.locator('#guild-shell[data-hydrated="true"]')).toBeVisible({ timeout: 60_000 })
+  await expect(memberPage.locator('#server-shell[data-hydrated="true"]')).toBeVisible({ timeout: 60_000 })
   await expect(memberPage.locator('#channel-link-random')).toHaveCount(0)
   await expect(memberPage.locator('#channel-link-general')).toBeVisible()
 

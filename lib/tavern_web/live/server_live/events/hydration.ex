@@ -1,8 +1,8 @@
-defmodule TavernWeb.GuildLive.Events.Hydration do
+defmodule TavernWeb.ServerLive.Events.Hydration do
   @moduledoc false
 
-  alias TavernWeb.GuildLive.Events.Navigation
-  alias TavernWeb.GuildLive.State
+  alias TavernWeb.ServerLive.Events.Navigation
+  alias TavernWeb.ServerLive.State
   alias TavernWeb.Live.SharedHelpers
 
   def handle_info(:hydrate_navigation, socket) do

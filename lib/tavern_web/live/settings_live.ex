@@ -38,7 +38,7 @@ defmodule TavernWeb.SettingsLive do
       |> Roles.init()
       |> ChannelPermissions.init()
 
-    if connected?(socket), do: Topics.subscribe_guild()
+    if connected?(socket), do: Topics.subscribe_server()
 
     {:ok, socket}
   end
@@ -606,8 +606,8 @@ defmodule TavernWeb.SettingsLive do
     end
   end
 
-  # Guild events: a role change can change what this member may manage and which channels they
-  # see; a channel change re-reads the channel lists. Other guild events change nothing here.
+  # Server events: a role change can change what this member may manage and which channels they
+  # see; a channel change re-reads the channel lists. Other server events change nothing here.
   @impl true
   def handle_info(:roles_changed, socket) do
     socket = Roles.refresh(socket)

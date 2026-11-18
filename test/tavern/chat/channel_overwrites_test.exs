@@ -47,12 +47,12 @@ defmodule Tavern.Chat.ChannelOverwritesTest do
     Repo.get_by(ChannelPermissionOverwrite, channel_id: channel.id, role_id: role_id)
   end
 
-  # Broadcasts skip the writing process, so a separate subscriber forwards guild events here.
-  defp forward_guild_events do
+  # Broadcasts skip the writing process, so a separate subscriber forwards server events here.
+  defp forward_server_events do
     parent = self()
 
     spawn_link(fn ->
-      Topics.subscribe_guild()
+      Topics.subscribe_server()
       send(parent, :subscribed)
       forward(parent)
     end)
@@ -63,7 +63,7 @@ defmodule Tavern.Chat.ChannelOverwritesTest do
   defp forward(parent) do
     receive do
       event ->
-        send(parent, {:guild_event, event})
+        send(parent, {:server_event, event})
         forward(parent)
     end
   end
@@ -72,7 +72,7 @@ defmodule Tavern.Chat.ChannelOverwritesTest do
     test "the owner makes a channel private to one role", ctx do
       member_with_role = user_fixture()
       member_role_fixture(member_with_role, ctx.low_role)
-      forward_guild_events()
+      forward_server_events()
 
       assert {:ok, _} =
                Chat.put_overwrite(
@@ -94,7 +94,7 @@ defmodule Tavern.Chat.ChannelOverwritesTest do
 
       assert is_nil(Chat.get_channel(scope_for(ctx.member), ctx.channel.id))
       assert Chat.get_channel(scope_for(member_with_role), ctx.channel.id)
-      assert_receive {:guild_event, :roles_changed}
+      assert_receive {:server_event, :roles_changed}
 
       assert [entry | _] =
                Repo.all(

@@ -116,7 +116,7 @@ defmodule Tavern.Chat.Threads do
 
       case result do
         {:ok, %Channel{} = thread} ->
-          Topics.broadcast_guild({:channel_created, thread})
+          Topics.broadcast_server({:channel_created, thread})
           {:ok, thread}
 
         other ->
@@ -162,7 +162,7 @@ defmodule Tavern.Chat.Threads do
         end)
 
       with {:ok, thread} <- result do
-        Topics.broadcast_guild({:channel_updated, thread})
+        Topics.broadcast_server({:channel_updated, thread})
         {:ok, thread}
       end
     else

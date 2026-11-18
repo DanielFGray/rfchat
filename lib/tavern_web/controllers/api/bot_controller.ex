@@ -195,7 +195,7 @@ defmodule TavernWeb.API.BotController do
       |> put_resp_header("x-accel-buffering", "no")
       |> send_chunked(200)
 
-    :ok = Topics.subscribe_guild()
+    :ok = Topics.subscribe_server()
     scope = conn.assigns.current_bot_scope
     subscribed = sync_subscriptions(MapSet.new(), scope)
 
@@ -219,7 +219,7 @@ defmodule TavernWeb.API.BotController do
   end
 
   # Message events arrive only from the channel topics in `state.subscribed`: the channels and
-  # threads the bot can view. A guild event re-syncs that set before anything is emitted, so a bot
+  # threads the bot can view. A server event re-syncs that set before anything is emitted, so a bot
   # that has received `thread.created` is already subscribed to that thread.
   #
   # A `:reauthorize` message, sent every `@reauthorize_interval`, re-checks the bearer token and

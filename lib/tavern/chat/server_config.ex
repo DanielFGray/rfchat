@@ -58,7 +58,7 @@ defmodule Tavern.Chat.ServerConfig do
   def server_icon_url(_settings), do: nil
 
   def default_server_name do
-    Application.get_env(:tavern, :guild_name, "Tavern")
+    Application.get_env(:tavern, :server_name, "Tavern")
   end
 
   defp persist_server_settings(attrs, actor) do

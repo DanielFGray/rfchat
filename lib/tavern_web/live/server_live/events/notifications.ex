@@ -1,4 +1,4 @@
-defmodule TavernWeb.GuildLive.Events.Notifications do
+defmodule TavernWeb.ServerLive.Events.Notifications do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]

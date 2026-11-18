@@ -7,7 +7,7 @@ defmodule TavernWeb.SessionRevocationTest do
   import Ecto.Query
   import Phoenix.LiveViewTest
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   alias Tavern.Accounts
   alias Tavern.Bootstrap
@@ -25,7 +25,7 @@ defmodule TavernWeb.SessionRevocationTest do
 
   describe "send after a moderation action" do
     test "a timed-out member's next send is refused and the view survives", ctx do
-      {:ok, view, _html} = connect_guild(ctx.conn, ctx.member)
+      {:ok, view, _html} = connect_server(ctx.conn, ctx.member)
 
       assert {:ok, _subject, _case} =
                Chat.timeout_member(scope_for(ctx.owner), ctx.member.id, 10)
@@ -37,7 +37,7 @@ defmodule TavernWeb.SessionRevocationTest do
     end
 
     test "a kicked member's next send is refused and the view survives", ctx do
-      {:ok, view, _html} = connect_guild(ctx.conn, ctx.member)
+      {:ok, view, _html} = connect_server(ctx.conn, ctx.member)
 
       assert {:ok, _subject, _case} = Chat.kick_member(scope_for(ctx.owner), ctx.member.id)
 
@@ -51,7 +51,7 @@ defmodule TavernWeb.SessionRevocationTest do
     end
 
     test "a banned member's next send is refused and the view survives", ctx do
-      {:ok, view, _html} = connect_guild(ctx.conn, ctx.member)
+      {:ok, view, _html} = connect_server(ctx.conn, ctx.member)
 
       assert {:ok, _subject, _case} = Chat.ban_member(scope_for(ctx.owner), ctx.member.id, "spam")
 
@@ -199,7 +199,7 @@ defmodule TavernWeb.SessionRevocationTest do
     recycle(conn)
   end
 
-  defp connect_guild(conn, user) do
+  defp connect_server(conn, user) do
     conn |> session_for(user) |> live_hydrated(~p"/")
   end
 

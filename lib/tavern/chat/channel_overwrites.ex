@@ -128,7 +128,7 @@ defmodule Tavern.Chat.ChannelOverwrites do
       end)
       |> case do
         {:ok, {:changed, overwrite}} ->
-          Topics.broadcast_guild(:roles_changed)
+          Topics.broadcast_server(:roles_changed)
           {:ok, overwrite}
 
         {:ok, {:unchanged, overwrite}} ->

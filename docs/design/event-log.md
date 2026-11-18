@@ -12,7 +12,7 @@ Terms:
 
 - **Event**: one row in `events`, recording one logical change (a message created, a role given, a member banned).
 - **`seq`**: the event's place in the one total order. Committed `seq` values have no gaps. Retention deletes old rows, so gaps exist only at or below the prune watermark.
-- **Reader**: a consumer of events: a GuildLive socket, a bot stream, a client API socket, the audit page.
+- **Reader**: a consumer of events: a ServerLive socket, a bot stream, a client API socket, the audit page.
 - **Cursor**: `{epoch, seq}`. `seq` is the highest event the reader has scanned, whether or not it delivered that event. `epoch` names the database generation (see "Restore").
 - **Page**: one pull: the events after the cursor, at most 500, read with the reader's permissions in one transaction.
 - **Read context**: what the reader's scope may see now: the member, the visible channel set, permission bits, the bots it controls. `Visibility` from [scoped-reads.md](scoped-reads.md) computes it for each page. It is never kept from one page to the next.
@@ -110,7 +110,7 @@ Ecto.Multi.new()
 Every reader runs the same loop, through `Tavern.Events.Reader`:
 
 1. **Subscribe first.** The reader subscribes to the `events_committed` topic.
-2. **Open.** `Reader.open(scope, snapshot_fun)` runs, in one REPEATABLE READ transaction: `Visibility.member(scope)`, the consumer's snapshot function, and a read of `epoch` and `head`. It returns `{:ok, snapshot, cursor}` or `{:closed, reason}`. The consumer installs the snapshot and the cursor in the same handler. GuildLive's snapshot function is its hydration. A bot stream's is its visible channel list.
+2. **Open.** `Reader.open(scope, snapshot_fun)` runs, in one REPEATABLE READ transaction: `Visibility.member(scope)`, the consumer's snapshot function, and a read of `epoch` and `head`. It returns `{:ok, snapshot, cursor}` or `{:closed, reason}`. The consumer installs the snapshot and the cursor in the same handler. ServerLive's snapshot function is its hydration. A bot stream's is its visible channel list.
 3. **Pull a page.** `Reader.pull(scope, cursor, known_channel_ids, load_channel)` runs, in one REPEATABLE READ transaction:
    - read `epoch`, `head` and `pruned_through`; a different epoch, or a cursor below `pruned_through`, returns `{:resync, reason}`;
    - `Visibility.member(scope)`, including the live token check for a bot; a failure returns `{:closed, reason}`;
@@ -142,8 +142,8 @@ Authorization follows scoped reads: "may this scope see this now", decided once 
 
 What each consumer does with accepted events:
 
-- GuildLive applies message and reaction events to its stream only for the open channel or thread, as today. It updates unread counts for the other visible channels, and it sends notifications under the member's notification settings.
-- On structure, permission, member and role events, GuildLive reloads the channel tree through a scoped read. For each channel that left the visible set, it clears that channel's messages and unread state.
+- ServerLive applies message and reaction events to its stream only for the open channel or thread, as today. It updates unread counts for the other visible channels, and it sends notifications under the member's notification settings.
+- On structure, permission, member and role events, ServerLive reloads the channel tree through a scoped read. For each channel that left the visible set, it clears that channel's messages and unread state.
 - Channels that joined or left the visible set are handled by step 4, before the page's events. A floor does not affect other channels' events.
 
 ### Resume: bot stream and client API
@@ -213,7 +213,7 @@ Precondition for deploy: every old instance of the app is stopped before the mig
 2. Reactions, channels, threads, reorder, with the deleted-set redaction. Writes that run outside transactions move into Multis.
 3. Moderation, members, roles, overwrites, emojis, settings, bots and Accounts. Migrate the audit log; the audit page reads events.
 4. The bot stream: `id:` lines, `progress`, `Last-Event-ID`, `resync_required`. This is the task "Resumable bot event gateway".
-5. GuildLive reads through `Reader`, with the snapshot cursor, the channel floors and one owner for its own writes. The tuple events (`{:message_created, ...}` and the rest) are deleted, with the per-channel PubSub topics.
+5. ServerLive reads through `Reader`, with the snapshot cursor, the channel floors and one owner for its own writes. The tuple events (`{:message_created, ...}` and the rest) are deleted, with the per-channel PubSub topics.
 6. Retention job, watermark and the restore runbook step.
 
 Slice 1 of [scoped-reads.md](scoped-reads.md) (`Visibility` and the read context) comes before slice 1 here.

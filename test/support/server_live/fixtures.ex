@@ -1,4 +1,4 @@
-defmodule TavernWeb.GuildLiveFixtures do
+defmodule TavernWeb.ServerLiveFixtures do
   @moduledoc false
 
   import Tavern.ChatFixtures
@@ -6,16 +6,16 @@ defmodule TavernWeb.GuildLiveFixtures do
   def log_in_member_user(conn, suffix \\ "default") do
     _owner =
       user_fixture(%{
-        email: "owner-guildlive-#{suffix}@example.com",
+        email: "owner-serverlive-#{suffix}@example.com",
         username: "owner_#{suffix}",
-        display_name: "Owner Guildlive User #{suffix}"
+        display_name: "Owner Serverlive User #{suffix}"
       })
 
     user =
       user_fixture(%{
-        email: "guildlive-#{suffix}@example.com",
+        email: "serverlive-#{suffix}@example.com",
         username: "member_#{suffix}",
-        display_name: "Guildlive User #{suffix}"
+        display_name: "Serverlive User #{suffix}"
       })
 
     token = Tavern.Accounts.generate_user_session_token(user)
@@ -29,9 +29,9 @@ defmodule TavernWeb.GuildLiveFixtures do
   def log_in_owner_user(conn) do
     user =
       owner_fixture(%{
-        email: "guildlive-owner@example.com",
-        username: "guildlive_owner",
-        display_name: "Guildlive Owner"
+        email: "serverlive-owner@example.com",
+        username: "serverlive_owner",
+        display_name: "Serverlive Owner"
       })
 
     token = Tavern.Accounts.generate_user_session_token(user)
@@ -45,7 +45,7 @@ defmodule TavernWeb.GuildLiveFixtures do
   @max_hydration_renders 5
 
   @doc """
-  Mounts GuildLive and waits until the connected mount's deferred hydration has run.
+  Mounts ServerLive and waits until the connected mount's deferred hydration has run.
 
   A render is a synchronous call to the view, so it runs after every message already in the
   view's mailbox. The hydrate chain is two messages deep (`:hydrate_navigation` sends
@@ -55,7 +55,7 @@ defmodule TavernWeb.GuildLiveFixtures do
   defmacro live_hydrated(conn, path) do
     quote do
       with {:ok, view, _loading_html} <- Phoenix.LiveViewTest.live(unquote(conn), unquote(path)) do
-        {:ok, view, TavernWeb.GuildLiveFixtures.await_hydration(view)}
+        {:ok, view, TavernWeb.ServerLiveFixtures.await_hydration(view)}
       end
     end
   end
@@ -64,13 +64,13 @@ defmodule TavernWeb.GuildLiveFixtures do
   def await_hydration(view, attempts_left \\ @max_hydration_renders)
 
   def await_hydration(_view, 0) do
-    raise "GuildLive did not report data-hydrated=true on #guild-shell within #{@max_hydration_renders} renders"
+    raise "ServerLive did not report data-hydrated=true on #server-shell within #{@max_hydration_renders} renders"
   end
 
   def await_hydration(view, attempts_left) do
     Phoenix.LiveViewTest.render(view)
 
-    if Phoenix.LiveViewTest.has_element?(view, "#guild-shell[data-hydrated=true]") do
+    if Phoenix.LiveViewTest.has_element?(view, "#server-shell[data-hydrated=true]") do
       Phoenix.LiveViewTest.render(view)
     else
       await_hydration(view, attempts_left - 1)

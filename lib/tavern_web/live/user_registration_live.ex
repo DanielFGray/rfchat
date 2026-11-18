@@ -66,7 +66,7 @@ defmodule TavernWeb.UserRegistrationLive do
               Create your {@server_settings.name} identity.
             </h1>
             <p class="mt-5 max-w-xl text-base leading-7 text-base-content/70">
-              Register once for this self-hosted guild instance, then chat under your own profile.
+              Register once for this self-hosted server instance, then chat under your own profile.
             </p>
           </section>
 
@@ -84,7 +84,7 @@ defmodule TavernWeb.UserRegistrationLive do
                 <div>
                   <p class="text-2xl font-semibold text-base-content">Create account</p>
                   <p class="mt-2 text-sm text-base-content/70">
-                    Your user becomes a member of this single guild instance.
+                    Your user becomes a member of this single server instance.
                   </p>
                 </div>
 

@@ -4,7 +4,7 @@ defmodule TavernWeb.SettingsChannelPermissionsTest do
   import Ecto.Query
   import Phoenix.LiveViewTest
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   alias Tavern.Bootstrap
   alias Tavern.Chat
@@ -179,7 +179,7 @@ defmodule TavernWeb.SettingsChannelPermissionsTest do
   test "an override saved elsewhere hides the channel from an open sidebar",
        %{conn: conn} = ctx do
     conn = log_in_member_user(conn, "overwrites")
-    member = Repo.get_by!(User, email: "guildlive-overwrites@example.com")
+    member = Repo.get_by!(User, email: "serverlive-overwrites@example.com")
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
     assert has_element?(view, "#channel-link-#{ctx.channel.slug}")
 

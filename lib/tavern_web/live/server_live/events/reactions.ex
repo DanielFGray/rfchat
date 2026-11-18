@@ -1,12 +1,12 @@
-defmodule TavernWeb.GuildLive.Events.Reactions do
+defmodule TavernWeb.ServerLive.Events.Reactions do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [put_flash: 3, stream_insert: 3]
 
   alias Tavern.Chat
-  alias TavernWeb.GuildLive.Events.Helpers
-  alias TavernWeb.GuildLive.State
+  alias TavernWeb.ServerLive.Events.Helpers
+  alias TavernWeb.ServerLive.State
 
   def handle_event("toggle_reaction", %{"id" => message_id, "emoji" => emoji_unicode}, socket) do
     with {:ok, message} <- State.fetch_open_message(socket, message_id),

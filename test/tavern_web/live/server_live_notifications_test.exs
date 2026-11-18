@@ -1,9 +1,9 @@
-defmodule TavernWeb.GuildLiveNotificationsTest do
+defmodule TavernWeb.ServerLiveNotificationsTest do
   use TavernWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   alias Tavern.Bootstrap
   alias Tavern.Chat
@@ -12,7 +12,7 @@ defmodule TavernWeb.GuildLiveNotificationsTest do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
-    current_user = Tavern.Accounts.get_user_by_email("guildlive-default@example.com")
+    current_user = Tavern.Accounts.get_user_by_email("serverlive-default@example.com")
     assert current_user
 
     sender =
@@ -67,7 +67,7 @@ defmodule TavernWeb.GuildLiveNotificationsTest do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
-    current_user = Tavern.Accounts.get_user_by_email("guildlive-default@example.com")
+    current_user = Tavern.Accounts.get_user_by_email("serverlive-default@example.com")
     assert current_user
 
     {:ok, _setting} =
@@ -108,7 +108,7 @@ defmodule TavernWeb.GuildLiveNotificationsTest do
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert has_element?(view, "#member-sidebar")
-    assert has_element?(view, "#member-sidebar", "Guildlive User default")
+    assert has_element?(view, "#member-sidebar", "Serverlive User default")
     assert has_element?(view, "#member-sidebar", "owner")
   end
 

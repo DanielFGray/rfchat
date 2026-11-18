@@ -1,6 +1,6 @@
 # Tavern
 
-Tavern is a self-hostable chat app, with each deployment representing exactly one guild/server.
+Tavern is a self-hostable chat app, with each deployment representing exactly one chat server.
 
 The repository directory, the GitHub repository and the task-store project are still named `rfchat`.
 
@@ -9,8 +9,8 @@ This repo currently contains the Phoenix bootstrap plus local infrastructure for
 - PostgreSQL for durable app state
 - Valkey for ephemeral state (presence, typing, rate limits, fanout helpers)
 - Phoenix/Bandit as the core realtime web app
-- a first single-guild chat domain with channels, users, and messages
-- a minimal LiveView guild shell wired to real database records
+- a first single-server chat domain with channels, users, and messages
+- a minimal LiveView server shell wired to real database records
 
 ## Local bootstrap
 
@@ -55,7 +55,7 @@ In dev and test, Phoenix reads:
 - `DATABASE_URL`, `TEST_DATABASE_URL`, `DATABASE_VISITOR`: written by `ops dev db up`
 - `VALKEY_URL`, `VALKEY_KEY_PREFIX`: the local Valkey, written by `ops dev db up`
 - `S3_PORT`: the local S3 store (SeaweedFS) that holds uploads; `config/dev.exs` points at it
-- `PORT`, `POOL_SIZE`, `TAVERN_GUILD_NAME`
+- `PORT`, `POOL_SIZE`, `TAVERN_SERVER_NAME`
 
 A deploy gets its environment from `cartridge.json`: `DATABASE_URL`, `VALKEY_URL`, `SECRET_KEY_BASE`, `DATABASE_VISITOR` (the role each server connection switches to with `SET ROLE`), `PHX_URL` (the service's route URL), `VALKEY_KEY_PREFIX`, and the upload bucket: `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Tests keep the bucket in memory.
 
@@ -67,7 +67,7 @@ A push to main is the only release. Before you push, run `ops promote [branch]` 
 
 Current bootstrap assumption:
 
-- one deployed app instance = one guild
+- one deployed app instance = one server
 - Phoenix handles HTTP + WebSocket realtime traffic
 - Postgres is source of truth
 - Valkey is used for ephemeral coordination, presence, and rate limiting
@@ -93,7 +93,7 @@ ops promote [branch]           # from a clean main: merge, verify, sign off, pri
 Tavern now includes a Playwright smoke test that proves the main chat path works end to end:
 
 - log in
-- open the guild shell
+- open the server shell
 - switch to `engineering`
 - send a persisted rich chat message with markdown, code blocks, and link rendering
 
@@ -107,7 +107,7 @@ The Playwright config boots Phoenix on port `4001` in `MIX_ENV=test` with an iso
 
 ## Current app shape
 
-The root route now serves a minimal guild chat shell:
+The root route now serves a minimal server chat shell:
 
 - seeded channels: `general`, `engineering`, `random`
 - owners can open an in-app channel manager to create/edit categories and text channels

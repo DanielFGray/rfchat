@@ -1,11 +1,11 @@
-defmodule TavernWeb.GuildComponents.Threads do
+defmodule TavernWeb.ServerComponents.Threads do
   @moduledoc false
 
   use TavernWeb, :html
 
-  import TavernWeb.GuildComponents.Helpers
+  import TavernWeb.ServerComponents.Helpers
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
   attr :message, :map, required: true
   attr :thread, :map, required: true
 
@@ -15,7 +15,7 @@ defmodule TavernWeb.GuildComponents.Threads do
       id={"thread-panel-#{@message.id}"}
       class={[
         "mt-4 overflow-hidden rounded-2xl border border-base-300 bg-base-100 shadow-sm",
-        @guild.thread_focus? && "ring-1 ring-primary/25"
+        @server.thread_focus? && "ring-1 ring-primary/25"
       ]}
     >
       <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 bg-base-200/80 px-4 py-3">
@@ -28,7 +28,7 @@ defmodule TavernWeb.GuildComponents.Threads do
               {thread_title(@thread)}
             </h3>
             <span class="rounded-full bg-base-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-base-content/60">
-              {@guild.thread_message_count} replies
+              {@server.thread_message_count} replies
             </span>
           </div>
           <p class="mt-1 truncate text-xs text-base-content/55">
@@ -52,7 +52,7 @@ defmodule TavernWeb.GuildComponents.Threads do
             Archived
           </span>
           <button
-            :if={@guild.can_archive_thread?}
+            :if={@server.can_archive_thread?}
             type="button"
             phx-click={if @thread.archived_at, do: "unarchive_thread", else: "archive_thread"}
             id={"toggle-archive-thread-#{@message.id}"}
@@ -61,7 +61,7 @@ defmodule TavernWeb.GuildComponents.Threads do
             {if @thread.archived_at, do: "Unarchive", else: "Archive"}
           </button>
           <button
-            :if={@guild.can_lock_thread?}
+            :if={@server.can_lock_thread?}
             type="button"
             phx-click={if @thread.locked_at, do: "unlock_thread", else: "lock_thread"}
             id={"toggle-lock-thread-#{@message.id}"}
@@ -70,15 +70,15 @@ defmodule TavernWeb.GuildComponents.Threads do
             {if @thread.locked_at, do: "Unlock", else: "Lock"}
           </button>
           <.link
-            patch={thread_path(@guild.active_channel, @thread)}
+            patch={thread_path(@server.active_channel, @thread)}
             id={"thread-view-focus-#{@message.id}"}
             class="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-base-content/75 transition hover:bg-base-100 hover:text-base-content"
           >
-            {if @guild.thread_focus?, do: "Focused", else: "Focus"}
+            {if @server.thread_focus?, do: "Focused", else: "Focus"}
           </.link>
           <.link
-            :if={@guild.thread_focus?}
-            patch={channel_path(@guild.active_channel)}
+            :if={@server.thread_focus?}
+            patch={channel_path(@server.active_channel)}
             id={"thread-back-to-channel-#{@message.id}"}
             class="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-base-content/75 transition hover:bg-base-100 hover:text-base-content"
           >
@@ -102,7 +102,7 @@ defmodule TavernWeb.GuildComponents.Threads do
         phx-hook="MessageListHook"
       >
         <div
-          :if={@guild.thread_messages_empty?}
+          :if={@server.thread_messages_empty?}
           class="rounded-xl border border-dashed border-base-300 bg-base-200/60 px-4 py-5 text-sm text-base-content/65"
         >
           No thread replies yet. Kick this conversation off.
@@ -110,21 +110,21 @@ defmodule TavernWeb.GuildComponents.Threads do
 
         <div id={"thread-message-list-#{@message.id}"} phx-update="stream" class="space-y-3">
           <.thread_message_item
-            :for={{thread_dom_id, thread_message} <- @guild.streams.thread_messages}
+            :for={{thread_dom_id, thread_message} <- @server.streams.thread_messages}
             dom_id={thread_dom_id}
             thread_message={thread_message}
-            guild={@guild}
+            server={@server}
           />
         </div>
       </div>
 
       <div class="border-t border-base-300 bg-base-100 px-4 py-4">
-        <%= if @guild.can_send_thread_messages? do %>
-          <TavernWeb.GuildComponents.Messages.typing_indicator
-            users={@guild.thread_typing_users}
+        <%= if @server.can_send_thread_messages? do %>
+          <TavernWeb.ServerComponents.Messages.typing_indicator
+            users={@server.thread_typing_users}
             id={"thread-typing-indicator-#{@message.id}"}
           />
-          <TavernWeb.GuildComponents.Composer.thread_composer guild={@guild} />
+          <TavernWeb.ServerComponents.Composer.thread_composer server={@server} />
         <% else %>
           <div class="rounded-xl border border-warning/30 bg-warning/15 px-4 py-3 text-sm text-warning-content">
             {if @thread.locked_at,
@@ -139,7 +139,7 @@ defmodule TavernWeb.GuildComponents.Threads do
 
   attr :dom_id, :any, required: true
   attr :thread_message, :map, required: true
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def thread_message_item(assigns) do
     ~H"""
@@ -189,7 +189,7 @@ defmodule TavernWeb.GuildComponents.Threads do
               phx-click="reply_in_thread"
               phx-value-id={@thread_message.id}
               id={"reply-in-thread-#{@thread_message.id}"}
-              disabled={!@guild.can_send_thread_messages? or deleted_message?(@thread_message)}
+              disabled={!@server.can_send_thread_messages? or deleted_message?(@thread_message)}
               class="rounded-md px-1.5 py-0.5 font-semibold text-base-content/65 transition hover:bg-base-100 hover:text-base-content disabled:cursor-not-allowed disabled:opacity-50"
             >
               Reply

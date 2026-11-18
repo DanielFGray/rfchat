@@ -175,8 +175,8 @@ defmodule Tavern.Chat.Channels do
     end
   end
 
-  # Open GuildLive sidebars reload their channel order after the move commits.
-  defp broadcast_reorder({:ok, _channel}), do: Topics.broadcast_guild(:channels_reordered)
+  # Open ServerLive sidebars reload their channel order after the move commits.
+  defp broadcast_reorder({:ok, _channel}), do: Topics.broadcast_server(:channels_reordered)
   defp broadcast_reorder(_error), do: :ok
 
   defp swap_positions(channel, sibling) do
@@ -192,7 +192,7 @@ defmodule Tavern.Chat.Channels do
   defp write_channel(scope, target, event, change) do
     case channel_transaction(scope, target, change) do
       {:ok, channel} = result ->
-        Topics.broadcast_guild({event, channel})
+        Topics.broadcast_server({event, channel})
         result
 
       error ->

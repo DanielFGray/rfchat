@@ -21,7 +21,7 @@ if System.get_env("PHX_SERVER") do
 end
 
 config :tavern,
-  guild_name: System.get_env("TAVERN_GUILD_NAME", "Tavern"),
+  server_name: System.get_env("TAVERN_SERVER_NAME", "Tavern"),
   valkey_url: System.get_env("VALKEY_URL", "redis://localhost:6379/0"),
   # The platform gives each deploy its own prefix, colon included: `tavern:` live,
   # `tavern-staged:` in a staged copy. The Valkey login may touch only keys under it.

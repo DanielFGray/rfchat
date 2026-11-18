@@ -28,8 +28,8 @@ async function loginViaTestSupport(page, { email = 'e2e@example.com', username =
   url.searchParams.set('payload', JSON.stringify({ email, username, password, display_name, next }))
   await page.goto(url.toString())
   await expect(page.locator('#logout-link')).toBeVisible()
-  // GuildLive loads channels, members and unread state after the socket connects; act only once it has.
-  await expect(page.locator('#guild-shell[data-hydrated="true"]')).toBeVisible()
+  // ServerLive loads channels, members and unread state after the socket connects; act only once it has.
+  await expect(page.locator('#server-shell[data-hydrated="true"]')).toBeVisible()
 }
 
 async function loginAsSeedUser(page) {

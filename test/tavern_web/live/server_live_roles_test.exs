@@ -1,9 +1,9 @@
-defmodule TavernWeb.GuildLiveRolesTest do
+defmodule TavernWeb.ServerLiveRolesTest do
   use TavernWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   alias Tavern.Bootstrap
   alias Tavern.Chat
@@ -29,7 +29,7 @@ defmodule TavernWeb.GuildLiveRolesTest do
     })
 
     conn = log_in_member_user(conn, "roles")
-    member = Repo.get_by!(User, email: "guildlive-roles@example.com")
+    member = Repo.get_by!(User, email: "serverlive-roles@example.com")
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
     refute has_element?(view, "#channel-link-#{hidden.slug}")
 

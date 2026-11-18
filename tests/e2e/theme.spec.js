@@ -7,7 +7,7 @@ async function login(page) {
   url.searchParams.set('command', 'login')
   url.searchParams.set('payload', JSON.stringify({ email: 'e2e@example.com', username: 'e2e_user', password: 'supersecurepass', next: '/' }))
   await page.goto(url.toString())
-  await expect(page.locator('#guild-shell[data-hydrated="true"]')).toBeVisible()
+  await expect(page.locator('#server-shell[data-hydrated="true"]')).toBeVisible()
 }
 
 // Skip colour transitions so computed styles and screenshots show the settled theme.
@@ -18,7 +18,7 @@ const surfaceColors = (page) =>
   page.evaluate(() => ({
     theme: document.documentElement.getAttribute('data-theme'),
     scheme: getComputedStyle(document.documentElement).colorScheme,
-    sidebar: getComputedStyle(document.querySelector('#guild-shell aside')).backgroundColor,
+    sidebar: getComputedStyle(document.querySelector('#server-shell aside')).backgroundColor,
     main: getComputedStyle(document.querySelector('main')).backgroundColor,
   }))
 
@@ -40,7 +40,7 @@ test('theme toggle switches shell surfaces between light, dark and system', asyn
   // The choice survives a full page load.
   await page.locator('button[data-phx-theme="light"]').first().click()
   await page.reload()
-  await expect(page.locator('#guild-shell[data-hydrated="true"]')).toBeVisible()
+  await expect(page.locator('#server-shell[data-hydrated="true"]')).toBeVisible()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await settle(page)
   await page.screenshot({ path: testInfo.outputPath('light-reloaded.png') })

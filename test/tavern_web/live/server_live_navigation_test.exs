@@ -1,16 +1,16 @@
-defmodule TavernWeb.GuildLiveNavigationTest do
+defmodule TavernWeb.ServerLiveNavigationTest do
   use TavernWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   alias Tavern.Bootstrap
   alias Tavern.Chat
   alias Tavern.Chat.PermissionBits
   alias Tavern.Repo
 
-  test "renders guild shell with seeded channels and welcome message", %{conn: conn} do
+  test "renders server shell with seeded channels and welcome message", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
 
@@ -30,12 +30,12 @@ defmodule TavernWeb.GuildLiveNavigationTest do
     {:ok, _view, mounted_html} = live(conn, ~p"/")
     mounted = LazyHTML.from_fragment(mounted_html)
 
-    assert LazyHTML.query(mounted, "#guild-shell[data-hydrated=false]") |> Enum.count() == 1
+    assert LazyHTML.query(mounted, "#server-shell[data-hydrated=false]") |> Enum.count() == 1
     assert LazyHTML.query(mounted, "#channel-link-general") |> Enum.count() == 0
 
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
-    assert has_element?(view, "#guild-shell[data-hydrated=true]")
+    assert has_element?(view, "#server-shell[data-hydrated=true]")
     assert has_element?(view, "#channel-link-general")
   end
 
@@ -127,7 +127,7 @@ defmodule TavernWeb.GuildLiveNavigationTest do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
-    current_user = Tavern.Accounts.get_user_by_email("guildlive-default@example.com")
+    current_user = Tavern.Accounts.get_user_by_email("serverlive-default@example.com")
     assert current_user
 
     sender =

@@ -83,7 +83,7 @@ Cost:
 - A by-id read loads the target, its channel, that channel's parents (a thread's channel and category, a channel's category), their overwrites and the member, then decides. It does not build the whole visible set.
 - `channel_ids/1` is for list readers only: the channel sidebar, the bot stream and the event reader's context. It loads the inputs in batches (channels, threads under visible parents, their overwrites, the member) and decides each one with the same pure `Authorization` function and parent rule as a by-id read. There is one permission algorithm. Overwrite precedence (default role, then roles, then the user; allow after deny at each level; administrator first) is never restated in SQL.
 - No cache across calls. The event reader computes its read context once per page and keeps nothing between pages. Measure first: slice 1 counts the queries for each decision and benchmarks a server with 200 channels and 20,000 threads. If SQL filtering is ever needed, it must implement the full precedence, and a property test must prove it equal to the pure function.
-- Measured in slice 1: each by-id decision is one statement, except moderation, which reads the actor and then the subject (two); a moderation write takes both membership locks (two statements), loads its decision (one) and reads the subject's row (one), so four statements run before its writes; `authority/2` is one, and a role grant whose overwrites name channels reads those channels in a second; `channel_ids/1` is 3 statements and 435 to 507 ms on 200 channels and 20,000 threads; the GuildLive join runs 15 queries before its first connected render and 50 once hydrated. `channel_ids/1` is `visible_channels/1` mapped to ids, so a list reader that needs the structs does not load the channels twice.
+- Measured in slice 1: each by-id decision is one statement, except moderation, which reads the actor and then the subject (two); a moderation write takes both membership locks (two statements), loads its decision (one) and reads the subject's row (one), so four statements run before its writes; `authority/2` is one, and a role grant whose overwrites name channels reads those channels in a second; `channel_ids/1` is 3 statements and 435 to 507 ms on 200 channels and 20,000 threads; the ServerLive join runs 15 queries before its first connected render and 50 once hydrated. `channel_ids/1` is `visible_channels/1` mapped to ids, so a list reader that needs the structs does not load the channels twice.
 
 ## Read policy
 
@@ -147,13 +147,13 @@ Rules for the shape:
 - A write that has no actor today (channels), or has an actor with no check in the context (emojis), gains the decision inside the context. The web checks (`can_manage_channels?` and similar) stay only to decide what to show.
 - Bang functions (`get_*!`) leave the public API.
 
-UI rules stay in the web layer. A scoped read answers "may this person see it". It does not answer "is it on their screen". GuildLive keeps `State.fetch_open_message/2`: a message event acts only on a message in the open channel or thread, and that message is loaded through `Chat.get_message(scope, id)`.
+UI rules stay in the web layer. A scoped read answers "may this person see it". It does not answer "is it on their screen". ServerLive keeps `State.fetch_open_message/2`: a message event acts only on a message in the open channel or thread, and that message is loaded through `Chat.get_message(scope, id)`.
 
 ## Enforcement
 
 1. A test runs `rg 'Repo\.' lib/tavern_web` and expects no match.
 2. Each domain operation pattern-matches `%Scope{}` in its first argument, so a forgotten scope fails loudly.
-3. One test per LiveView and API surface sends each event or request with two ids: a row in a channel the actor cannot view, and a row in a visible channel that is not open. The first never appears in any response. The second is ignored by events that act on the open conversation. The GuildLive test in the commit "fix(guild): act only on messages in the open conversation" is the model.
+3. One test per LiveView and API surface sends each event or request with two ids: a row in a channel the actor cannot view, and a row in a visible channel that is not open. The first never appears in any response. The second is ignored by events that act on the open conversation. The ServerLive test in the commit "fix(guild): act only on messages in the open conversation" is the model.
 
 ## Order of work
 

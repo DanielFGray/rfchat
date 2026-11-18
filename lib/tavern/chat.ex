@@ -1,6 +1,6 @@
 defmodule Tavern.Chat do
   @moduledoc """
-  Chat domain for the single-guild tavern deployment model.
+  Chat domain for the single-server tavern deployment model.
   """
 
   import Ecto.Query, warn: false
@@ -280,7 +280,7 @@ defmodule Tavern.Chat do
       end)
       |> case do
         {:ok, {message, reopened}} ->
-          if reopened, do: Topics.broadcast_guild({:channel_updated, reopened})
+          if reopened, do: Topics.broadcast_server({:channel_updated, reopened})
           {:ok, message}
 
         {:error, reason} ->

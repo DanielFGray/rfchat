@@ -1,9 +1,9 @@
-defmodule TavernWeb.GuildLiveMessagesTest do
+defmodule TavernWeb.ServerLiveMessagesTest do
   use TavernWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   alias Tavern.Bootstrap
   alias Tavern.Chat
@@ -120,7 +120,7 @@ defmodule TavernWeb.GuildLiveMessagesTest do
            )
   end
 
-  test "fans out new messages to other connected guild sessions", %{conn: conn} do
+  test "fans out new messages to other connected server sessions", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
 
     sender_conn = log_in_member_user(conn, "sender")
@@ -209,18 +209,18 @@ defmodule TavernWeb.GuildLiveMessagesTest do
 
     moderator =
       user_fixture(%{
-        email: "guildlive-moderator@example.com",
-        username: "guildlive_moderator",
-        display_name: "Guildlive Moderator"
+        email: "serverlive-moderator@example.com",
+        username: "serverlive_moderator",
+        display_name: "Serverlive Moderator"
       })
 
     _member_role = member_role_fixture(moderator, moderator_role)
 
     author =
       user_fixture(%{
-        email: "guildlive-author@example.com",
-        username: "guildlive_author",
-        display_name: "Guildlive Author"
+        email: "serverlive-author@example.com",
+        username: "serverlive_author",
+        display_name: "Serverlive Author"
       })
 
     general = channel_by_slug!("general")

@@ -18,7 +18,7 @@ defmodule Tavern.Chat.Roles do
 
   A hidden or missing role or member answers `{:error, :not_found}`; a visible one the scope may
   not change answers `{:error, :forbidden}`. Each write that changes something records an audit log
-  entry and broadcasts `:roles_changed` on the guild topic after it commits; a move at the edge,
+  entry and broadcasts `:roles_changed` on the server topic after it commits; a move at the edge,
   giving a held role or taking one not held changes nothing and records nothing.
   """
 
@@ -228,7 +228,7 @@ defmodule Tavern.Chat.Roles do
     end)
     |> case do
       {:ok, {:changed, role}} ->
-        Topics.broadcast_guild(:roles_changed)
+        Topics.broadcast_server(:roles_changed)
         {:ok, role}
 
       {:ok, {:unchanged, role}} ->

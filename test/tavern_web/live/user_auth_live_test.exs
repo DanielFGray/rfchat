@@ -6,7 +6,7 @@ defmodule TavernWeb.UserAuthLiveTest do
   alias Tavern.Accounts.LoginRateLimiter
   alias Tavern.Bootstrap
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   setup do
     LoginRateLimiter.reset!()
@@ -99,7 +99,7 @@ defmodule TavernWeb.UserAuthLiveTest do
     assert Phoenix.Flash.get(conn.assigns.flash, :info) == "Account created"
   end
 
-  test "login redirects authenticated user into guild shell", %{conn: conn} do
+  test "login redirects authenticated user into server shell", %{conn: conn} do
     user_fixture(%{
       email: "login@example.com",
       username: "login_user",
@@ -124,7 +124,7 @@ defmodule TavernWeb.UserAuthLiveTest do
     assert redirected_to(conn) == ~p"/"
   end
 
-  test "guild shell requires authentication", %{conn: conn} do
+  test "server shell requires authentication", %{conn: conn} do
     assert {:error, {:redirect, %{to: "/login"}}} = live(conn, ~p"/")
   end
 
@@ -147,20 +147,20 @@ defmodule TavernWeb.UserAuthLiveTest do
              "Too many login attempts"
   end
 
-  test "authenticated user can open guild shell and post as self", %{conn: conn} do
+  test "authenticated user can open server shell and post as self", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
 
     user_fixture(%{
-      email: "guild@example.com",
-      username: "guild_user",
-      display_name: "Guild User"
+      email: "server@example.com",
+      username: "server_user",
+      display_name: "Server User"
     })
 
     {:ok, login_view, _html} = live(conn, ~p"/login")
 
     login_form =
       form(login_view, "#login-form", %{
-        user: %{email: "guild@example.com", password: "supersecurepass"}
+        user: %{email: "server@example.com", password: "supersecurepass"}
       })
 
     render_submit(login_form)
@@ -170,7 +170,7 @@ defmodule TavernWeb.UserAuthLiveTest do
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
     assert has_element?(view, "#logout-link")
-    assert render(view) =~ "@guild_user"
+    assert render(view) =~ "@server_user"
 
     html =
       view
@@ -178,7 +178,7 @@ defmodule TavernWeb.UserAuthLiveTest do
       |> render_submit()
 
     assert html =~ "auth works"
-    assert render(view) =~ "Guild User"
+    assert render(view) =~ "Server User"
   end
 
   test "banned user login redirects to banned screen", %{conn: conn} do

@@ -1,28 +1,28 @@
-defmodule TavernWeb.GuildComponents.Messages do
+defmodule TavernWeb.ServerComponents.Messages do
   @moduledoc false
 
   use TavernWeb, :html
 
   alias Tavern.Chat
 
-  import TavernWeb.GuildComponents.Helpers
+  import TavernWeb.ServerComponents.Helpers
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def active_channel_view(assigns) do
     ~H"""
-    <.channel_header guild={@guild} />
-    <%= if @guild.channel_ready? do %>
-      <.message_stream guild={@guild} />
+    <.channel_header server={@server} />
+    <%= if @server.channel_ready? do %>
+      <.message_stream server={@server} />
     <% else %>
-      <.channel_loading_state guild={@guild} />
+      <.channel_loading_state server={@server} />
     <% end %>
-    <.typing_indicator users={@guild.typing_users} id="channel-typing-indicator" />
-    <TavernWeb.GuildComponents.Composer.channel_composer guild={@guild} />
+    <.typing_indicator users={@server.typing_users} id="channel-typing-indicator" />
+    <TavernWeb.ServerComponents.Composer.channel_composer server={@server} />
     """
   end
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def channel_header(assigns) do
     ~H"""
@@ -40,10 +40,10 @@ defmodule TavernWeb.GuildComponents.Messages do
           <span class="text-lg font-bold text-base-content/50">#</span>
           <div class="min-w-0">
             <h1 class="truncate text-[15px] font-semibold text-base-content">
-              {@guild.active_channel.name}
+              {@server.active_channel.name}
             </h1>
             <p class="mt-0.5 truncate text-xs text-base-content/65">
-              {@guild.active_channel.topic || "No topic set for this channel yet."}
+              {@server.active_channel.topic || "No topic set for this channel yet."}
             </p>
           </div>
         </div>
@@ -57,11 +57,11 @@ defmodule TavernWeb.GuildComponents.Messages do
           class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-base-content/80 transition hover:bg-base-100 hover:text-base-content xl:hidden"
         >
           <span aria-hidden="true">👥</span>
-          <span>{length(@guild.member_presence)}</span>
+          <span>{length(@server.member_presence)}</span>
         </button>
         <span class="hidden rounded-md bg-base-100 px-2 py-1 font-medium sm:inline-flex">
-          <%= if @guild.channel_ready? do %>
-            {@guild.message_count} messages
+          <%= if @server.channel_ready? do %>
+            {@server.message_count} messages
           <% else %>
             Loading...
           <% end %>
@@ -74,7 +74,7 @@ defmodule TavernWeb.GuildComponents.Messages do
     """
   end
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def channel_loading_state(assigns) do
     ~H"""
@@ -96,7 +96,7 @@ defmodule TavernWeb.GuildComponents.Messages do
     """
   end
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def message_stream(assigns) do
     ~H"""
@@ -106,25 +106,25 @@ defmodule TavernWeb.GuildComponents.Messages do
       phx-hook="MessageListHook"
     >
       <div
-        :if={@guild.messages_empty?}
+        :if={@server.messages_empty?}
         class="mx-4 my-6 rounded-lg border border-dashed border-base-300 bg-base-100 p-6 text-left"
       >
         <p class="text-[11px] font-bold uppercase tracking-[0.22em] text-base-content/50">
-          Start of #{@guild.active_channel.slug}
+          Start of #{@server.active_channel.slug}
         </p>
         <p class="mt-2 text-sm leading-6 text-base-content/80">
           This is the beginning of the
-          <span class="font-semibold text-base-content">##{@guild.active_channel.name}</span>
+          <span class="font-semibold text-base-content">##{@server.active_channel.name}</span>
           channel. Drop a message to get the conversation moving.
         </p>
       </div>
 
       <div id="message-list" phx-update="stream" class="px-0 py-3">
         <.message_item
-          :for={{dom_id, message} <- @guild.streams.messages}
+          :for={{dom_id, message} <- @server.streams.messages}
           dom_id={dom_id}
           message={message}
-          guild={@guild}
+          server={@server}
         />
       </div>
     </div>
@@ -133,14 +133,14 @@ defmodule TavernWeb.GuildComponents.Messages do
 
   attr :dom_id, :any, required: true
   attr :message, :map, required: true
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
 
   def message_item(assigns) do
     assigns =
       assign(
         assigns,
         :thread,
-        thread_for_message(assigns.message, assigns.guild.thread_summaries)
+        thread_for_message(assigns.message, assigns.server.thread_summaries)
       )
 
     ~H"""
@@ -172,9 +172,9 @@ defmodule TavernWeb.GuildComponents.Messages do
             </time>
           </div>
 
-          <%= if @guild.editing_message_id == @message.id do %>
+          <%= if @server.editing_message_id == @message.id do %>
             <.form
-              for={@guild.editing_form}
+              for={@server.editing_form}
               id={"edit-message-form-#{@message.id}"}
               phx-submit="save_edit"
               class="mt-2"
@@ -182,7 +182,7 @@ defmodule TavernWeb.GuildComponents.Messages do
               <input type="hidden" name="message[id]" value={@message.id} />
               <div class="rounded-md border border-primary/30 bg-base-100 p-2">
                 <.input
-                  field={@guild.editing_form[:body]}
+                  field={@server.editing_form[:body]}
                   type="textarea"
                   id={"edit-message-body-#{@message.id}"}
                   rows="3"
@@ -218,7 +218,7 @@ defmodule TavernWeb.GuildComponents.Messages do
 
           <div class="mt-2 flex flex-wrap items-center gap-1.5">
             <button
-              :for={reaction <- reaction_summaries(@message, @guild.current_user)}
+              :for={reaction <- reaction_summaries(@message, @server.current_user)}
               type="button"
               phx-click={
                 if(reaction.kind == :unicode, do: "toggle_reaction", else: "toggle_custom_reaction")
@@ -227,13 +227,13 @@ defmodule TavernWeb.GuildComponents.Messages do
               phx-value-emoji={reaction.emoji_unicode}
               phx-value-emoji_id={reaction.emoji_id}
               id={reaction_dom_id(@message, reaction)}
-              disabled={!@guild.can_add_reactions? or deleted_message?(@message)}
+              disabled={!@server.can_add_reactions? or deleted_message?(@message)}
               class={[
                 "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold transition",
                 reaction.reacted? && "border-violet-400/60 bg-violet-500/20 text-violet-100",
                 !reaction.reacted? &&
                   "border-base-300 bg-base-100 text-base-content/70 hover:border-base-content/20 hover:text-base-content",
-                (!@guild.can_add_reactions? or deleted_message?(@message)) &&
+                (!@server.can_add_reactions? or deleted_message?(@message)) &&
                   "cursor-not-allowed opacity-50 hover:border-base-300 hover:text-base-content/70"
               ]}
             >
@@ -249,9 +249,9 @@ defmodule TavernWeb.GuildComponents.Messages do
           </div>
 
           <.reaction_picker
-            :if={reaction_picker_open?(@message, @guild.reaction_picker_message_id)}
+            :if={reaction_picker_open?(@message, @server.reaction_picker_message_id)}
             message={@message}
-            guild={@guild}
+            server={@server}
           />
 
           <div :if={@thread} class="mt-3 flex flex-wrap items-center gap-2">
@@ -259,19 +259,19 @@ defmodule TavernWeb.GuildComponents.Messages do
               id={"thread-summary-#{@message.id}"}
               class={[
                 "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold transition",
-                thread_open_for_message?(@message, @guild.active_thread) &&
+                thread_open_for_message?(@message, @server.active_thread) &&
                   "border-primary/40 bg-primary/10 text-primary",
-                !thread_open_for_message?(@message, @guild.active_thread) &&
+                !thread_open_for_message?(@message, @server.active_thread) &&
                   "border-base-300 bg-base-100 text-base-content/75"
               ]}
             >
               <.icon name="hero-chat-bubble-left-right" class="size-3.5" />
-              <span>{thread_reply_count(@message, @guild.thread_summaries)} replies</span>
+              <span>{thread_reply_count(@message, @server.thread_summaries)} replies</span>
               <span class="truncate text-base-content/45">{thread_title(@thread)}</span>
             </span>
 
             <.link
-              patch={thread_path(@guild.active_channel, @thread)}
+              patch={thread_path(@server.active_channel, @thread)}
               id={"focus-thread-#{@message.id}"}
               class="inline-flex items-center gap-2 rounded-full border border-base-300 bg-base-100 px-3 py-1 text-[11px] font-semibold text-base-content/70 transition hover:border-base-content/20 hover:bg-base-200 hover:text-base-content"
             >
@@ -279,25 +279,25 @@ defmodule TavernWeb.GuildComponents.Messages do
             </.link>
           </div>
 
-          <TavernWeb.GuildComponents.Threads.thread_panel
-            :if={@thread && thread_open_for_message?(@message, @guild.active_thread)}
-            guild={@guild}
+          <TavernWeb.ServerComponents.Threads.thread_panel
+            :if={@thread && thread_open_for_message?(@message, @server.active_thread)}
+            server={@server}
             message={@message}
             thread={@thread}
           />
 
-          <p :if={!@guild.can_add_reactions?} class="mt-2 text-[11px] text-base-content/50">
+          <p :if={!@server.can_add_reactions?} class="mt-2 text-[11px] text-base-content/50">
             Reactions are disabled for your permissions in this channel.
           </p>
         </div>
 
-        <.message_actions guild={@guild} message={@message} thread={@thread} />
+        <.message_actions server={@server} message={@message} thread={@thread} />
       </article>
     </div>
     """
   end
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
   attr :message, :map, required: true
 
   def reaction_picker(assigns) do
@@ -313,7 +313,7 @@ defmodule TavernWeb.GuildComponents.Messages do
     <div
       id={"reaction-picker-#{@message.id}"}
       phx-hook="ReactionPickerHook"
-      data-custom-emojis={@guild.custom_emojis_json}
+      data-custom-emojis={@server.custom_emojis_json}
       class="fixed inset-x-0 bottom-0 z-20 rounded-t-[1.4rem] border border-base-300 bg-base-100 p-3 shadow-2xl md:absolute md:right-4 md:top-14 md:left-auto md:bottom-auto md:w-[22rem] md:rounded-2xl"
     >
       <div class="mb-2 flex items-center justify-between gap-3">
@@ -394,12 +394,12 @@ defmodule TavernWeb.GuildComponents.Messages do
             Custom
           </p>
           <div
-            :if={@guild.custom_emojis != []}
+            :if={@server.custom_emojis != []}
             class="grid grid-cols-6 gap-1.5 md:grid-cols-6"
             data-reaction-picker-custom
           >
             <button
-              :for={emoji <- @guild.custom_emojis}
+              :for={emoji <- @server.custom_emojis}
               type="button"
               phx-click="toggle_custom_reaction"
               phx-value-id={@message.id}
@@ -419,7 +419,7 @@ defmodule TavernWeb.GuildComponents.Messages do
             </button>
           </div>
           <p
-            :if={@guild.custom_emojis == []}
+            :if={@server.custom_emojis == []}
             class="rounded-xl border border-dashed border-base-300 bg-base-200 px-3 py-3 text-xs text-base-content/50"
           >
             No custom emoji uploaded yet.
@@ -430,7 +430,7 @@ defmodule TavernWeb.GuildComponents.Messages do
     """
   end
 
-  attr :guild, :map, required: true
+  attr :server, :map, required: true
   attr :message, :map, required: true
   attr :thread, :map, default: nil
 
@@ -440,14 +440,14 @@ defmodule TavernWeb.GuildComponents.Messages do
       "absolute right-4 top-0 z-10 flex items-center gap-1 rounded-full border border-base-300 bg-base-100/95 p-1 shadow-lg transition",
       message_controls_visible?(
         @message.id,
-        @guild.active_message_controls_id,
-        @guild.message_action_menu_id
+        @server.active_message_controls_id,
+        @server.message_action_menu_id
       ) &&
         "opacity-100 translate-y-0 pointer-events-auto",
       !message_controls_visible?(
         @message.id,
-        @guild.active_message_controls_id,
-        @guild.message_action_menu_id
+        @server.active_message_controls_id,
+        @server.message_action_menu_id
       ) &&
         "pointer-events-none -translate-y-1 opacity-0 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100"
     ]}>
@@ -455,16 +455,16 @@ defmodule TavernWeb.GuildComponents.Messages do
         :if={
           can_open_message_controls?(
             @message,
-            @guild.current_user,
-            @guild.can_send_messages?,
-            @guild.can_manage_messages?
+            @server.current_user,
+            @server.can_send_messages?,
+            @server.can_manage_messages?
           )
         }
         type="button"
         phx-click="reply_message"
         phx-value-id={@message.id}
         id={"quick-reply-message-#{@message.id}"}
-        disabled={!@guild.can_send_messages? or deleted_message?(@message)}
+        disabled={!@server.can_send_messages? or deleted_message?(@message)}
         class="inline-flex size-8 items-center justify-center rounded-full text-base-content/75 transition hover:bg-base-200 hover:text-base-content disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="Reply"
         title="Reply"
@@ -486,7 +486,9 @@ defmodule TavernWeb.GuildComponents.Messages do
       </button>
 
       <button
-        :if={is_nil(@thread) and @guild.can_create_public_threads? and not deleted_message?(@message)}
+        :if={
+          is_nil(@thread) and @server.can_create_public_threads? and not deleted_message?(@message)
+        }
         type="button"
         phx-click="create_thread"
         phx-value-id={@message.id}
@@ -503,7 +505,7 @@ defmodule TavernWeb.GuildComponents.Messages do
         phx-click="toggle_reaction_picker"
         phx-value-id={@message.id}
         id={"open-reaction-picker-#{@message.id}"}
-        disabled={!@guild.can_add_reactions? or deleted_message?(@message)}
+        disabled={!@server.can_add_reactions? or deleted_message?(@message)}
         class="inline-flex size-8 items-center justify-center rounded-full text-base-content/75 transition hover:bg-base-200 hover:text-base-content disabled:cursor-not-allowed disabled:opacity-50"
         aria-label="Add reaction"
         title="Add reaction"
@@ -512,7 +514,7 @@ defmodule TavernWeb.GuildComponents.Messages do
       </button>
 
       <button
-        :if={own_message?(@message, @guild.current_user) or @guild.can_manage_messages?}
+        :if={own_message?(@message, @server.current_user) or @server.can_manage_messages?}
         type="button"
         phx-click="toggle_message_action_menu"
         phx-value-id={@message.id}
@@ -525,7 +527,7 @@ defmodule TavernWeb.GuildComponents.Messages do
       </button>
 
       <div
-        :if={message_action_menu_open?(@message.id, @guild.message_action_menu_id)}
+        :if={message_action_menu_open?(@message.id, @server.message_action_menu_id)}
         id={"message-actions-menu-#{@message.id}"}
         class="absolute right-0 top-full mt-2 min-w-40 rounded-xl border border-base-300 bg-base-100 p-1.5 shadow-xl"
       >
@@ -542,7 +544,7 @@ defmodule TavernWeb.GuildComponents.Messages do
           </button>
         <% else %>
           <button
-            :if={@guild.can_create_public_threads? and not deleted_message?(@message)}
+            :if={@server.can_create_public_threads? and not deleted_message?(@message)}
             type="button"
             phx-click="create_thread"
             phx-value-id={@message.id}
@@ -555,7 +557,7 @@ defmodule TavernWeb.GuildComponents.Messages do
         <% end %>
 
         <button
-          :if={own_message?(@message, @guild.current_user) and not deleted_message?(@message)}
+          :if={own_message?(@message, @server.current_user) and not deleted_message?(@message)}
           type="button"
           phx-click="edit_message"
           phx-value-id={@message.id}
@@ -566,8 +568,8 @@ defmodule TavernWeb.GuildComponents.Messages do
           <span class="text-base-content/50">✎</span>
         </button>
 
-        <%= if (own_message?(@message, @guild.current_user) or @guild.can_manage_messages?) and not deleted_message?(@message) do %>
-          <%= if delete_confirmation_open?(@message.id, @guild.delete_confirmation_message_id) do %>
+        <%= if (own_message?(@message, @server.current_user) or @server.can_manage_messages?) and not deleted_message?(@message) do %>
+          <%= if delete_confirmation_open?(@message.id, @server.delete_confirmation_message_id) do %>
             <div
               id={"confirm-delete-message-#{@message.id}"}
               class="mt-1 rounded-lg border border-rose-500/20 bg-rose-500/8 p-3"

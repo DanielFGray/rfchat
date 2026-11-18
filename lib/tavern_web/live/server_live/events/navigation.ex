@@ -1,11 +1,11 @@
-defmodule TavernWeb.GuildLive.Events.Navigation do
+defmodule TavernWeb.ServerLive.Events.Navigation do
   @moduledoc false
 
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [put_flash: 3]
 
   alias Tavern.Chat
-  alias TavernWeb.GuildLive.State
+  alias TavernWeb.ServerLive.State
 
   def handle_params(%{"thread" => thread_id} = params, _uri, socket) do
     if not socket.assigns.navigation_ready? do

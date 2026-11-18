@@ -50,7 +50,7 @@ export default function () {
 
   sleep(randomSleep(300, 800));
 
-  // 2. Access the authenticated home page (guild chat)
+  // 2. Access the authenticated home page (server chat)
   const homeRes = http.get(`${BASE_URL}/`, {
     redirects: 5,
     tags: { name: "GET / (authed)" },

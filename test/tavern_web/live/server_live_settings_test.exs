@@ -1,9 +1,9 @@
-defmodule TavernWeb.GuildLiveSettingsTest do
+defmodule TavernWeb.ServerLiveSettingsTest do
   use TavernWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import Tavern.ChatFixtures
-  import TavernWeb.GuildLiveFixtures
+  import TavernWeb.ServerLiveFixtures
 
   alias Tavern.Bootstrap
   alias Tavern.Chat
@@ -156,16 +156,16 @@ defmodule TavernWeb.GuildLiveSettingsTest do
     Bootstrap.ensure_seed_data!()
 
     _owner =
-      user_fixture(%{email: "guildlive-owner-admin@example.com", username: "owner_admin_ui"})
+      user_fixture(%{email: "serverlive-owner-admin@example.com", username: "owner_admin_ui"})
 
     admin_role =
       role_fixture(%{name: "Admin UI", permissions: PermissionBits.combine([:administrator])})
 
     user =
       user_fixture(%{
-        email: "guildlive-admin-ui@example.com",
-        username: "guildlive_admin_ui",
-        display_name: "Guildlive Admin UI"
+        email: "serverlive-admin-ui@example.com",
+        username: "serverlive_admin_ui",
+        display_name: "Serverlive Admin UI"
       })
 
     _member_role = member_role_fixture(user, admin_role)
