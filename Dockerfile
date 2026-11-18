@@ -1,4 +1,4 @@
-# `ops release` and `ops stage` build this file from the exported HEAD tree.
+# A push to main and `ops stage` build this file from the exported HEAD tree.
 # Image tags: https://hub.docker.com/r/hexpm/elixir/tags and https://hub.docker.com/_/debian/tags
 ARG ELIXIR_VERSION=1.20.2
 ARG OTP_VERSION=29.0.5
