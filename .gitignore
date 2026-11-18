@@ -41,3 +41,4 @@ npm-debug.log
 # Local environment files.
 .env
 .env.local
+.playwright-mcp
