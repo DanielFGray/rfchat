@@ -276,6 +276,33 @@ defmodule Rfchat.Accounts do
     :ok
   end
 
+  @doc """
+  The id of the socket topic a session's LiveViews join, derived from the stored token hash so
+  the server can find the sockets of any session row. A `"disconnect"` broadcast to it closes them.
+  """
+  def live_socket_id(token) when is_binary(token), do: socket_id_for_hash(hash_token(token))
+
+  @doc """
+  Deletes every session of `user_id` and disconnects their open LiveViews. Run it after the
+  transaction that removed the member has committed, so a reconnecting socket finds no session.
+  """
+  def revoke_user_sessions(user_id) do
+    {_count, hashes} =
+      from(session in UserSession,
+        where: session.user_id == ^user_id and session.context == "session",
+        select: session.token_hash
+      )
+      |> Repo.delete_all()
+
+    Enum.each(hashes, fn hash ->
+      RfchatWeb.Endpoint.broadcast(socket_id_for_hash(hash), "disconnect", %{})
+    end)
+
+    :ok
+  end
+
+  defp socket_id_for_hash(hash), do: "users_sessions:" <> Base.url_encode64(hash, padding: false)
+
   def delete_bot_token(token) when is_binary(token) do
     hashed_token = hash_token(token)
     now = DateTime.utc_now()
@@ -301,6 +328,9 @@ defmodule Rfchat.Accounts do
   end
 
   def banned?(%User{} = user), do: membership_state(user) == :banned
+
+  @doc "Whether the user may reach no chat page: banned, kicked, or without a membership."
+  def excluded?(%User{} = user), do: membership_state(user) in [:banned, :removed]
   def removed?(%User{} = user), do: membership_state(user) == :removed
 
   def hash_token(token) when is_binary(token), do: :crypto.hash(:sha256, token)

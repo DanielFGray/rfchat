@@ -41,20 +41,28 @@ defmodule Rfchat.Chat.Emojis do
     attrs = normalize_emoji_attrs(attrs)
 
     Repo.transaction(fn ->
-      with {:ok, asset} <- MediaAssets.create_media_asset_from_upload(upload, creator),
+      with :ok <-
+             Visibility.authorize_write(
+               %Scope{user_id: creator.id},
+               :manage_emojis_and_stickers,
+               :server
+             ),
+           {:ok, asset} <- MediaAssets.create_media_asset_from_upload(upload, creator),
            {:ok, emoji} <-
              %Emoji{creator_id: creator.id}
              |> Emoji.changeset(Map.put(attrs, "asset_id", asset.id))
              |> Repo.insert() do
         Repo.preload(emoji, [:asset, :creator, :emoji_roles])
       else
-        {:error, changeset} -> Repo.rollback(changeset)
+        {:error, %Ecto.Changeset{} = changeset} -> Repo.rollback(changeset)
         {:error, reason, :upload} -> Repo.rollback({:upload, reason})
+        {:error, reason} -> Repo.rollback({:refused, reason})
       end
     end)
     |> case do
       {:ok, emoji} -> {:ok, emoji}
       {:error, {:upload, reason}} -> {:error, reason}
+      {:error, {:refused, reason}} -> {:error, reason}
       {:error, changeset} -> {:error, changeset}
     end
   end

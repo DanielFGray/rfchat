@@ -29,7 +29,7 @@ defmodule RfchatWeb.UserAuth do
 
     conn
     |> renew_session()
-    |> put_session(:user_token, token)
+    |> put_user_token(token)
     |> maybe_write_remember_me_cookie(token, params)
     |> redirect(to: user_return_to || signed_in_path(user))
   end
@@ -38,8 +38,8 @@ defmodule RfchatWeb.UserAuth do
     user_token = get_session(conn, :user_token)
     user_token && Accounts.delete_user_session_token(user_token)
 
-    if live_socket_id = get_session(conn, :live_socket_id) do
-      RfchatWeb.Endpoint.broadcast(live_socket_id, "disconnect", %{})
+    if user_token do
+      RfchatWeb.Endpoint.broadcast(Accounts.live_socket_id(user_token), "disconnect", %{})
     end
 
     conn
@@ -59,7 +59,7 @@ defmodule RfchatWeb.UserAuth do
   end
 
   def require_authenticated_user(conn, _opts) do
-    if conn.assigns.current_user && not Accounts.banned?(conn.assigns.current_user) do
+    if conn.assigns.current_user && not Accounts.excluded?(conn.assigns.current_user) do
       conn
     else
       conn
@@ -69,7 +69,7 @@ defmodule RfchatWeb.UserAuth do
   end
 
   def require_banned_user(conn, _opts) do
-    if conn.assigns.current_user && Accounts.banned?(conn.assigns.current_user) do
+    if conn.assigns.current_user && Accounts.excluded?(conn.assigns.current_user) do
       conn
     else
       conn
@@ -95,7 +95,7 @@ defmodule RfchatWeb.UserAuth do
   def on_mount(:ensure_authenticated, _params, session, socket) do
     socket = mount_current_scope(socket, session)
 
-    if socket.assigns.current_user && not Accounts.banned?(socket.assigns.current_user) do
+    if socket.assigns.current_user && not Accounts.excluded?(socket.assigns.current_user) do
       {:cont, socket}
     else
       {:halt, redirect_authenticated_mount(socket)}
@@ -105,7 +105,7 @@ defmodule RfchatWeb.UserAuth do
   def on_mount(:ensure_banned_user, _params, session, socket) do
     socket = mount_current_scope(socket, session)
 
-    if socket.assigns.current_user && Accounts.banned?(socket.assigns.current_user) do
+    if socket.assigns.current_user && Accounts.excluded?(socket.assigns.current_user) do
       {:cont, socket}
     else
       {:halt, LiveView.redirect(socket, to: signed_in_path(socket))}
@@ -144,7 +144,7 @@ defmodule RfchatWeb.UserAuth do
 
   defp maybe_redirect_banned_user(%Plug.Conn{assigns: %{current_user: user}} = conn)
        when not is_nil(user) do
-    if Accounts.banned?(user) do
+    if Accounts.excluded?(user) do
       conn
       |> redirect(to: ~p"/banned")
       |> halt()
@@ -156,7 +156,7 @@ defmodule RfchatWeb.UserAuth do
   defp maybe_redirect_banned_user(conn), do: conn
 
   defp redirect_authenticated_mount(socket) do
-    if socket.assigns.current_user && Accounts.banned?(socket.assigns.current_user) do
+    if socket.assigns.current_user && Accounts.excluded?(socket.assigns.current_user) do
       LiveView.redirect(socket, to: ~p"/banned")
     else
       socket
@@ -172,16 +172,16 @@ defmodule RfchatWeb.UserAuth do
   defp maybe_store_return_to(conn), do: conn
 
   defp signed_in_path(%Plug.Conn{assigns: %{current_user: user}}) when not is_nil(user) do
-    if Accounts.banned?(user), do: ~p"/banned", else: ~p"/"
+    if Accounts.excluded?(user), do: ~p"/banned", else: ~p"/"
   end
 
   defp signed_in_path(%Phoenix.LiveView.Socket{assigns: %{current_user: user}})
        when not is_nil(user) do
-    if Accounts.banned?(user), do: ~p"/banned", else: ~p"/"
+    if Accounts.excluded?(user), do: ~p"/banned", else: ~p"/"
   end
 
   defp signed_in_path(%Rfchat.Chat.User{} = user) do
-    if Accounts.banned?(user), do: ~p"/banned", else: ~p"/"
+    if Accounts.excluded?(user), do: ~p"/banned", else: ~p"/"
   end
 
   defp signed_in_path(_), do: ~p"/"
@@ -194,12 +194,12 @@ defmodule RfchatWeb.UserAuth do
 
   defp ensure_user_token(conn) do
     if token = get_session(conn, :user_token) do
-      {token, conn}
+      {token, put_user_token(conn, token)}
     else
       conn = fetch_cookies(conn, signed: [@remember_me_cookie])
 
       if token = conn.cookies[@remember_me_cookie] do
-        {token, put_session(conn, :user_token, token)}
+        {token, put_user_token(conn, token)}
       else
         {nil, conn}
       end
@@ -212,10 +212,14 @@ defmodule RfchatWeb.UserAuth do
     conn
     |> configure_session(renew: true)
     |> clear_session()
-    |> put_session(
-      :live_socket_id,
-      "users_sessions:#{Base.url_encode64(:crypto.strong_rand_bytes(32))}"
-    )
+  end
+
+  # The LiveView socket id comes from the token, so the server can disconnect the sockets of any
+  # stored session (see `Accounts.revoke_user_sessions/1`).
+  defp put_user_token(conn, token) do
+    conn
+    |> put_session(:user_token, token)
+    |> put_session(:live_socket_id, Accounts.live_socket_id(token))
   end
 
   defp session_metadata(conn) do

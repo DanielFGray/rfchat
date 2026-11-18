@@ -5,6 +5,7 @@ defmodule Rfchat.Chat do
 
   import Ecto.Query, warn: false
 
+  alias Rfchat.Accounts
   alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.Channels
@@ -572,7 +573,18 @@ defmodule Rfchat.Chat do
     |> Ecto.Changeset.add_error(:metadata, "must be valid JSON")
   end
 
+  # A removed member's sessions go after the removal commits, and their open LiveViews
+  # disconnect. A socket that reconnects finds no session and is sent to log in.
   defp deactivate_member(scope, subject_user_id, bit, action_type, reason, extra_flags) do
+    scope
+    |> remove_membership(subject_user_id, bit, action_type, reason, extra_flags)
+    |> tap(fn
+      {:ok, subject, _moderation_case} -> Accounts.revoke_user_sessions(subject.id)
+      {:error, _reason} -> :ok
+    end)
+  end
+
+  defp remove_membership(scope, subject_user_id, bit, action_type, reason, extra_flags) do
     moderate(scope, subject_user_id, bit, fn membership, subject_id ->
       now = DateTime.utc_now()
       flags = Map.merge(membership.flags || %{}, extra_flags)
