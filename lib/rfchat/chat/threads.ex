@@ -4,6 +4,7 @@ defmodule Rfchat.Chat.Threads do
   import Ecto.Query, warn: false
 
   alias Rfchat.Accounts.Scope
+  alias Rfchat.Chat
   alias Rfchat.Chat.Channel
   alias Rfchat.Chat.Channels
   alias Rfchat.Chat.Message
@@ -100,8 +101,9 @@ defmodule Rfchat.Chat.Threads do
                  Visibility.authorize_write(scope, :create_public_threads, %Message{
                    id: starter_message_id
                  }),
-               %Message{channel_id: parent_id} = starter <- Repo.get(Message, starter_message_id),
+               parent_id when is_binary(parent_id) <- message_channel_id(starter_message_id),
                %Channel{} = parent <- Channels.lock_channel(parent_id),
+               %Message{} = starter <- Chat.lock_live_message(starter_message_id),
                :ok <- validate_thread_host(parent, starter) do
             case thread_for_starter(starter.id) do
               nil -> insert_thread(scope, parent, starter, attrs)
@@ -184,7 +186,6 @@ defmodule Rfchat.Chat.Threads do
     end
   end
 
-  # authorize_write already refused a deleted starter, so only the parent's kind is left to check.
   defp validate_thread_host(parent, starter) do
     if Channel.thread_host?(parent),
       do: :ok,
@@ -195,6 +196,14 @@ defmodule Rfchat.Chat.Threads do
            starter,
            "threads can only start from text-like channels"
          )}
+  end
+
+  # A message never changes channel, so this read needs no lock. The starter itself is locked after
+  # its channel, in the order the design fixes (scoped-reads.md, "Consistency").
+  defp message_channel_id(message_id) do
+    Repo.one(
+      from(message in Message, where: message.id == ^message_id, select: message.channel_id)
+    )
   end
 
   defp thread_for_starter(starter_id) do

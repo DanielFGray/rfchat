@@ -802,7 +802,8 @@ defmodule Rfchat.Chat do
       else: {:error, :not_found}
   end
 
-  defp lock_live_message(message_id) do
+  @doc false
+  def lock_live_message(message_id) do
     Repo.one(
       from(message in Message,
         where: message.id == ^message_id and is_nil(message.deleted_at),

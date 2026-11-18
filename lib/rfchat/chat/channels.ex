@@ -11,6 +11,9 @@ defmodule Rfchat.Chat.Channels do
   alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
+  # Key of the transaction-scoped advisory lock that serializes channel management writes.
+  @channel_tree_lock_key 7_314_002_002
+
   def list_channels(%Scope{} = scope) do
     Visibility.visible_channels(scope)
   end
@@ -111,9 +114,8 @@ defmodule Rfchat.Chat.Channels do
     write_channel(scope, :server, :channel_created, fn _ ->
       attrs = put_position_if_missing(attrs)
 
-      with :ok <- authorize_parent(scope, attrs),
-           {:ok, channel} <- %Channel{} |> managed_channel_changeset(attrs) |> Repo.insert() do
-        {:ok, channel}
+      with {:ok, parent} <- authorize_parent(scope, attrs) do
+        %Channel{} |> managed_channel_changeset(attrs, parent) |> Repo.insert()
       end
     end)
   end
@@ -124,20 +126,11 @@ defmodule Rfchat.Chat.Channels do
 
   def update_channel(%Scope{} = scope, channel_id, attrs) do
     with {:ok, channel_id} <- Ecto.UUID.cast(channel_id) do
-      write_channel(
-        scope,
-        channel_id,
-        :channel_updated,
-        fn channel ->
-          with {:ok, updated} <- channel |> managed_channel_changeset(attrs) |> Repo.update() do
-            {:ok, updated}
-          end
-        end,
-        fn ->
-          current = Repo.get(Channel, channel_id)
-          authorize_parent(scope, attrs, current && current.parent_channel_id)
+      write_channel(scope, channel_id, :channel_updated, fn channel ->
+        with {:ok, parent} <- authorize_parent(scope, attrs, channel.parent_channel_id) do
+          channel |> managed_channel_changeset(attrs, parent) |> Repo.update()
         end
-      )
+      end)
     else
       :error -> {:error, :not_found}
     end
@@ -168,22 +161,12 @@ defmodule Rfchat.Chat.Channels do
 
   def move_channel(%Scope{} = scope, channel_id, direction) do
     with {:ok, channel_id} <- Ecto.UUID.cast(channel_id) do
-      Repo.transact(fn ->
-        with :ok <- Visibility.authorize_write(scope, :manage_channels, %Channel{id: channel_id}),
-             %Channel{} = channel <- Visibility.visible_channel(scope, channel_id),
-             {:ok, sibling} <- adjacent_visible_sibling(scope, channel, direction) do
-          [first, second] = [channel.id, sibling.id] |> Enum.sort() |> Enum.map(&lock_channel/1)
-
-          with {:ok, moved_first} <-
-                 Repo.update(Channel.changeset(first, %{position: second.position})),
-               {:ok, moved_second} <-
-                 Repo.update(Channel.changeset(second, %{position: first.position})) do
-            {:ok, Enum.find([moved_first, moved_second], &(&1.id == channel_id))}
-          end
-        else
-          {:error, :forbidden} = error -> error
+      scope
+      |> channel_transaction(channel_id, fn channel ->
+        case adjacent_visible_sibling(scope, channel, direction) do
+          {:ok, sibling} -> swap_positions(channel, sibling)
           {:error, :edge} -> {:ok, Visibility.visible_channel(scope, channel_id)}
-          _ -> {:error, :not_found}
+          {:error, _} -> {:error, :not_found}
         end
       end)
       |> tap(&broadcast_reorder/1)
@@ -196,22 +179,18 @@ defmodule Rfchat.Chat.Channels do
   defp broadcast_reorder({:ok, _channel}), do: Topics.broadcast_guild(:channels_reordered)
   defp broadcast_reorder(_error), do: :ok
 
-  defp write_channel(scope, target, event, change, before_lock \\ fn -> :ok end) do
-    Repo.transact(fn ->
-      authorization_target = if target == :server, do: :server, else: %Channel{id: target}
+  defp swap_positions(channel, sibling) do
+    [first, second] = [channel.id, sibling.id] |> Enum.sort() |> Enum.map(&lock_channel/1)
 
-      with :ok <- Visibility.authorize_write(scope, :manage_channels, authorization_target),
-           :ok <- before_lock.(),
-           channel <- if(is_binary(target), do: lock_channel(target), else: nil),
-           true <- target == :server or not is_nil(channel),
-           {:ok, result} <- change.(channel) do
-        {:ok, result}
-      else
-        false -> {:error, :not_found}
-        error -> error
-      end
-    end)
-    |> case do
+    with {:ok, moved_first} <- Repo.update(Channel.changeset(first, %{position: second.position})),
+         {:ok, moved_second} <-
+           Repo.update(Channel.changeset(second, %{position: first.position})) do
+      {:ok, Enum.find([moved_first, moved_second], &(&1.id == channel.id))}
+    end
+  end
+
+  defp write_channel(scope, target, event, change) do
+    case channel_transaction(scope, target, change) do
       {:ok, channel} = result ->
         Topics.broadcast_guild({event, channel})
         result
@@ -221,26 +200,65 @@ defmodule Rfchat.Chat.Channels do
     end
   end
 
+  # Every channel management write runs here. The tree lock comes first, so two management writes
+  # never interleave: the second one decides from the tree the first one committed, and no two of
+  # them wait on each other's channel rows. Then the decision takes its membership locks, then the
+  # target row is locked (`:server` has none) and `change` runs on it.
+  defp channel_transaction(scope, target, change) do
+    Repo.transact(fn ->
+      lock_channel_tree!()
+
+      with :ok <-
+             Visibility.authorize_write(scope, :manage_channels, authorization_target(target)),
+           {:ok, channel} <- lock_target(target) do
+        change.(channel)
+      end
+    end)
+  end
+
+  defp authorization_target(:server), do: :server
+  defp authorization_target(channel_id), do: %Channel{id: channel_id}
+
+  defp lock_target(:server), do: {:ok, nil}
+
+  defp lock_target(channel_id) do
+    case lock_channel(channel_id) do
+      %Channel{} = channel -> {:ok, channel}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp lock_channel_tree! do
+    Repo.query!("SELECT pg_advisory_xact_lock($1)", [@channel_tree_lock_key])
+  end
+
   def lock_channel(id) do
     Repo.one(from(channel in Channel, where: channel.id == ^id, lock: "FOR UPDATE"))
   end
 
+  # The scoped decision answers first, so a hidden parent and a missing one give the same refusal.
+  # The kind is checked on the row the decision locked, and only for a parent that is set.
   defp authorize_parent(scope, attrs, fallback \\ nil) do
     parent_id = Map.get(attrs, :parent_channel_id, Map.get(attrs, "parent_channel_id", fallback))
 
     if is_nil(parent_id) do
-      :ok
+      {:ok, nil}
     else
-      with {:ok, parent_id} <- Ecto.UUID.cast(parent_id),
+      with {:ok, parent_id} <- cast_parent_id(parent_id),
            :ok <- Visibility.authorize_write(scope, :manage_channels, %Channel{id: parent_id}),
-           %Channel{kind: :category} <- lock_channel(parent_id) do
-        :ok
+           %Channel{} = parent <- lock_channel(parent_id) do
+        {:ok, parent}
       else
-        _ ->
-          {:error,
-           managed_channel_changeset(%Channel{}, %{parent_channel_id: parent_id})
-           |> Ecto.Changeset.add_error(:parent_channel_id, "must be a category")}
+        nil -> {:error, :not_found}
+        error -> error
       end
+    end
+  end
+
+  defp cast_parent_id(parent_id) do
+    case Ecto.UUID.cast(parent_id) do
+      {:ok, parent_id} -> {:ok, parent_id}
+      :error -> {:error, :not_found}
     end
   end
 
@@ -302,14 +320,13 @@ defmodule Rfchat.Chat.Channels do
 
   # A manager places a channel only under a category. Any other parent would make the channel a
   # child of a channel, whose visibility rules are a thread's.
-  defp managed_channel_changeset(channel, attrs) do
-    channel
-    |> Channel.changeset(attrs)
-    |> Ecto.Changeset.validate_change(:parent_channel_id, fn :parent_channel_id, parent_id ->
-      case Repo.get(Channel, parent_id) do
-        %Channel{kind: :category} -> []
-        _other -> [parent_channel_id: "must be a category"]
-      end
-    end)
+  defp managed_channel_changeset(channel, attrs, parent) do
+    changeset = Channel.changeset(channel, attrs)
+
+    case parent do
+      %Channel{kind: :category} -> changeset
+      nil -> changeset
+      %Channel{} -> Ecto.Changeset.add_error(changeset, :parent_channel_id, "must be a category")
+    end
   end
 end

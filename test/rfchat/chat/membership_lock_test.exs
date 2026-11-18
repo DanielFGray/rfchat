@@ -21,17 +21,11 @@ defmodule Rfchat.Chat.MembershipLockTest do
   alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
+  import Rfchat.LockTestHelpers
+
   # A correct lock never lets the second request through while the holder is open, so the
   # timeout bounds how fast a missing lock shows up.
   @lock_timeout "300ms"
-
-  # Backends blocked on a row lock. A row-lock wait is an ungranted `transactionid` lock in
-  # `pg_locks`, which every role may read. `pg_stat_activity` hides other sessions' queries and wait
-  # events from a non-superuser role, so it cannot show this wait.
-  @waiting_sql """
-  SELECT count(*) FROM pg_locks
-  WHERE NOT granted AND locktype = 'transactionid' AND pid <> pg_backend_pid()
-  """
 
   setup do
     :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo, sandbox: false)
@@ -79,7 +73,7 @@ defmodule Rfchat.Chat.MembershipLockTest do
     holder = hold_open(fn -> make_owner_in_open_transaction(subject) end)
     ban = start_ban(actor, subject)
 
-    await_lock_wait()
+    await_waiters(1)
     commit(holder)
 
     assert {:error, :forbidden} = Task.await(ban, 10_000)
@@ -91,7 +85,7 @@ defmodule Rfchat.Chat.MembershipLockTest do
     holder = hold_open(fn -> make_owner_in_open_transaction(subject) end)
     ban = start_ban(actor, subject)
 
-    await_lock_wait()
+    await_waiters(1)
     commit(holder)
 
     assert {:error, :forbidden} = Task.await(ban, 10_000)
@@ -113,7 +107,7 @@ defmodule Rfchat.Chat.MembershipLockTest do
         end)
       end)
 
-    await_lock_wait()
+    await_waiters(1)
     commit(holder)
 
     assert {:error, :forbidden} = Task.await(promotion, 10_000)
@@ -162,46 +156,6 @@ defmodule Rfchat.Chat.MembershipLockTest do
     Repo.one!(from(m in Membership, where: m.user_id == ^user_id, lock: "FOR UPDATE"))
   end
 
-  # Polls the waiting-lock count until one backend is blocked on a `FOR UPDATE`. Each poll is a
-  # network round trip, so the bound is in attempts rather than a sleep.
-  defp await_lock_wait(attempts \\ 100)
-
-  defp await_lock_wait(0), do: flunk("no backend waited on a membership row lock")
-
-  defp await_lock_wait(attempts) do
-    case Repo.query!(@waiting_sql).rows do
-      [[0]] -> await_lock_wait(attempts - 1)
-      [[_waiting]] -> :ok
-    end
-  end
-
-  # Runs `fun` inside a transaction on its own connection and keeps the transaction open until
-  # `commit/1`. Returns the holder process, which `commit/1` waits on.
-  defp hold_open(fun) do
-    parent = self()
-
-    holder =
-      spawn_link(fn ->
-        on_own_connection(fn ->
-          result =
-            Repo.transaction(fn ->
-              send(parent, {:held, self(), fun.()})
-              receive do: (:commit -> :ok)
-            end)
-
-          send(parent, {:committed, self(), result})
-        end)
-      end)
-
-    assert_receive {:held, ^holder, _decision}, 10_000
-    holder
-  end
-
-  defp commit(holder) do
-    send(holder, :commit)
-    assert_receive {:committed, ^holder, {:ok, _}}, 10_000
-  end
-
   # A `FOR UPDATE` on the membership row with a short lock timeout. Returns :granted when the row
   # is free, or {:lock_not_available, code} when the request had to wait past the timeout.
   defp try_moderation_lock(user_id) do
@@ -223,11 +177,6 @@ defmodule Rfchat.Chat.MembershipLockTest do
   # one from the sandbox setup, so a checkout there would return the existing connection.
   defp from_other_connection(fun) do
     Task.async(fn -> on_own_connection(fun) end) |> Task.await(10_000)
-  end
-
-  defp on_own_connection(fun) do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo, sandbox: false)
-    fun.()
   end
 
   defp register_user do

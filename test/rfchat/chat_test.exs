@@ -191,7 +191,7 @@ defmodule Rfchat.ChatTest do
       assert {:error, :forbidden} = Chat.move_channel(scope_for(user_fixture()), first.id, :up)
     end
 
-    test "channel parents must be visible categories for create and reparent" do
+    test "a parent the manager cannot view is refused as missing, never as a validation error" do
       %{default_role: default_role} = Bootstrap.ensure_seed_data!()
       manager = channel_manager_fixture()
       scope = scope_for(manager)
@@ -203,18 +203,17 @@ defmodule Rfchat.ChatTest do
         deny_permissions: PermissionBits.combine([:view_channel])
       })
 
-      assert {:error, create_error} =
-               Chat.create_channel(scope, %{
-                 name: "Hidden child",
-                 slug: unique_slug(),
-                 parent_channel_id: hidden.id
-               })
+      for parent_id <- [hidden.id, Ecto.UUID.generate(), "not-a-uuid"] do
+        assert {:error, :not_found} =
+                 Chat.create_channel(scope, %{
+                   name: "Child",
+                   slug: unique_slug(),
+                   parent_channel_id: parent_id
+                 })
 
-      assert {:error, update_error} =
-               Chat.update_channel(scope, child.id, %{parent_channel_id: hidden.id})
-
-      assert errors_on(create_error).parent_channel_id ==
-               errors_on(update_error).parent_channel_id
+        assert {:error, :not_found} =
+                 Chat.update_channel(scope, child.id, %{parent_channel_id: parent_id})
+      end
     end
 
     test "deleting a category keeps hidden child channels at the root" do
