@@ -250,6 +250,84 @@ defmodule RfchatWeb.SettingsComponents.Server do
     """
   end
 
+  attr :user_id, :string, required: true
+  attr :member_roles, :list, required: true
+  attr :roles, :list, required: true
+  attr :givable_role_ids, :any, required: true
+
+  def member_roles_panel(assigns) do
+    held_ids = MapSet.new(assigns.member_roles, & &1.id)
+
+    assigns =
+      assign(
+        assigns,
+        :addable,
+        Enum.filter(
+          assigns.roles,
+          &(MapSet.member?(assigns.givable_role_ids, &1.id) and
+              not MapSet.member?(held_ids, &1.id))
+        )
+      )
+
+    ~H"""
+    <div
+      id={"member-roles-#{@user_id}"}
+      class="mt-3 space-y-3 rounded-xl border border-base-300 bg-base-200 p-3"
+    >
+      <div class="flex flex-wrap gap-1.5">
+        <span
+          :for={role <- @member_roles}
+          id={"member-role-#{@user_id}-#{role.id}"}
+          class="inline-flex items-center gap-1.5 rounded-full border border-base-300 bg-base-100 py-0.5 pr-1 pl-2 text-[11px] font-semibold text-base-content/80"
+        >
+          <span class="size-2 rounded-full" style={"background-color: #{color_hex(role.color)}"} />
+          {role.name}
+          <button
+            :if={MapSet.member?(@givable_role_ids, role.id)}
+            type="button"
+            id={"remove-member-role-#{@user_id}-#{role.id}"}
+            phx-click="remove_member_role"
+            phx-value-user_id={@user_id}
+            phx-value-role_id={role.id}
+            aria-label={"Take #{role.name}"}
+            class="rounded-full p-0.5 text-base-content/50 transition hover:bg-rose-500/15 hover:text-rose-300"
+          >
+            <.icon name="hero-x-mark" class="size-3" />
+          </button>
+        </span>
+        <p :if={@member_roles == []} class="text-xs text-base-content/50">No roles yet.</p>
+      </div>
+
+      <.form
+        :if={@addable != []}
+        for={to_form(%{}, as: :member_role)}
+        id={"member-role-form-#{@user_id}"}
+        phx-submit="add_member_role"
+        class="flex items-end gap-2"
+      >
+        <input type="hidden" name="user_id" value={@user_id} />
+        <div class="min-w-0 flex-1">
+          <.input
+            id={"member-role-select-#{@user_id}"}
+            name="member_role[role_id]"
+            type="select"
+            label="Give role"
+            value=""
+            options={Enum.map(@addable, &{&1.name, &1.id})}
+          />
+        </div>
+        <button
+          type="submit"
+          id={"add-member-role-#{@user_id}"}
+          class="mb-2 rounded-md bg-violet-500 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-violet-400"
+        >
+          Give
+        </button>
+      </.form>
+    </div>
+    """
+  end
+
   def members_panel(assigns) do
     ~H"""
     <div class="mt-5 rounded-xl border border-base-300 bg-base-200 p-4">
@@ -338,6 +416,25 @@ defmodule RfchatWeb.SettingsComponents.Server do
               >
                 Moderate
               </button>
+
+              <button
+                :if={@role_controls.manage_roles?}
+                type="button"
+                phx-click="toggle_member_roles"
+                phx-value-id={entry.user.id}
+                id={"open-member-roles-#{entry.user.id}"}
+                class="mt-3 ml-1 rounded-md border border-base-300 px-2.5 py-1 text-[11px] font-semibold text-base-content/80 transition hover:border-base-content/20 hover:bg-base-200 hover:text-base-content"
+              >
+                Roles
+              </button>
+
+              <.member_roles_panel
+                :if={@member_roles_user_id == entry.user.id}
+                user_id={entry.user.id}
+                member_roles={@member_roles}
+                roles={@roles}
+                givable_role_ids={@role_controls.givable_role_ids}
+              />
 
               <div
                 :if={selected_member(entry, @member_action_user_id)}

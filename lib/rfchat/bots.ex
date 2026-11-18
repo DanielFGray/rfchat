@@ -59,50 +59,44 @@ defmodule Rfchat.Bots do
 
   @doc """
   Creates a bot with the roles in `role_ids`. The actor must manage bots, and needs
-  manage_roles plus authority over each role (see `Rfchat.Bots.Authority`).
+  manage_roles plus authority over each role (see `Rfchat.Bots.Authority`). Decides and writes
+  in one transaction under the role-list lock (see `with_role_authority/2`).
   """
   def create_bot(attrs, %User{} = actor) when is_map(attrs) do
     role_ids = Map.get(attrs, "role_ids") || Map.get(attrs, :role_ids) || []
 
-    with {:ok, authority} <- Authority.manage_bots(actor),
-         {:ok, roles} <- Authority.grant_roles(authority, role_ids) do
-      insert_bot(attrs, roles, actor)
-    end
+    with_role_authority(actor, fn authority ->
+      with {:ok, roles} <- Authority.grant_roles(authority, role_ids) do
+        {:ok, insert_bot!(attrs, roles, actor)}
+      end
+    end)
   end
 
-  defp insert_bot(attrs, roles, actor) do
-    Repo.transaction(fn ->
-      now = DateTime.utc_now()
+  defp insert_bot!(attrs, roles, actor) do
+    now = DateTime.utc_now()
 
-      bot_user =
-        %User{bot: true, system: false}
-        |> User.account_changeset(%{
-          username: Map.get(attrs, "username") || Map.get(attrs, :username),
-          display_name: Map.get(attrs, "display_name") || Map.get(attrs, :display_name),
-          email: Map.get(attrs, "email") || Map.get(attrs, :email),
-          bio: Map.get(attrs, "bio") || Map.get(attrs, :bio)
-        })
-        |> Repo.insert!()
+    bot_user =
+      %User{bot: true, system: false}
+      |> User.account_changeset(%{
+        username: Map.get(attrs, "username") || Map.get(attrs, :username),
+        display_name: Map.get(attrs, "display_name") || Map.get(attrs, :display_name),
+        email: Map.get(attrs, "email") || Map.get(attrs, :email),
+        bio: Map.get(attrs, "bio") || Map.get(attrs, :bio)
+      })
+      |> Repo.insert!()
 
-      membership =
-        %Membership{user_id: bot_user.id}
-        |> Membership.join_changeset(now)
-        |> Repo.insert!()
+    membership =
+      %Membership{user_id: bot_user.id}
+      |> Membership.join_changeset(now)
+      |> Repo.insert!()
 
-      assign_roles!(bot_user, roles, actor)
+    assign_roles!(bot_user, roles, actor)
 
-      record_bot_audit_log!(actor, bot_user, "bot_created", %{"role_ids" => role_ids(roles)})
+    record_bot_audit_log!(actor, bot_user, "bot_created", %{"role_ids" => role_ids(roles)})
 
-      bot_user
-      |> Repo.preload([:membership, :bot_tokens, member_roles: :role])
-      |> Map.put(:membership, membership)
-    end)
-    |> case do
-      {:ok, bot_user} -> {:ok, bot_user}
-      {:error, %Ecto.Changeset{} = changeset} -> {:error, changeset}
-      {:error, _step, %Ecto.Changeset{} = changeset, _changes} -> {:error, changeset}
-      {:error, _step, reason, _changes} -> {:error, reason}
-    end
+    bot_user
+    |> Repo.preload([:membership, :bot_tokens, member_roles: :role])
+    |> Map.put(:membership, membership)
   end
 
   @doc """
@@ -110,11 +104,27 @@ defmodule Rfchat.Bots do
   the same rules as `create_bot/2`; without it, the roles stay as they are.
   """
   def update_bot(%User{} = bot_user, attrs, %User{} = actor) when is_map(attrs) do
-    with {:ok, authority} <- Authority.manage_bots(actor),
-         :ok <- Authority.control_bot(authority, bot_user),
-         {:ok, roles} <- roles_for_update(authority, attrs) do
-      save_bot(bot_user, attrs, roles, actor)
-    end
+    with_role_authority(actor, fn authority ->
+      with :ok <- Authority.control_bot(authority, bot_user),
+           {:ok, roles} <- roles_for_update(authority, attrs) do
+        {:ok, save_bot!(bot_user, attrs, roles, actor)}
+      end
+    end)
+  end
+
+  # A bot grant compares role positions, and a role write may renumber every position. So the
+  # grant takes the role-list lock first, then the actor's membership row, then loads the actor's
+  # authority, and decides and writes `member_roles` in that one transaction, as
+  # `Rfchat.Chat.Roles` does.
+  defp with_role_authority(%User{} = actor, fun) do
+    Repo.transact(fn ->
+      Visibility.lock_role_list!()
+
+      with :ok <- Visibility.authorize_write(%Scope{user_id: actor.id}, :manage_bots, :server),
+           {:ok, authority} <- Authority.manage_bots(actor) do
+        fun.(authority)
+      end
+    end)
   end
 
   defp roles_for_update(authority, attrs) do
@@ -126,35 +136,27 @@ defmodule Rfchat.Bots do
     end
   end
 
-  defp save_bot(bot_user, attrs, roles, actor) do
-    Repo.transaction(fn ->
-      updated_bot =
-        bot_user
-        |> User.account_changeset(%{
-          username: Map.get(attrs, "username", bot_user.username),
-          display_name: Map.get(attrs, "display_name", bot_user.display_name),
-          email: Map.get(attrs, "email", bot_user.email),
-          bio: Map.get(attrs, "bio", bot_user.bio)
-        })
-        |> Repo.update!()
+  defp save_bot!(bot_user, attrs, roles, actor) do
+    updated_bot =
+      bot_user
+      |> User.account_changeset(%{
+        username: Map.get(attrs, "username", bot_user.username),
+        display_name: Map.get(attrs, "display_name", bot_user.display_name),
+        email: Map.get(attrs, "email", bot_user.email),
+        bio: Map.get(attrs, "bio", bot_user.bio)
+      })
+      |> Repo.update!()
 
-      metadata =
-        if roles == :keep do
-          %{}
-        else
-          replace_roles!(updated_bot, roles, actor)
-          %{"role_ids" => role_ids(roles)}
-        end
+    metadata =
+      if roles == :keep do
+        %{}
+      else
+        replace_roles!(updated_bot, roles, actor)
+        %{"role_ids" => role_ids(roles)}
+      end
 
-      record_bot_audit_log!(actor, updated_bot, "bot_updated", metadata)
-      Repo.preload(updated_bot, [:membership, :bot_tokens, member_roles: :role])
-    end)
-    |> case do
-      {:ok, updated_bot} -> {:ok, updated_bot}
-      {:error, %Ecto.Changeset{} = changeset} -> {:error, changeset}
-      {:error, _step, %Ecto.Changeset{} = changeset, _changes} -> {:error, changeset}
-      {:error, _step, reason, _changes} -> {:error, reason}
-    end
+    record_bot_audit_log!(actor, updated_bot, "bot_updated", metadata)
+    Repo.preload(updated_bot, [:membership, :bot_tokens, member_roles: :role])
   end
 
   def revoke_bot(%User{} = bot_user, %User{} = actor) do

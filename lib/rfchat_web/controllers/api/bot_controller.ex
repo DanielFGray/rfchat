@@ -249,6 +249,9 @@ defmodule RfchatWeb.API.BotController do
       {event, _channel} when event in [:channel_updated, :channel_deleted] ->
         stream_events(conn, resync(state))
 
+      :roles_changed ->
+        stream_events(conn, resync(state))
+
       :reauthorize ->
         reauthorize(conn, state)
 

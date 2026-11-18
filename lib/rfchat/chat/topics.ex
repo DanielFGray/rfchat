@@ -3,9 +3,10 @@ defmodule Rfchat.Chat.Topics do
   Owns the PubSub topics for chat events.
 
   Guild-structure events (`:channel_created`, `:channel_updated`, `:channel_deleted`,
-  `:channels_reordered`) go to one guild topic. Message, reaction and typing events go to the
-  topic of the channel or thread they happen in, so only processes subscribed to that channel
-  receive them. A subscriber is responsible for subscribing only to channels its user can view.
+  `:channels_reordered`, `:roles_changed`) go to one guild topic. Message, reaction and typing
+  events go to the topic of the channel or thread they happen in, so only processes subscribed
+  to that channel receive them. A subscriber is responsible for subscribing only to channels its
+  user can view.
 
   Broadcasts skip the calling process: the caller has already applied its own change.
   """

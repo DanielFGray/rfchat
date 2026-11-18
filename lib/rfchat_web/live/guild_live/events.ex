@@ -30,7 +30,7 @@ defmodule RfchatWeb.GuildLive.Events do
   end
 
   def handle_info(message, socket)
-      when message in [:channels_reordered] or
+      when message in [:channels_reordered, :roles_changed] or
              (is_tuple(message) and tuple_size(message) == 2 and
                 elem(message, 0) in [:channel_created, :channel_updated, :channel_deleted]) do
     Navigation.handle_info(message, socket)

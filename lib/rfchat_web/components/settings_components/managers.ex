@@ -23,8 +23,11 @@ defmodule RfchatWeb.SettingsComponents.Managers do
       id="channel-manager-panel"
       aria-hidden={if(@manage_channels_open?, do: "false", else: "true")}
       class={[
-        "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-transform duration-200 ease-out lg:shadow-2xl",
-        !@manage_channels_open? && "shadow-none lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
+        "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-base-300 bg-base-100 transition-transform duration-200 ease-out",
+        if(@manage_channels_open?,
+          do: "shadow-2xl lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
+          else: "shadow-none"
+        ),
         @manage_channels_open? && "pointer-events-auto",
         !@manage_channels_open? && "pointer-events-none",
         @manage_channels_open? && "translate-x-0",
@@ -267,8 +270,11 @@ defmodule RfchatWeb.SettingsComponents.Managers do
       id="emoji-manager-panel"
       aria-hidden={if(@manage_emojis_open?, do: "false", else: "true")}
       class={[
-        "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-base-300 bg-base-100 shadow-2xl transition-transform duration-200 ease-out lg:shadow-2xl",
-        !@manage_emojis_open? && "shadow-none lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
+        "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col border-l border-base-300 bg-base-100 transition-transform duration-200 ease-out",
+        if(@manage_emojis_open?,
+          do: "shadow-2xl lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
+          else: "shadow-none"
+        ),
         @manage_emojis_open? && "pointer-events-auto",
         !@manage_emojis_open? && "pointer-events-none",
         @manage_emojis_open? && "translate-x-0",

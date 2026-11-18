@@ -61,6 +61,11 @@ defmodule RfchatWeb.SettingsComponents.Helpers do
 
   def tab_active?(active_tab, tab), do: active_tab == tab
 
+  def color_hex(color) when is_integer(color),
+    do: "#" <> String.pad_leading(Integer.to_string(color, 16), 6, "0")
+
+  def color_hex(_color), do: "#000000"
+
   def notification_level_value(nil), do: "default"
 
   def notification_level_value(membership),

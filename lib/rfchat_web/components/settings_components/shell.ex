@@ -31,6 +31,10 @@ defmodule RfchatWeb.SettingsComponents.Shell do
           <%= if @active_tab == "server" do %>
             <RfchatWeb.SettingsComponents.Server.server_tab {assigns} />
           <% end %>
+
+          <%= if @active_tab == "roles" and @role_controls.manage_roles? do %>
+            <RfchatWeb.SettingsComponents.Roles.roles_tab {assigns} />
+          <% end %>
         </section>
       </div>
 
@@ -82,6 +86,13 @@ defmodule RfchatWeb.SettingsComponents.Shell do
           tab="server"
           id="settings-tab-server"
           label="Server management"
+        />
+        <.tab_button
+          :if={@role_controls.manage_roles?}
+          active_tab={@active_tab}
+          tab="roles"
+          id="settings-tab-roles"
+          label="Roles"
         />
       </nav>
 

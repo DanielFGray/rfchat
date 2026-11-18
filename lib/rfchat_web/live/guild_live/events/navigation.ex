@@ -110,6 +110,11 @@ defmodule RfchatWeb.GuildLive.Events.Navigation do
     {:noreply, State.refresh_channels(socket)}
   end
 
+  # A role change can show or hide channels for this member.
+  def handle_info(:roles_changed, socket) do
+    {:noreply, State.refresh_channels(socket)}
+  end
+
   defp resolve_channel_for_socket(socket, slug) do
     case Enum.find(socket.assigns.channels, &(&1.slug == slug)) do
       %{} = channel ->

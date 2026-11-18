@@ -12,6 +12,7 @@ defmodule Rfchat.Chat do
   alias Rfchat.Chat.Emojis
   alias Rfchat.Chat.MediaAssets
   alias Rfchat.Chat.Notifications
+  alias Rfchat.Chat.Roles
   alias Rfchat.Chat.ServerConfig
   alias Rfchat.Chat.Threads
   alias Rfchat.Chat.Topics
@@ -57,11 +58,16 @@ defmodule Rfchat.Chat do
 
   defdelegate list_channels(scope), to: Channels
 
-  def list_roles do
-    Role
-    |> order_by([role], desc: role.position, asc: role.name)
-    |> Repo.all()
-  end
+  defdelegate list_roles(scope), to: Roles
+  defdelegate role_controls(scope), to: Roles
+  defdelegate member_roles(scope, user_id), to: Roles
+  defdelegate change_role(role, attrs \\ %{}), to: Roles
+  defdelegate create_role(scope, attrs), to: Roles
+  defdelegate update_role(scope, role_id, attrs), to: Roles
+  defdelegate delete_role(scope, role_id), to: Roles
+  defdelegate move_role(scope, role_id, direction), to: Roles
+  defdelegate add_member_role(scope, user_id, role_id), to: Roles
+  defdelegate remove_member_role(scope, user_id, role_id), to: Roles
 
   defdelegate list_channel_tree(scope), to: Channels
 

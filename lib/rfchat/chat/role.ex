@@ -15,6 +15,7 @@ defmodule Rfchat.Chat.Role do
     field(:hoist, :boolean, default: false)
     field(:managed, :boolean, default: false)
     field(:is_default, :boolean, default: false)
+    field(:member_count, :integer, virtual: true)
 
     belongs_to(:icon_asset, Rfchat.Chat.MediaAsset)
 
@@ -42,5 +43,37 @@ defmodule Rfchat.Chat.Role do
     |> validate_required([:name, :permissions, :position])
     |> validate_length(:name, min: 1, max: 100)
     |> validate_number(:permissions, greater_than_or_equal_to: 0)
+  end
+
+  @doc """
+  The fields a person may set on a role. Position, `managed` and `is_default` are set by
+  `Rfchat.Chat.Roles`, never from input. The default role takes only its permissions.
+  """
+  def manage_changeset(%__MODULE__{is_default: true} = role, attrs) do
+    role
+    |> cast(attrs, [:permissions])
+    |> validate_permissions()
+  end
+
+  def manage_changeset(%__MODULE__{} = role, attrs) do
+    role
+    |> cast(attrs, [:name, :description, :color, :permissions, :mentionable, :hoist])
+    |> validate_required([:name])
+    |> validate_length(:name, min: 1, max: 100)
+    |> validate_number(:color, greater_than_or_equal_to: 0, less_than_or_equal_to: 0xFFFFFF)
+    |> validate_permissions()
+  end
+
+  # The owner skips the subset rule, so the bits are checked against the known flags here.
+  defp validate_permissions(changeset) do
+    all = Rfchat.Chat.Authorization.all_permissions()
+
+    changeset
+    |> validate_required([:permissions])
+    |> validate_change(:permissions, fn :permissions, permissions ->
+      if permissions >= 0 and Bitwise.band(permissions, Bitwise.bnot(all)) == 0,
+        do: [],
+        else: [permissions: "has unknown permission bits"]
+    end)
   end
 end

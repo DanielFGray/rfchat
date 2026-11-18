@@ -10,7 +10,12 @@ defmodule RfchatWeb.SettingsLive do
   alias Rfchat.Repo
   alias RfchatWeb.Live.SharedHelpers
   alias RfchatWeb.Plugs.ClientIp
+  alias Rfchat.Chat.Topics
+  alias RfchatWeb.SettingsLive.Roles
   alias RfchatWeb.SettingsLive.State
+
+  @tabs ["profile", "notifications", "channel_notifications", "theme", "server", "roles"]
+  @role_events Roles.events()
 
   @impl true
   def mount(_params, _session, socket) do
@@ -28,14 +33,18 @@ defmodule RfchatWeb.SettingsLive do
         max_file_size: 512_000
       )
       |> State.init()
+      |> Roles.init()
+
+    if connected?(socket), do: Topics.subscribe_guild()
 
     {:ok, socket}
   end
 
   @impl true
-  def handle_params(%{"tab" => tab}, _uri, socket)
-      when tab in ["profile", "notifications", "channel_notifications", "theme", "server"] do
-    {:noreply, assign(socket, :active_tab, tab)}
+  def handle_params(%{"tab" => tab}, _uri, socket) do
+    if tab_allowed?(socket, tab),
+      do: {:noreply, assign(socket, :active_tab, tab)},
+      else: {:noreply, socket}
   end
 
   def handle_params(_params, _uri, socket) do
@@ -43,9 +52,14 @@ defmodule RfchatWeb.SettingsLive do
   end
 
   @impl true
-  def handle_event("switch_tab", %{"tab" => tab}, socket)
-      when tab in ["profile", "notifications", "channel_notifications", "theme", "server"] do
-    {:noreply, push_patch(socket, to: ~p"/settings?tab=#{tab}")}
+  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    if tab_allowed?(socket, tab),
+      do: {:noreply, push_patch(socket, to: ~p"/settings?tab=#{tab}")},
+      else: {:noreply, socket}
+  end
+
+  def handle_event(event, params, socket) when event in @role_events do
+    Roles.handle_event(event, params, socket)
   end
 
   @impl true
@@ -580,6 +594,32 @@ defmodule RfchatWeb.SettingsLive do
       {:noreply, put_flash(socket, :error, "You do not have permission to moderate members.")}
     end
   end
+
+  # Guild events: a role change can change what this member may manage and which channels they
+  # see; a channel change re-reads the channel lists. Other guild events change nothing here.
+  @impl true
+  def handle_info(:roles_changed, socket) do
+    socket = Roles.refresh(socket)
+
+    socket =
+      if tab_allowed?(socket, socket.assigns.active_tab),
+        do: socket,
+        else: push_patch(socket, to: ~p"/settings?tab=profile")
+
+    {:noreply, socket |> State.refresh_channels() |> State.refresh_member_presence()}
+  end
+
+  def handle_info({event, _channel}, socket)
+      when event in [:channel_created, :channel_updated, :channel_deleted],
+      do: {:noreply, State.refresh_channels(socket)}
+
+  def handle_info(:channels_reordered, socket), do: {:noreply, State.refresh_channels(socket)}
+
+  def handle_info(_event, socket), do: {:noreply, socket}
+
+  # The Roles tab is shown only to a member who holds `manage_roles`.
+  defp tab_allowed?(socket, "roles"), do: socket.assigns.role_controls.manage_roles?
+  defp tab_allowed?(_socket, tab), do: tab in @tabs
 
   # A scope without `view_audit_log` reads no cases, and so does a malformed id.
   defp moderation_cases(scope, user_id) do

@@ -101,7 +101,6 @@ defmodule Rfchat.Bootstrap do
         set: [
           name: "@everyone",
           description: "Default permissions for all members of this single guild.",
-          permissions: PermissionBits.combine(@default_seed_permissions),
           position: 0,
           mentionable: false,
           hoist: false,

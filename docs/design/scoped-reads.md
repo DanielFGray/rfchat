@@ -51,7 +51,7 @@ Visibility.member(scope)                    # the fresh member, or nil (deleted,
 Visibility.can?(scope, action, target)      # one decision
 Visibility.visible_channels(scope)          # the visible channel and thread structs, for list readers
 Visibility.channel_ids(scope)               # visible channel set, for list readers only
-Visibility.authority(scope, channel_ids)    # the facts Bots.Authority decides a role grant from, in one load
+Visibility.authority(scope, channel_ids)    # the facts RoleAuthority decides a role write from, in one load
 Visibility.timed_out?(membership)           # the one timeout rule, also read by the banned page
 ```
 
@@ -65,7 +65,7 @@ Visibility.timed_out?(membership)           # the one timeout rule, also read by
 | Send in a thread needs the parent's send | `thread_parent_allows_messages?` | yes |
 | A timeout blocks send, react, edit, thread create | `timed_out?` checks in each caller | yes, for those actions |
 | Role hierarchy for moderation | `top_role_position`, `authorize_member_moderation` | yes, `:moderate` actions, decided by `can?/3` inside `Visibility.authorize_write/3` |
-| Bot grant authority | `Bots.Authority` | stays in `Bots.Authority`, which reads `authority/2`: owner, server bits, top role position and the bits in each named channel, from one load |
+| Role and bot grant authority | `Bots.Authority` | moves to `Chat.RoleAuthority` (docs/design/roles.md), used by `Chat.Roles` and `Bots.Authority`; it reads `authority/2`: owner, server bits, top role position and the bits in each named channel, from one load |
 | Owner and administrator | `expand_administrator`, owner checks | yes |
 
 A category's view deny hides every channel under it; an allow overwrite on a child does not reopen it. Discord differs: there a child's own overwrite wins.
@@ -112,6 +112,7 @@ Serializers become pure functions of already-loaded data. The `Repo.preload` cal
   - moderation (timeout, kick, ban) and ownership changes: the actor's and the subject's rows, `FOR UPDATE`, in id order. An ownership change takes its advisory lock before these rows, so ownership changes serialize on the lock first.
   A ban is then atomic with respect to the banned member's own writes: no write by them commits after the ban commits. Taking each row once, in id order, prevents lock upgrades and opposite-order deadlocks.
 - Channel management writes (create, update, delete and move of channels and categories) first take one transaction-scoped advisory lock for the channel tree, before their membership rows. Two of them therefore never interleave: the second decides from the tree the first committed, and no two of them wait on each other's channel rows. After the membership rows, a management write locks its target channel row, then the new parent's row.
+- Role writes (create, edit, move, delete of roles, giving or taking a member role, and bot role grants in `Bots.create_bot/2` and `Bots.update_bot/3`) first take one transaction-scoped advisory lock for the role list, before their membership rows, so two role writes never interleave and each decides from the role list the last one committed. Then a role write takes the actor's row `FOR SHARE`; giving or taking a member role (`:assign_roles`) takes the actor's and the subject's rows `FOR UPDATE`, in id order. The target role row comes last (docs/design/roles.md). Moderation and `:assign_roles` take the same lock in shared mode before their membership rows, because each reads the actor's and the subject's top roles in two statements and a role write may renumber every position.
 - Message and thread writes take no tree lock. After the membership rows, they lock one channel row (a thread's parent), then the message row; the event head comes last (event-log.md, "Deleted channels"). A message write locks its message row `FOR UPDATE` and reads it only while `deleted_at` is null. A deleted message takes no action: edit, delete and reaction answer `{:error, :not_found}`.
 - A role or overwrite change does not lock every member. A write whose one-statement load ran before such a change committed may still commit after it. It then acts on one coherent earlier decision. That overlap lasts at most one transaction. This policy is decided (question 4). Bans, kicks and timeouts stay exact anyway: their subject row lock is taken before the decision and the change, so a later write sees the new membership.
 - A read decides from one statement (the permission inputs, and the target when it names one), then loads the rows it returns. A read therefore returns only rows the scope could see at the moment of its decision, which is what a read one statement earlier would return. A decision never mixes inputs from two snapshots, because Visibility loads them in one statement. REPEATABLE READ adds nothing for these reads. The event reader still needs it: its snapshot and cursor must come from one moment (event-log.md, "Reading").

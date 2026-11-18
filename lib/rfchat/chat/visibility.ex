@@ -35,6 +35,9 @@ defmodule Rfchat.Chat.Visibility do
   # message join matches nothing.
   @no_message_id "00000000-0000-0000-0000-000000000000"
 
+  # Key of the transaction-scoped advisory lock on the role list (see `lock_role_list!/0`).
+  @role_list_lock_key 7_314_002_003
+
   @doc "The member the scope acts as, with membership and roles, or nil when none may act."
   def member(%Scope{} = scope) do
     scope |> load([]) |> Map.fetch!(:member)
@@ -56,7 +59,7 @@ defmodule Rfchat.Chat.Visibility do
   `:send_messages_in_threads` and the rest of the timed actions check the member's timeout
   first. `:edit_message`, `:delete_message` and `:add_reactions` take a `%Message{}` and read
   only its id: the message and its channel load in the decision's own statement. `{:moderate,
-  bit}` takes the subject's user id.
+  bit}` takes the subject's user id. So does `:assign_roles` (giving or taking a member role).
   """
   def can?(%Scope{} = scope, action, target) do
     ctx = load_for(scope, action, target)
@@ -75,11 +78,28 @@ defmodule Rfchat.Chat.Visibility do
     :ok
   end
 
+  @doc """
+  Takes the role-list lock exclusively. Every role write (`Rfchat.Chat.Roles`) takes it first, so
+  role writes never interleave. Must run inside the write transaction.
+  """
+  def lock_role_list! do
+    Repo.query!("SELECT pg_advisory_xact_lock($1)", [@role_list_lock_key])
+    :ok
+  end
+
   # A moderation or ownership write names a subject. Both membership rows are taken `FOR UPDATE`,
   # each once, in ascending user id, so every such write takes them in the same order. The lock is
   # chosen by the action, not by the target's shape. Every other write holds only the actor's row.
-  defp lock_membership_rows(%Scope{user_id: actor_id}, {:moderate, _bit}, subject_id),
-    do: lock_rows_for_update([actor_id, subject_id])
+  #
+  # A moderation or role-assignment decision reads the actor's and the subject's top roles in two
+  # statements. It first takes the role-list lock shared, so no role write (which may renumber
+  # every position) commits between the two reads. A role assignment runs inside a role write that
+  # already holds the lock exclusive; Postgres grants the shared lock to the same transaction.
+  defp lock_membership_rows(%Scope{user_id: actor_id}, action, subject_id)
+       when (is_tuple(action) and elem(action, 0) == :moderate) or action == :assign_roles do
+    Repo.query!("SELECT pg_advisory_xact_lock_shared($1)", [@role_list_lock_key])
+    lock_rows_for_update([actor_id, subject_id])
+  end
 
   defp lock_membership_rows(%Scope{user_id: actor_id}, :manage_ownership, subject_id),
     do: lock_rows_for_update([actor_id, subject_id])
@@ -104,10 +124,10 @@ defmodule Rfchat.Chat.Visibility do
   end
 
   @doc """
-  Takes the membership locks the action needs, then decides the write. Moderation and ownership
-  lock the actor's and the subject's rows `FOR UPDATE` in user id order; every other write takes
-  the actor's row `FOR SHARE`. A hidden or missing
-  target returns `{:error, :not_found}`; a visible target without permission returns
+  Takes the locks the action needs, then decides the write. Moderation and `:assign_roles` take
+  the role-list lock shared; they and ownership changes lock the actor's and the subject's rows
+  `FOR UPDATE` in user id order; every other write takes the actor's row `FOR SHARE`. A hidden or
+  missing target returns `{:error, :not_found}`; a visible target without permission returns
   `{:error, :forbidden}`. This must run inside the write transaction.
   """
   def authorize_write(%Scope{} = scope, action, target) do
@@ -216,7 +236,7 @@ defmodule Rfchat.Chat.Visibility do
   end
 
   @doc """
-  The facts `Rfchat.Bots.Authority` decides from, read in one load: whether the scope is the
+  The facts `Rfchat.Chat.RoleAuthority` decides from, read in one load: whether the scope is the
   owner, its server bits (owner and administrator expanded), its highest role position, and its
   bits in each of `channel_ids`. A scope with no member holds nothing.
   """
@@ -397,6 +417,34 @@ defmodule Rfchat.Chat.Visibility do
   # checked by the caller after the lock is held.
   defp decide(:manage_ownership, ctx, subject_id) when is_binary(subject_id),
     do: owner?(ctx.member)
+
+  # Giving or taking a role. The actor holds `manage_roles` and acts on themselves or on a member
+  # whose top role is below theirs; the owner acts on anyone. Which roles may be given is decided
+  # by `Rfchat.Chat.RoleAuthority` after this.
+  defp decide(:assign_roles, ctx, subject_id) when is_binary(subject_id) do
+    subject = load(%Scope{user_id: subject_id}, [])
+
+    cond do
+      is_nil(subject.account) ->
+        false
+
+      not Authorization.has_permission?(server_bits(ctx), :manage_roles) ->
+        false
+
+      owner?(ctx.member) ->
+        true
+
+      ctx.member.id == subject_id ->
+        true
+
+      owner?(subject.account) ->
+        false
+
+      true ->
+        top_position(ctx.member, ctx.default_role) >
+          top_position(subject.account, subject.default_role)
+    end
+  end
 
   defp decide({:moderate, bit}, ctx, subject_id) when is_binary(subject_id) do
     subject = load(%Scope{user_id: subject_id}, [])
