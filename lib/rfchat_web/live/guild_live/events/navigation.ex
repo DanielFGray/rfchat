@@ -30,15 +30,12 @@ defmodule RfchatWeb.GuildLive.Events.Navigation do
             socket
         end
 
-      case Chat.get_thread_for_user(thread_id, socket.assigns.current_user) do
-        {:ok, thread} ->
+      case Chat.get_thread(socket.assigns.current_scope, thread_id) do
+        %{} = thread ->
           {:noreply, State.open_thread(socket, thread, focus?: true)}
 
-        {:error, :not_found} ->
+        nil ->
           {:noreply, put_flash(socket, :error, "That thread does not exist.")}
-
-        {:error, :forbidden} ->
-          {:noreply, put_flash(socket, :error, "You do not have access to that thread.")}
       end
     end
   end
@@ -64,12 +61,6 @@ defmodule RfchatWeb.GuildLive.Events.Navigation do
           {:noreply,
            socket
            |> put_flash(:error, "That channel does not exist.")
-           |> State.redirect_to_default_channel()}
-
-        {:error, :forbidden} ->
-          {:noreply,
-           socket
-           |> put_flash(:error, "You do not have access to that channel.")
            |> State.redirect_to_default_channel()}
       end
     end
@@ -126,7 +117,10 @@ defmodule RfchatWeb.GuildLive.Events.Navigation do
 
       nil ->
         # A slug outside the visible list is either hidden from this user or missing.
-        Chat.get_channel_by_slug_for_user(slug, socket.assigns.current_user)
+        case Chat.get_channel_by_slug(socket.assigns.current_scope, slug) do
+          nil -> {:error, :not_found}
+          channel -> {:ok, channel}
+        end
     end
   end
 end

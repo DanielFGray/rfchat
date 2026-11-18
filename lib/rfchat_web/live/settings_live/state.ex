@@ -15,8 +15,8 @@ defmodule RfchatWeb.SettingsLive.State do
 
   def init(socket) do
     current_user = socket.assigns.current_user
-    channels = Chat.list_channels_for_user(current_user)
-    :ok = Chat.ensure_channel_memberships_for_user(current_user, channels)
+    channels = Chat.list_channels(socket.assigns.current_scope)
+    :ok = Chat.ensure_channel_memberships(socket.assigns.current_scope, channels)
 
     can_manage_channels? = SharedHelpers.can_manage_channels?(socket.assigns.current_scope)
     can_manage_emojis? = SharedHelpers.can_manage_emojis?(socket.assigns.current_scope)
@@ -41,11 +41,7 @@ defmodule RfchatWeb.SettingsLive.State do
     |> assign(:notification_setting, Chat.get_user_notification_setting(current_user))
     |> assign(:channels, channels)
     |> assign(:channel_memberships, channel_memberships_map(current_user, channels))
-    |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
-    |> assign(
-      :all_channel_sections,
-      SharedHelpers.channel_sections_for_manager(can_manage_channels?)
-    )
+    |> assign(:channel_sections, Chat.list_channel_tree(socket.assigns.current_scope))
     |> assign(:custom_emojis, SharedHelpers.emoji_entries_for_picker(current_user))
     |> assign(:bot_users, [])
     |> assign(:manageable_roles, [])
@@ -123,15 +119,11 @@ defmodule RfchatWeb.SettingsLive.State do
 
   def refresh_channels(socket) do
     current_user = socket.assigns.current_user
-    channels = Chat.list_channels_for_user(current_user)
+    channels = Chat.list_channels(socket.assigns.current_scope)
 
     socket
     |> assign(:channels, channels)
-    |> assign(:channel_sections, Chat.list_channel_tree_for_user(current_user))
-    |> assign(
-      :all_channel_sections,
-      SharedHelpers.channel_sections_for_manager(socket.assigns.can_manage_channels?)
-    )
+    |> assign(:channel_sections, Chat.list_channel_tree(socket.assigns.current_scope))
     |> assign(:channel_memberships, channel_memberships_map(current_user, channels))
   end
 
@@ -145,9 +137,7 @@ defmodule RfchatWeb.SettingsLive.State do
 
     case socket.assigns.editing_channel_id do
       nil ->
-        attrs = Map.put_new(attrs, "position", SharedHelpers.next_channel_position())
-
-        case Chat.create_channel(attrs) do
+        case Chat.create_channel(socket.assigns.current_scope, attrs) do
           {:ok, channel} ->
             {:noreply,
              socket
@@ -158,14 +148,16 @@ defmodule RfchatWeb.SettingsLive.State do
              |> SharedHelpers.assign_channel_form()
              |> Phoenix.LiveView.put_flash(:info, SharedHelpers.creation_flash(channel))}
 
-          {:error, changeset} ->
+          {:error, %Ecto.Changeset{} = changeset} ->
             {:noreply, assign(socket, :channel_form, to_form(changeset, as: :channel))}
+
+          {:error, _reason} ->
+            {:noreply,
+             Phoenix.LiveView.put_flash(socket, :error, "That channel cannot be changed.")}
         end
 
       channel_id ->
-        channel = Chat.get_channel!(channel_id)
-
-        case Chat.update_channel(channel, attrs) do
+        case Chat.update_channel(socket.assigns.current_scope, channel_id, attrs) do
           {:ok, updated_channel} ->
             {:noreply,
              socket
@@ -177,13 +169,15 @@ defmodule RfchatWeb.SettingsLive.State do
              |> SharedHelpers.assign_channel_form(updated_channel)
              |> Phoenix.LiveView.put_flash(:info, "Channel updated.")}
 
-          {:error, changeset} ->
+          {:error, %Ecto.Changeset{} = changeset} ->
             {:noreply, assign(socket, :channel_form, to_form(changeset, as: :channel))}
+
+          {:error, _reason} ->
+            {:noreply,
+             Phoenix.LiveView.put_flash(socket, :error, "That channel cannot be changed.")}
         end
     end
   end
-
-  def move_channel(channel_id, direction), do: SharedHelpers.move_channel(channel_id, direction)
 
   def save_emoji(socket, emoji_params) do
     SharedHelpers.save_emoji(socket, emoji_params, &refresh_custom_emojis/1)

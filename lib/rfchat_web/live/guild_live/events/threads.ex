@@ -8,13 +8,8 @@ defmodule RfchatWeb.GuildLive.Events.Threads do
   alias RfchatWeb.GuildLive.State
 
   def handle_event("create_thread", %{"id" => message_id}, socket) do
-    with {:ok, message} <- State.fetch_open_message(socket, message_id),
-         {:ok, thread} <-
-           Chat.create_public_thread(
-             socket.assigns.active_channel,
-             message,
-             socket.assigns.current_user
-           ) do
+    with {:ok, thread} <-
+           Chat.create_public_thread(socket.assigns.current_scope, message_id) do
       {:noreply,
        socket
        |> State.close_message_ui()
@@ -110,15 +105,12 @@ defmodule RfchatWeb.GuildLive.Events.Threads do
   end
 
   defp open_thread(thread_id, socket, opts) do
-    case Chat.get_thread_for_user(thread_id, socket.assigns.current_user) do
-      {:ok, thread} ->
+    case Chat.get_thread(socket.assigns.current_scope, thread_id) do
+      %{} = thread ->
         {:noreply, State.open_thread(socket, thread, opts)}
 
-      {:error, :not_found} ->
+      nil ->
         {:noreply, put_flash(socket, :error, "That thread no longer exists.")}
-
-      {:error, :forbidden} ->
-        {:noreply, put_flash(socket, :error, "You do not have access to that thread.")}
     end
   end
 end

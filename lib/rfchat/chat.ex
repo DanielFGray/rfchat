@@ -54,7 +54,7 @@ defmodule Rfchat.Chat do
   defdelegate server_icon_url(settings), to: ServerConfig
   defdelegate default_server_name(), to: ServerConfig
 
-  defdelegate list_channels(), to: Channels
+  defdelegate list_channels(scope), to: Channels
 
   def list_roles do
     Role
@@ -62,7 +62,7 @@ defmodule Rfchat.Chat do
     |> Repo.all()
   end
 
-  defdelegate list_channel_tree(), to: Channels
+  defdelegate list_channel_tree(scope), to: Channels
 
   def composer_mentions do
     users =
@@ -117,21 +117,15 @@ defmodule Rfchat.Chat do
   defdelegate create_custom_emoji_from_upload(attrs, creator, upload), to: Emojis
   defdelegate delete_custom_emoji(emoji), to: Emojis
 
-  defdelegate list_channels_for_user(user), to: Channels
-  defdelegate list_visible_channels_for_user(user), to: Channels
-  defdelegate list_channel_tree_for_user(user), to: Channels
   defdelegate build_channel_tree(channels), to: Channels
-  defdelegate ensure_channel_memberships_for_user(user, channels), to: Channels
-  defdelegate get_channel!(id), to: Channels
-  defdelegate get_channel(id), to: Channels
-  defdelegate get_channel_by_slug!(slug), to: Channels
-  defdelegate get_channel_by_slug_for_user(slug, user), to: Channels
-  defdelegate create_channel(attrs), to: Channels
+  defdelegate ensure_channel_memberships(scope, channels), to: Channels
+  defdelegate get_channel(scope, id), to: Channels
+  defdelegate get_channel_by_slug(scope, slug), to: Channels
+  defdelegate create_channel(scope, attrs), to: Channels
   defdelegate change_channel(channel, attrs \\ %{}), to: Channels
-  defdelegate update_channel(channel, attrs), to: Channels
-  defdelegate delete_channel(channel), to: Channels
-  defdelegate reorder_channels(section_attrs), to: Channels
-  defdelegate default_channel_for_user(user), to: Channels
+  defdelegate update_channel(scope, channel_id, attrs), to: Channels
+  defdelegate delete_channel(scope, channel_id), to: Channels
+  defdelegate move_channel(scope, channel_id, direction), to: Channels
   defdelegate get_user_notification_setting(user), to: Notifications
   defdelegate update_user_notification_setting(user, attrs), to: Notifications
   defdelegate update_channel_membership_notification(user, channel_id, attrs), to: Notifications
@@ -150,7 +144,7 @@ defmodule Rfchat.Chat do
         Topics.broadcast_channel(channel_id, {:typing_started, channel_id, scope.user_id})
         :ok
       else
-        refusal(scope, %Channel{id: channel_id})
+        typing_refusal(scope, channel_id)
       end
     end
   end
@@ -162,7 +156,7 @@ defmodule Rfchat.Chat do
         Topics.broadcast_channel(channel_id, {:typing_stopped, channel_id, scope.user_id})
         :ok
       else
-        refusal(scope, %Channel{id: channel_id})
+        typing_refusal(scope, channel_id)
       end
     end
   end
@@ -216,14 +210,11 @@ defmodule Rfchat.Chat do
     end
   end
 
-  defdelegate list_thread_messages(channel_or_id, opts \\ []), to: Threads
-  defdelegate list_threads_for_channel(channel_id), to: Threads
-  defdelegate thread_summaries_for_channel(channel_id), to: Threads
-  defdelegate get_thread_for_starter_message(starter_message_id), to: Threads
-  defdelegate get_thread_for_user(thread_id, user), to: Threads
+  defdelegate thread_summaries_for_channel(scope, channel_id), to: Threads
+  defdelegate get_thread_for_starter_message(scope, starter_message_id), to: Threads
+  defdelegate get_thread(scope, thread_id), to: Threads
 
-  defdelegate create_public_thread(parent_channel, starter_message, author, attrs \\ %{}),
-    to: Threads
+  defdelegate create_public_thread(scope, starter_message_id, attrs \\ %{}), to: Threads
 
   def create_user(attrs) do
     %User{}
@@ -249,8 +240,8 @@ defmodule Rfchat.Chat do
   def create_message(%Scope{} = scope, channel_id, attrs) do
     with {:ok, channel_id} <- cast_id(channel_id),
          {:ok, attrs} <- normalize_message_attrs(attrs) do
-      write(fn ->
-        with :ok <- authorize_write(scope, :send_messages, %Channel{id: channel_id}),
+      Repo.transact(fn ->
+        with :ok <- Visibility.authorize_write(scope, :send_messages, %Channel{id: channel_id}),
              :ok <- validate_reply_target(channel_id, attrs),
              :ok <- authorize_message_mentions(scope, channel_id, attrs),
              {:ok, message} <-
@@ -328,7 +319,7 @@ defmodule Rfchat.Chat do
   def update_message(%Scope{} = scope, message_id, attrs) do
     with {:ok, message_id} <- cast_id(message_id),
          {:ok, attrs} <- normalize_message_attrs(attrs) do
-      write(fn ->
+      Repo.transact(fn ->
         with {:ok, message} <- authorize_message_write(scope, :edit_message, message_id),
              :ok <- authorize_message_mentions(scope, message.channel_id, attrs),
              {:ok, updated_message} <-
@@ -351,7 +342,7 @@ defmodule Rfchat.Chat do
   """
   def delete_message(%Scope{} = scope, message_id) do
     with {:ok, message_id} <- cast_id(message_id) do
-      write(fn ->
+      Repo.transact(fn ->
         with {:ok, message} <- authorize_message_write(scope, :delete_message, message_id),
              now = DateTime.utc_now(),
              {:ok, deleted_message} <-
@@ -463,7 +454,7 @@ defmodule Rfchat.Chat do
   # a custom emoji's availability depends on the member's current roles.
   defp toggle_reaction_on(scope, message_id, emoji_key) do
     with {:ok, message_id} <- cast_id(message_id) do
-      write(fn ->
+      Repo.transact(fn ->
         with {:ok, message} <- authorize_message_write(scope, :add_reactions, message_id),
              {:ok, key} <- emoji_key.(Visibility.member(scope)),
              {:ok, _reaction} <- toggle_reaction_row(message, scope.user_id, key) do
@@ -744,17 +735,6 @@ defmodule Rfchat.Chat do
   defp valid_binary_id?(value) when is_binary(value), do: match?({:ok, _}, Ecto.UUID.cast(value))
   defp valid_binary_id?(_value), do: false
 
-  # Runs a write in one transaction. The block returns {:ok, value} or {:error, reason}; an error
-  # rolls the transaction back, so a refused or failed write changes nothing.
-  defp write(fun) do
-    Repo.transaction(fn ->
-      case fun.() do
-        {:ok, value} -> value
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
-  end
-
   # Broadcasts a committed message write. The broadcast happens after the commit, so a receiver
   # never reads a message the database does not hold.
   defp broadcast_written({:ok, %Message{} = message}, event) do
@@ -770,18 +750,11 @@ defmodule Rfchat.Chat do
     |> Repo.get!(message_id)
   end
 
-  # Takes the scope's membership lock and decides `action` on the target (a channel or a message).
-  defp authorize_write(scope, action, target) do
-    if Visibility.lock_and_can?(scope, action, target),
-      do: :ok,
-      else: refusal(scope, target)
-  end
-
   # Decides a message write, then locks the message row and reads it. The lock keeps a moderator's
   # delete from committing between the decision and the change. The row is read again with its
   # deleted_at, so a message deleted after the decision is refused.
   defp authorize_message_write(scope, action, message_id) do
-    with :ok <- authorize_write(scope, action, %Message{id: message_id}) do
+    with :ok <- Visibility.authorize_write(scope, action, %Message{id: message_id}) do
       case lock_live_message(message_id) do
         %Message{} = message -> {:ok, message}
         nil -> {:error, :not_found}
@@ -789,25 +762,10 @@ defmodule Rfchat.Chat do
     end
   end
 
-  # The one refusal for every write. A row the scope may not view, and a deleted message, answer as
-  # a missing row does. A visible row the scope may not change is forbidden.
-  defp refusal(scope, %Channel{id: channel_id}) do
-    if Visibility.can?(scope, :view_channel, %Channel{id: channel_id}),
+  defp typing_refusal(scope, channel_id) do
+    if Visibility.visible_channel(scope, channel_id),
       do: {:error, :forbidden},
       else: {:error, :not_found}
-  end
-
-  defp refusal(scope, %Message{id: message_id}) do
-    case live_message(message_id) do
-      %Message{channel_id: channel_id} -> refusal(scope, %Channel{id: channel_id})
-      nil -> {:error, :not_found}
-    end
-  end
-
-  defp live_message(message_id) do
-    Repo.one(
-      from(message in Message, where: message.id == ^message_id and is_nil(message.deleted_at))
-    )
   end
 
   defp lock_live_message(message_id) do

@@ -29,24 +29,6 @@ defmodule RfchatWeb.Live.SharedHelpers do
     )
   end
 
-  def channel_sections_for_manager(true), do: Chat.list_channel_tree()
-  def channel_sections_for_manager(false), do: []
-
-  def move_channel(channel_id, direction) do
-    sections = Chat.list_channel_tree()
-
-    case swap_in_sections(sections, channel_id, direction) do
-      {:ok, updated_sections} ->
-        case Chat.reorder_channels(updated_sections) do
-          {:ok, _channels} -> :ok
-          _ -> :error
-        end
-
-      :error ->
-        :error
-    end
-  end
-
   def save_emoji(socket, emoji_params, refresh_fun) when is_function(refresh_fun, 1) do
     upload = uploaded_entry(socket, :emoji_image)
 
@@ -219,13 +201,6 @@ defmodule RfchatWeb.Live.SharedHelpers do
     if channel.kind == :category, do: "Category created.", else: "Channel created."
   end
 
-  def next_channel_position do
-    Chat.list_channels()
-    |> Enum.map(& &1.position)
-    |> Enum.max(fn -> -1 end)
-    |> Kernel.+(1)
-  end
-
   def assign_channel_form(socket, channel \\ nil) do
     channel = channel || %Chat.Channel{}
 
@@ -251,54 +226,6 @@ defmodule RfchatWeb.Live.SharedHelpers do
     socket
     |> assign(:channel_form, form)
     |> assign(:editing_channel_id, channel.id)
-  end
-
-  defp swap_in_sections(sections, channel_id, direction) do
-    Enum.reduce_while(Enum.with_index(sections), :error, fn {section, section_index}, _acc ->
-      ids = Enum.map(section.channels, & &1.id)
-
-      case Enum.find_index(ids, &(&1 == channel_id)) do
-        nil ->
-          {:cont, :error}
-
-        index ->
-          target_index = if direction == "up", do: index - 1, else: index + 1
-
-          if target_index < 0 or target_index >= length(ids) do
-            {:halt, :error}
-          else
-            updated_ids = swap_positions(ids, index, target_index)
-
-            updated_sections =
-              List.update_at(sections, section_index, fn current_section ->
-                %{current_section | channels: updated_ids}
-              end)
-
-            {:halt, {:ok, serialize_sections(updated_sections)}}
-          end
-      end
-    end)
-  end
-
-  defp serialize_sections(sections) do
-    Enum.map(sections, fn section ->
-      %{
-        category: section.category && section.category.id,
-        channels:
-          Enum.map(section.channels, fn channel ->
-            if is_binary(channel), do: channel, else: channel.id
-          end)
-      }
-    end)
-  end
-
-  defp swap_positions(list, left, right) do
-    left_value = Enum.at(list, left)
-    right_value = Enum.at(list, right)
-
-    list
-    |> List.replace_at(left, right_value)
-    |> List.replace_at(right, left_value)
   end
 
   defp blank_to_nil(nil), do: nil

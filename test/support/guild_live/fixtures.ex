@@ -1,8 +1,6 @@
 defmodule RfchatWeb.GuildLiveFixtures do
   @moduledoc false
 
-  alias Rfchat.Chat
-
   import Rfchat.ChatFixtures
 
   def log_in_member_user(conn, suffix \\ "default") do
@@ -84,5 +82,5 @@ defmodule RfchatWeb.GuildLiveFixtures do
     Rfchat.Accounts.get_user_by_session_token(token)
   end
 
-  def category_id(slug), do: Chat.get_channel_by_slug!(slug).id
+  def category_id(slug), do: channel_by_slug!(slug).id
 end

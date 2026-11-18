@@ -18,13 +18,15 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
     |> render_submit()
 
     starter =
-      Chat.get_channel_by_slug!("general").id
+      channel_by_slug!("general").id
       |> messages_in()
       |> Enum.find(&(&1.body == "starter for inline thread"))
 
     view |> element("#create-thread-#{starter.id}") |> render_click()
 
-    thread = Chat.get_thread_for_starter_message(starter.id)
+    thread =
+      Chat.get_thread_for_starter_message(scope_for(current_user_from_conn(conn)), starter.id)
+
     assert thread
     _ = :sys.get_state(view.pid)
 
@@ -44,7 +46,7 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
   test "opens focused thread view from params", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    general = Chat.get_channel_by_slug!("general")
+    general = channel_by_slug!("general")
     author = current_user_from_conn(conn)
     starter = message_fixture(general, author, %{body: "focused thread starter"})
     thread = thread_fixture(general, starter, author)
@@ -62,7 +64,7 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
     conn = log_in_member_user(conn)
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
-    general = Chat.get_channel_by_slug!("general")
+    general = channel_by_slug!("general")
     author = current_user_from_conn(conn)
     starter = message_fixture(general, author, %{body: "replyable thread starter"})
     thread = thread_fixture(general, starter, author)
@@ -92,7 +94,7 @@ defmodule RfchatWeb.GuildLiveThreadsTest do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn, "author")
 
-    general = Chat.get_channel_by_slug!("general")
+    general = channel_by_slug!("general")
     author = current_user_from_conn(conn)
     starter = message_fixture(general, author, %{body: "thread typing starter"})
     thread = thread_fixture(general, starter, author)

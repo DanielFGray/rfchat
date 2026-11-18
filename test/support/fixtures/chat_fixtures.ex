@@ -54,15 +54,32 @@ defmodule Rfchat.ChatFixtures do
   end
 
   def channel_fixture(attrs \\ %{}) do
+    attrs = Map.new(attrs, fn {key, value} -> {to_string(key), value} end)
+
     attrs =
       Enum.into(attrs, %{
-        name: "General",
-        slug: unique_slug(),
-        position: System.unique_integer([:positive])
+        "name" => "General",
+        "slug" => unique_slug(),
+        "position" => System.unique_integer([:positive])
       })
 
-    {:ok, channel} = Chat.create_channel(attrs)
+    owner =
+      case Repo.one(
+             from membership in Rfchat.Chat.Membership,
+               where: membership.is_owner and is_nil(membership.deactivated_at),
+               select: membership.user_id,
+               limit: 1
+           ) do
+        nil -> owner_fixture()
+        user_id -> Accounts.get_user_with_membership!(user_id)
+      end
+
+    {:ok, channel} = Chat.create_channel(scope_for(owner), attrs)
     channel
+  end
+
+  def channel_by_slug!(slug) do
+    Repo.get_by!(Rfchat.Chat.Channel, slug: slug)
   end
 
   @doc "The messages in a channel, oldest first, as stored. Tests read rows here, not through the access check."
@@ -82,8 +99,10 @@ defmodule Rfchat.ChatFixtures do
     message
   end
 
-  def thread_fixture(parent_channel, starter_message, author, attrs \\ %{}) do
-    {:ok, thread} = Chat.create_public_thread(parent_channel, starter_message, author, attrs)
+  def thread_fixture(_parent_channel, starter_message, author, attrs \\ %{}) do
+    {:ok, thread} =
+      Chat.create_public_thread(scope_for(author), starter_message.id, attrs)
+
     thread
   end
 
@@ -101,6 +120,18 @@ defmodule Rfchat.ChatFixtures do
       |> Repo.insert()
 
     role
+  end
+
+  def channel_manager_fixture(attrs \\ %{}) do
+    role =
+      role_fixture(%{
+        name: "Channel manager #{System.unique_integer([:positive])}",
+        permissions: Rfchat.Chat.PermissionBits.combine([:manage_channels])
+      })
+
+    user = user_fixture(attrs)
+    _member_role = member_role_fixture(user, role)
+    user
   end
 
   def member_role_fixture(user, role, attrs \\ %{}) do

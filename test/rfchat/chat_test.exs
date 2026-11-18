@@ -23,7 +23,9 @@ defmodule Rfchat.ChatTest do
       later = channel_fixture(%{name: "Later", slug: unique_slug(), position: 2})
       earlier = channel_fixture(%{name: "Earlier", slug: unique_slug(), position: 1})
 
-      channels = Chat.list_channels() |> Enum.filter(&(&1.id in [earlier.id, later.id]))
+      channels =
+        Chat.list_channels(scope_for(owner_fixture()))
+        |> Enum.filter(&(&1.id in [earlier.id, later.id]))
 
       assert Enum.map(channels, & &1.id) == [earlier.id, later.id]
     end
@@ -34,7 +36,7 @@ defmodule Rfchat.ChatTest do
       engineering = channel_fixture(%{name: "Engineering", slug: unique_slug()})
       channels = [engineering]
 
-      assert :ok = Chat.ensure_channel_memberships_for_user(user, channels)
+      assert :ok = Chat.ensure_channel_memberships(scope_for(user), channels)
 
       membership =
         Repo.get_by!(Rfchat.Chat.ChannelMembership, user_id: user.id, channel_id: engineering.id)
@@ -55,13 +57,160 @@ defmodule Rfchat.ChatTest do
       assert Chat.unread_counts_for_user(user, channels)[engineering.id] == 0
     end
 
+    test "a channel manager cannot see or change a channel hidden by its overwrite" do
+      %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+      manager = channel_manager_fixture()
+      visible = channel_fixture(%{name: "Visible", slug: unique_slug(), position: 1})
+      hidden = channel_fixture(%{name: "Hidden", slug: unique_slug(), position: 2})
+      scope = scope_for(manager)
+
+      channel_permission_overwrite_fixture(hidden, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      tree_channel_ids =
+        scope
+        |> Chat.list_channel_tree()
+        |> Enum.flat_map(& &1.channels)
+        |> Enum.map(& &1.id)
+
+      assert visible.id in tree_channel_ids
+      refute hidden.id in tree_channel_ids
+      assert Chat.get_channel(scope, hidden.id) == Chat.get_channel(scope, Ecto.UUID.generate())
+      assert {:error, :not_found} = Chat.update_channel(scope, hidden.id, %{name: "changed"})
+      assert {:error, :not_found} = Chat.delete_channel(scope, hidden.id)
+      assert {:error, :not_found} = Chat.move_channel(scope, hidden.id, :up)
+    end
+
+    test "moving a visible channel skips a hidden sibling and leaves its position intact" do
+      %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+      manager = channel_manager_fixture()
+      category = channel_fixture(%{name: "Move group", slug: unique_slug(), kind: :category})
+
+      first =
+        channel_fixture(%{
+          name: "First",
+          slug: unique_slug(),
+          position: 1,
+          parent_channel_id: category.id
+        })
+
+      hidden =
+        channel_fixture(%{
+          name: "Hidden",
+          slug: unique_slug(),
+          position: 2,
+          parent_channel_id: category.id
+        })
+
+      last =
+        channel_fixture(%{
+          name: "Last",
+          slug: unique_slug(),
+          position: 3,
+          parent_channel_id: category.id
+        })
+
+      scope = scope_for(manager)
+
+      channel_permission_overwrite_fixture(hidden, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      # The guild broadcast skips the process that made the change, so another process listens.
+      test_pid = self()
+
+      spawn_link(fn ->
+        Rfchat.Chat.Topics.subscribe_guild()
+        send(test_pid, :subscribed)
+
+        receive do
+          event -> send(test_pid, {:guild_event, event})
+        end
+      end)
+
+      assert_receive :subscribed
+      assert {:ok, %Rfchat.Chat.Channel{position: 3}} = Chat.move_channel(scope, first.id, :down)
+      assert_receive {:guild_event, :channels_reordered}
+      assert Repo.get!(Rfchat.Chat.Channel, first.id).position == 3
+      assert Repo.get!(Rfchat.Chat.Channel, hidden.id).position == 2
+      assert Repo.get!(Rfchat.Chat.Channel, last.id).position == 1
+    end
+
+    test "moving at either end is a no-op and a visible channel without permission is forbidden" do
+      Bootstrap.ensure_seed_data!()
+      category = channel_fixture(%{kind: :category})
+      first = channel_fixture(%{position: 1, parent_channel_id: category.id})
+      last = channel_fixture(%{position: 2, parent_channel_id: category.id})
+      manager = scope_for(channel_manager_fixture())
+      assert {:ok, unchanged} = Chat.move_channel(manager, first.id, :up)
+      assert unchanged.id == first.id
+      assert {:ok, unchanged} = Chat.move_channel(manager, last.id, :down)
+      assert unchanged.id == last.id
+      assert {:error, :not_found} = Chat.move_channel(manager, "invalid-id", :up)
+      assert {:error, :not_found} = Chat.update_channel(manager, "invalid-id", %{name: "bad"})
+      assert {:error, :not_found} = Chat.delete_channel(manager, "invalid-id")
+      assert {:error, :forbidden} = Chat.move_channel(scope_for(user_fixture()), first.id, :up)
+    end
+
+    test "channel parents must be visible categories for create and reparent" do
+      %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+      manager = channel_manager_fixture()
+      scope = scope_for(manager)
+      hidden = channel_fixture(%{kind: :category})
+      child = channel_fixture()
+
+      channel_permission_overwrite_fixture(hidden, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      assert {:error, create_error} =
+               Chat.create_channel(scope, %{
+                 name: "Hidden child",
+                 slug: unique_slug(),
+                 parent_channel_id: hidden.id
+               })
+
+      assert {:error, update_error} =
+               Chat.update_channel(scope, child.id, %{parent_channel_id: hidden.id})
+
+      assert errors_on(create_error).parent_channel_id ==
+               errors_on(update_error).parent_channel_id
+    end
+
+    test "deleting a category keeps hidden child channels at the root" do
+      %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+      manager = channel_manager_fixture()
+      category = channel_fixture(%{kind: :category})
+      hidden_child = channel_fixture(%{parent_channel_id: category.id})
+
+      channel_permission_overwrite_fixture(hidden_child, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      assert {:ok, _} = Chat.delete_channel(scope_for(manager), category.id)
+      assert Repo.get!(Rfchat.Chat.Channel, hidden_child.id).parent_channel_id == nil
+    end
+
+    test "channel creation requires manage_channels" do
+      Bootstrap.ensure_seed_data!()
+      user = user_fixture()
+
+      assert {:error, :forbidden} =
+               Chat.create_channel(scope_for(user), %{name: "No", slug: unique_slug()})
+    end
+
     test "unread_mentions_for_user/2 counts unread direct mentions" do
       sender = owner_fixture(%{email: "mention-sender@example.com", username: "mention_sender"})
       user = user_fixture(%{email: "mention-target@example.com", username: "mention_target"})
       engineering = channel_fixture(%{name: "Engineering", slug: unique_slug()})
       channels = [engineering]
 
-      assert :ok = Chat.ensure_channel_memberships_for_user(user, channels)
+      assert :ok = Chat.ensure_channel_memberships(scope_for(user), channels)
 
       assert {:ok, first_message} =
                Chat.create_message(scope_for(sender), engineering.id, %{
@@ -95,7 +244,7 @@ defmodule Rfchat.ChatTest do
       engineering = channel_fixture(%{name: "Engineering", slug: unique_slug()})
       channels = [engineering]
 
-      assert :ok = Chat.ensure_channel_memberships_for_user(user, channels)
+      assert :ok = Chat.ensure_channel_memberships(scope_for(user), channels)
 
       assert {:ok, _message} =
                Chat.create_message(scope_for(sender), engineering.id, %{
@@ -334,11 +483,11 @@ defmodule Rfchat.ChatTest do
       author = user_fixture()
       starter = message_fixture(channel, author, %{body: "Discuss roadmap here"})
 
-      assert {:ok, thread} = Chat.create_public_thread(channel, starter, author)
+      assert {:ok, thread} = Chat.create_public_thread(scope_for(author), starter.id)
       assert thread.parent_channel_id == channel.id
       assert thread.starter_message_id == starter.id
       assert thread.kind == :thread_public
-      assert Chat.get_thread_for_starter_message(starter.id).id == thread.id
+      assert Chat.get_thread_for_starter_message(scope_for(author), starter.id).id == thread.id
     end
 
     test "create_public_thread/4 takes only the name from its attrs" do
@@ -351,7 +500,7 @@ defmodule Rfchat.ChatTest do
       elsewhere = message_fixture(other_channel, author, %{body: "somewhere else"})
 
       assert {:ok, thread} =
-               Chat.create_public_thread(channel, starter, author, %{
+               Chat.create_public_thread(scope_for(author), starter.id, %{
                  "name" => "Roadmap",
                  "kind" => "text",
                  "parent_channel_id" => other_channel.id,
@@ -375,16 +524,19 @@ defmodule Rfchat.ChatTest do
       channel = channel_fixture()
       author = user_fixture()
       starter = message_fixture(channel, author, %{body: "thread starter"})
-      {:ok, thread} = Chat.create_public_thread(channel, starter, author)
+      {:ok, thread} = Chat.create_public_thread(scope_for(author), starter.id)
 
       assert {:error, changeset} =
-               Chat.update_channel(thread, %{"kind" => "text", "parent_channel_id" => nil})
+               Chat.update_channel(scope_for(owner_fixture()), thread.id, %{
+                 "kind" => "text",
+                 "parent_channel_id" => nil
+               })
 
       assert errors_on(changeset).kind
-      assert {:error, :thread} = Chat.delete_channel(thread)
+      assert {:error, :thread} = Chat.delete_channel(scope_for(owner_fixture()), thread.id)
 
       assert {:error, changeset} =
-               Chat.create_channel(%{
+               Chat.create_channel(scope_for(owner_fixture()), %{
                  name: "Under text",
                  slug: unique_slug(),
                  parent_channel_id: channel.id
@@ -393,7 +545,7 @@ defmodule Rfchat.ChatTest do
       assert "must be a category" in errors_on(changeset).parent_channel_id
 
       assert {:error, changeset} =
-               Chat.create_channel(%{
+               Chat.create_channel(scope_for(owner_fixture()), %{
                  name: "Fake thread",
                  slug: unique_slug(),
                  kind: "thread_public"
@@ -402,7 +554,7 @@ defmodule Rfchat.ChatTest do
       assert "is invalid" in errors_on(changeset).kind
     end
 
-    test "list_threads_for_channel/1 and list_thread_messages/2 return thread conversations" do
+    test "thread summaries and scoped message reads return thread conversations" do
       Bootstrap.ensure_seed_data!()
       channel = channel_fixture(%{slug: unique_slug()})
       author = user_fixture()
@@ -410,11 +562,12 @@ defmodule Rfchat.ChatTest do
       thread = thread_fixture(channel, starter, author)
       _reply = message_fixture(thread, author, %{body: "thread reply"})
 
-      assert [listed_thread] = Chat.list_threads_for_channel(channel.id)
-      assert listed_thread.id == thread.id
-      assert [%Message{body: "thread reply"}] = Chat.list_thread_messages(thread.id)
+      assert Chat.get_thread(scope_for(author), thread.id).id == thread.id
 
-      summary = Chat.thread_summaries_for_channel(channel.id)[starter.id]
+      assert {:ok, [%Message{body: "thread reply"}]} =
+               Chat.list_messages(scope_for(author), thread.id)
+
+      summary = Chat.thread_summaries_for_channel(scope_for(author), channel.id)[starter.id]
 
       assert summary.thread.id == thread.id
       assert summary.reply_count == 1
@@ -427,6 +580,59 @@ defmodule Rfchat.ChatTest do
       _starter = message_fixture(channel, author, %{body: "restricted thread"})
 
       assert Chat.can_create_public_threads?(channel, author)
+    end
+
+    test "thread reads hide hidden threads and thread creation honors permission and timeout" do
+      %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+      author = user_fixture()
+      channel = channel_fixture(%{slug: unique_slug()})
+      starter = message_fixture(channel, author, %{body: "thread access"})
+      thread = thread_fixture(channel, starter, author)
+
+      channel_permission_overwrite_fixture(channel, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:view_channel, :create_public_threads])
+      })
+
+      assert Chat.get_thread(scope_for(author), thread.id) == nil
+      assert Chat.get_thread(scope_for(author), Ecto.UUID.generate()) == nil
+      assert Chat.get_thread_for_starter_message(scope_for(author), starter.id) == nil
+      assert Chat.thread_summaries_for_channel(scope_for(author), channel.id) == %{}
+      assert {:error, :not_found} = Chat.create_public_thread(scope_for(author), starter.id)
+
+      other_channel = channel_fixture(%{slug: unique_slug()})
+      other_starter = message_fixture(other_channel, author, %{body: "permission"})
+
+      channel_permission_overwrite_fixture(other_channel, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:create_public_threads])
+      })
+
+      assert {:error, :forbidden} =
+               Chat.create_public_thread(scope_for(author), other_starter.id)
+
+      timeout_channel = channel_fixture(%{slug: unique_slug()})
+      timeout_starter = message_fixture(timeout_channel, author, %{body: "timeout"})
+      owner = owner_fixture()
+      assert {:ok, _timed_out, _case} = Chat.timeout_member(owner, author, 10)
+
+      assert {:error, :forbidden} =
+               Chat.create_public_thread(scope_for(author), timeout_starter.id)
+    end
+
+    test "thread creation does not return an existing hidden thread" do
+      %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+      author = user_fixture()
+      channel = channel_fixture()
+      starter = message_fixture(channel, author, %{body: "hidden thread"})
+      thread = thread_fixture(channel, starter, author)
+
+      channel_permission_overwrite_fixture(thread, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+
+      assert {:error, :not_found} = Chat.create_public_thread(scope_for(author), starter.id)
     end
 
     test "create_message/3 rejects invalid metadata json" do
@@ -768,7 +974,7 @@ defmodule Rfchat.ChatTest do
         deny_permissions: PermissionBits.combine([:view_channel, :send_messages])
       })
 
-      visible_slugs = user |> Chat.list_channels_for_user() |> Enum.map(& &1.slug)
+      visible_slugs = Chat.list_channels(scope_for(user)) |> Enum.map(& &1.slug)
 
       assert general.slug in visible_slugs
       refute hidden_channel.slug in visible_slugs

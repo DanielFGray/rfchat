@@ -192,7 +192,7 @@ defmodule RfchatWeb.API.BotControllerTest do
     assert starter_message_id == starter.id
     assert starter_payload_id == starter.id
     assert parent_payload_id == channel.id
-    assert %{} = Chat.get_thread_for_starter_message(starter.id)
+    assert %{} = Chat.get_thread_for_starter_message(bot_scope_for(bot_user, actor), starter.id)
 
     get_conn =
       Phoenix.ConnTest.build_conn()
@@ -309,7 +309,9 @@ defmodule RfchatWeb.API.BotControllerTest do
       )
 
     {:ok, thread} =
-      Chat.create_public_thread(channel, starter, bot_user, %{"name" => "SSE thread"})
+      Chat.create_public_thread(bot_scope_for(bot_user, actor), starter.id, %{
+        "name" => "SSE thread"
+      })
 
     assert_receive {^ref, :chunk, message_chunk}
     assert_receive {^ref, :chunk, thread_chunk}

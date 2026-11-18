@@ -64,19 +64,7 @@ defmodule Rfchat.Chat.Visibility do
     if is_nil(ctx.member), do: false, else: decide(action, ctx, target)
   end
 
-  @doc """
-  `can?/3` for a write. Runs inside a transaction, and first takes the scope's membership row
-  `FOR SHARE`, so a timeout, ban or role change that commits before the write is seen by the
-  decision, and one that tries to commit during the write waits for it to finish.
-
-  Raises outside a transaction, because the lock is released when the transaction ends and
-  a lock taken outside one would protect nothing.
-  """
-  def lock_and_can?(%Scope{user_id: user_id} = scope, action, target) do
-    unless Repo.in_transaction?() do
-      raise ArgumentError, "lock_and_can?/3 must run inside a transaction"
-    end
-
+  defp lock_membership(user_id) do
     from(membership in Membership,
       where: membership.user_id == ^user_id,
       select: membership.id,
@@ -84,8 +72,40 @@ defmodule Rfchat.Chat.Visibility do
     )
     |> Repo.one()
 
-    can?(scope, action, target)
+    :ok
   end
+
+  @doc """
+  Takes the scope's membership row `FOR SHARE`, then decides the write. A hidden or missing
+  target returns `{:error, :not_found}`; a visible target without permission returns
+  `{:error, :forbidden}`. This must run inside the write transaction.
+  """
+  def authorize_write(%Scope{} = scope, action, target) do
+    unless Repo.in_transaction?() do
+      raise ArgumentError, "authorize_write/3 must run inside a transaction"
+    end
+
+    lock_membership(scope.user_id)
+
+    if can?(scope, action, target), do: :ok, else: refusal(scope, target)
+  end
+
+  defp refusal(scope, %Channel{id: id}) do
+    case visible_channel(scope, id) do
+      %Channel{} -> {:error, :forbidden}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp refusal(scope, %Message{id: id}) do
+    case visible_message(scope, id) do
+      %Message{deleted_at: nil} -> {:error, :forbidden}
+      %Message{} -> {:error, :not_found}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  defp refusal(_scope, :server), do: {:error, :forbidden}
 
   @doc """
   The channels and threads the scope may view now, ordered by position then creation. Each is
@@ -302,7 +322,8 @@ defmodule Rfchat.Chat.Visibility do
     end
   end
 
-  # A deleted message takes no action, so edit, delete and reaction answer as for a missing one.
+  # A deleted message takes no action, so edit, delete, reaction and thread creation answer as
+  # for a missing one.
   defp decide(action, ctx, %Message{}) when is_atom(action) do
     with %Message{deleted_at: nil, author_id: author_id, channel_id: channel_id} <- ctx.message,
          {:ok, channel} <- Map.fetch(ctx.channels, channel_id) do
@@ -352,6 +373,9 @@ defmodule Rfchat.Chat.Visibility do
   defp message_decision(:add_reactions, ctx, _author_id, channel),
     do: channel_decision(:add_reactions, ctx, channel)
 
+  defp message_decision(:create_public_threads, ctx, _author_id, channel),
+    do: channel_decision(:create_public_threads, ctx, channel)
+
   defp channel_decision(:view_channel, ctx, channel), do: view?(ctx, channel)
   defp channel_decision(:send_messages, ctx, channel), do: send?(ctx, channel)
 
@@ -359,6 +383,9 @@ defmodule Rfchat.Chat.Visibility do
     do: send_in_thread?(ctx, channel)
 
   defp channel_decision(:create_public_threads, ctx, channel), do: create_threads?(ctx, channel)
+
+  defp channel_decision(:manage_channels, ctx, channel),
+    do: view?(ctx, channel) and Authorization.has_permission?(server_bits(ctx), :manage_channels)
 
   defp channel_decision(:add_reactions, ctx, channel),
     do: not acting_timed_out?(ctx) and view?(ctx, channel) and bit?(ctx, channel, :add_reactions)

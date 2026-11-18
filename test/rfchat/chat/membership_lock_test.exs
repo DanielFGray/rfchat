@@ -2,7 +2,7 @@ defmodule Rfchat.Chat.MembershipLockTest do
   @moduledoc """
   A write takes its actor's membership row `FOR SHARE` before it decides. The sandbox shares one
   connection, so these tests use real connections that commit, as the ownership race tests do.
-  A holder runs `lock_and_can?/3` in a transaction and stays open. A second connection then
+  A holder runs `authorize_write/3` in a transaction and stays open. A second connection then
   asks for the row `FOR UPDATE`, which is what a ban or timeout does, and must wait.
   """
   use ExUnit.Case, async: false
@@ -30,12 +30,12 @@ defmodule Rfchat.Chat.MembershipLockTest do
     end)
   end
 
-  test "lock_and_can?/3 raises outside a transaction" do
+  test "authorize_write/3 raises outside a transaction" do
     user = register_user()
     channel = %Channel{id: Ecto.UUID.generate()}
 
     assert_raise ArgumentError, ~r/must run inside a transaction/, fn ->
-      Visibility.lock_and_can?(%Scope{user_id: user.id}, :send_messages, channel)
+      Visibility.authorize_write(%Scope{user_id: user.id}, :send_messages, channel)
     end
   end
 
@@ -44,7 +44,7 @@ defmodule Rfchat.Chat.MembershipLockTest do
     scope = %Scope{user_id: user.id}
     channel = %Channel{id: Ecto.UUID.generate()}
 
-    holder = hold_open(fn -> Visibility.lock_and_can?(scope, :send_messages, channel) end)
+    holder = hold_open(fn -> Visibility.authorize_write(scope, :send_messages, channel) end)
 
     assert {:lock_not_available, :lock_not_available} =
              from_other_connection(fn -> try_moderation_lock(user.id) end),

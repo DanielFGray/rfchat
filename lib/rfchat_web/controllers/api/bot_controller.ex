@@ -196,7 +196,8 @@ defmodule RfchatWeb.API.BotController do
       |> send_chunked(200)
 
     :ok = Topics.subscribe_guild()
-    subscribed = sync_subscriptions(MapSet.new(), bot_user)
+    scope = conn.assigns.current_bot_scope
+    subscribed = sync_subscriptions(MapSet.new(), scope)
 
     initial =
       "event: ready\ndata: #{Jason.encode!(%{bot: Bots.serialize_bot_user(bot_user)})}\n\n"
@@ -208,6 +209,7 @@ defmodule RfchatWeb.API.BotController do
         stream_events(conn, %{
           token: bearer_token(conn),
           bot_user: bot_user,
+          scope: scope,
           subscribed: subscribed
         })
 
@@ -290,12 +292,12 @@ defmodule RfchatWeb.API.BotController do
   defp schedule_reauthorize, do: Process.send_after(self(), :reauthorize, @reauthorize_interval)
 
   defp resync(state),
-    do: %{state | subscribed: sync_subscriptions(state.subscribed, state.bot_user)}
+    do: %{state | subscribed: sync_subscriptions(state.subscribed, state.scope)}
 
-  defp sync_subscriptions(subscribed, bot_user) do
+  defp sync_subscriptions(subscribed, scope) do
     wanted =
-      bot_user
-      |> Chat.list_visible_channels_for_user()
+      scope
+      |> Chat.list_channels()
       |> Enum.reject(&(&1.kind == :category))
       |> MapSet.new(& &1.id)
 

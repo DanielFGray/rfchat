@@ -11,6 +11,7 @@ defmodule Rfchat.Bots do
   alias Rfchat.Chat
   alias Rfchat.Chat.AuditLogEntry
   alias Rfchat.Chat.BotToken
+  alias Rfchat.Chat.Channel
   alias Rfchat.Chat.MemberRole
   alias Rfchat.Chat.Membership
   alias Rfchat.Chat.Role
@@ -321,9 +322,10 @@ defmodule Rfchat.Bots do
   def get_thread_for_starter_message(%Scope{} = scope, starter_message_id) do
     case Ecto.UUID.cast(starter_message_id) do
       {:ok, starter_id} ->
-        starter_id
-        |> Chat.get_thread_for_starter_message()
-        |> viewable_thread_result(scope)
+        case Chat.get_thread_for_starter_message(scope, starter_id) do
+          %Channel{} = thread -> {:ok, %{thread: Serializer.serialize_thread(thread)}}
+          nil -> {:error, :not_found}
+        end
 
       :error ->
         {:error, :not_found}
@@ -335,10 +337,8 @@ defmodule Rfchat.Bots do
   def create_public_thread(scope, starter_message_id, attrs \\ %{})
 
   def create_public_thread(%Scope{} = scope, starter_message_id, attrs) when is_map(attrs) do
-    with {:ok, bot_user} <- acting_member(scope),
-         {:ok, starter_message} <- fetch_message(scope, starter_message_id),
-         {:ok, parent_channel} <- fetch_channel(starter_message.channel_id) do
-      case Chat.create_public_thread(parent_channel, starter_message, bot_user, attrs) do
+    with {:ok, _bot_user} <- acting_member(scope) do
+      case Chat.create_public_thread(scope, starter_message_id, attrs) do
         {:ok, thread} -> {:ok, %{thread: Serializer.serialize_thread(thread)}}
         {:error, reason} -> {:error, reason}
       end
@@ -381,26 +381,6 @@ defmodule Rfchat.Bots do
     case get_bot_user(user_id) do
       nil -> {:error, :not_found}
       bot_user -> {:ok, bot_user}
-    end
-  end
-
-  defp fetch_channel(channel_id) do
-    case Chat.get_channel(channel_id) do
-      nil -> {:error, :not_found}
-      channel -> {:ok, channel}
-    end
-  end
-
-  defp fetch_message(scope, message_id) do
-    case Ecto.UUID.cast(message_id) do
-      {:ok, _id} ->
-        case Chat.get_message(scope, message_id) do
-          nil -> {:error, :not_found}
-          message -> {:ok, message}
-        end
-
-      :error ->
-        {:error, :invalid_params}
     end
   end
 
@@ -454,16 +434,6 @@ defmodule Rfchat.Bots do
       metadata: metadata
     })
     |> Repo.insert!()
-  end
-
-  defp viewable_thread_result(nil, _scope), do: {:error, :not_found}
-
-  defp viewable_thread_result(thread, scope) do
-    if Visibility.can?(scope, :view_channel, thread) do
-      {:ok, %{thread: Serializer.serialize_thread(thread)}}
-    else
-      {:error, :forbidden}
-    end
   end
 
   # Only the `expires_in_days` key is read. Absent or blank means the token never expires.

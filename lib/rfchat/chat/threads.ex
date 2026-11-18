@@ -5,35 +5,17 @@ defmodule Rfchat.Chat.Threads do
 
   alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.Channel
+  alias Rfchat.Chat.Channels
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.Topics
-  alias Rfchat.Chat.User
   alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
-  def list_thread_messages(channel_or_id, opts \\ [])
-
-  def list_thread_messages(%Channel{id: channel_id}, opts),
-    do: list_thread_messages(channel_id, opts)
-
-  def list_thread_messages(channel_id, opts) do
-    limit = Keyword.get(opts, :limit, 50)
-
-    Message
-    |> where([message], message.channel_id == ^channel_id)
-    |> where([message], is_nil(message.deleted_at))
-    |> order_by([message], desc: message.inserted_at, desc: message.id)
-    |> limit(^limit)
-    |> preload([:author, reactions: [emoji: :asset], reply_to: :author])
-    |> Repo.all()
-    |> Enum.reverse()
-  end
-
-  def list_threads_for_channel(channel_id) do
+  defp list_threads_for_channel(channel_ids) do
     Channel
     |> where(
       [channel],
-      channel.parent_channel_id == ^channel_id and channel.kind == :thread_public and
+      channel.parent_channel_id in ^channel_ids and channel.kind == :thread_public and
         is_nil(channel.archived_at)
     )
     |> order_by([channel], asc: channel.inserted_at, asc: channel.id)
@@ -41,8 +23,25 @@ defmodule Rfchat.Chat.Threads do
     |> Repo.all()
   end
 
-  def thread_summaries_for_channel(channel_id) do
-    threads = list_threads_for_channel(channel_id)
+  def thread_summaries_for_channel(%Scope{} = scope, channel_id) do
+    with {:ok, channel_id} <- Ecto.UUID.cast(channel_id) do
+      thread_summaries_for_visible_channel(scope, channel_id)
+    else
+      :error -> %{}
+    end
+  end
+
+  defp thread_summaries_for_visible_channel(scope, channel_id) do
+    visible = Visibility.visible_channels(scope)
+    visible_ids = MapSet.new(Enum.map(visible, & &1.id))
+
+    threads =
+      if MapSet.member?(visible_ids, channel_id),
+        do:
+          list_threads_for_channel([channel_id])
+          |> Enum.filter(&MapSet.member?(visible_ids, &1.id)),
+        else: []
+
     thread_ids = Enum.map(threads, & &1.id)
 
     reply_counts =
@@ -67,76 +66,67 @@ defmodule Rfchat.Chat.Threads do
     end)
   end
 
-  def get_thread_for_starter_message(starter_message_id) do
-    Channel
-    |> where(
-      [channel],
-      channel.starter_message_id == ^starter_message_id and channel.kind == :thread_public and
-        is_nil(channel.archived_at)
-    )
-    |> preload([:parent_channel, starter_message: :author])
-    |> Repo.one()
-  end
-
-  def get_thread_for_user(thread_id, %User{} = user) do
-    thread = Repo.get(Channel, thread_id)
-
-    cond do
-      is_nil(thread) ->
-        {:error, :not_found}
-
-      not Channel.thread?(thread) ->
-        {:error, :not_found}
-
-      Visibility.can?(%Scope{user_id: user.id}, :view_channel, thread) ->
-        {:ok, Repo.preload(thread, [:parent_channel, starter_message: :author])}
-
-      true ->
-        {:error, :forbidden}
+  def get_thread_for_starter_message(%Scope{} = scope, starter_message_id) do
+    with {:ok, starter_message_id} <- Ecto.UUID.cast(starter_message_id),
+         %Channel{id: id} <- thread_for_starter(starter_message_id) do
+      get_thread(scope, id)
+    else
+      nil -> nil
+      :error -> nil
     end
   end
 
-  def create_public_thread(
-        %Channel{} = parent_channel,
-        %Message{} = starter_message,
-        %User{} = author,
-        attrs \\ %{}
-      ) do
-    parent_channel = Repo.preload(parent_channel, [:permission_overwrites])
-    author = Repo.preload(author, [:membership, member_roles: :role])
-    starter_message = Repo.preload(starter_message, [:author, :channel])
-
-    with :ok <- authorize_public_thread_create(parent_channel, starter_message, author) do
-      case get_thread_for_starter_message(starter_message.id) do
+  def get_thread(%Scope{} = scope, thread_id) do
+    with {:ok, thread_id} <- Ecto.UUID.cast(thread_id) do
+      case Visibility.visible_channel(scope, thread_id) do
         %Channel{} = thread ->
-          {:ok, thread}
+          if Channel.thread?(thread),
+            do: Repo.preload(thread, [:parent_channel, starter_message: :author]),
+            else: nil
 
         nil ->
-          Repo.transaction(fn ->
-            with {:ok, thread} <-
-                   starter_message
-                   |> new_thread(parent_channel, author.id)
-                   |> Channel.thread_changeset(thread_name_attrs(attrs))
-                   |> Repo.insert() do
-              :ok = Rfchat.Chat.ensure_channel_memberships_for_user(author, [thread])
-              Repo.preload(thread, [:parent_channel, starter_message: :author])
-            else
-              {:error, changeset} -> Repo.rollback(changeset)
-            end
-          end)
-          |> case do
-            {:ok, thread} ->
-              Topics.broadcast_guild({:channel_created, thread})
-              {:ok, thread}
-
-            {:error, changeset} ->
-              {:error, changeset}
-          end
+          nil
       end
+    else
+      :error -> nil
     end
   end
 
-  def invalid_thread_changeset(parent_channel, starter_message, message) do
+  def create_public_thread(%Scope{} = scope, starter_message_id, attrs \\ %{}) do
+    with {:ok, starter_message_id} <- Ecto.UUID.cast(starter_message_id) do
+      result =
+        Repo.transact(fn ->
+          with :ok <-
+                 Visibility.authorize_write(scope, :create_public_threads, %Message{
+                   id: starter_message_id
+                 }),
+               %Message{channel_id: parent_id} = starter <- Repo.get(Message, starter_message_id),
+               %Channel{} = parent <- Channels.lock_channel(parent_id),
+               :ok <- validate_thread_host(parent, starter) do
+            case thread_for_starter(starter.id) do
+              nil -> insert_thread(scope, parent, starter, attrs)
+              existing -> existing_thread(scope, existing.id)
+            end
+          else
+            nil -> {:error, :not_found}
+            error -> error
+          end
+        end)
+
+      case result do
+        {:ok, %Channel{} = thread} ->
+          Topics.broadcast_guild({:channel_created, thread})
+          {:ok, thread}
+
+        other ->
+          other
+      end
+    else
+      :error -> {:error, :not_found}
+    end
+  end
+
+  defp invalid_thread_changeset(parent_channel, starter_message, message) do
     starter_message
     |> new_thread(parent_channel, starter_message.author_id)
     |> Channel.thread_changeset(%{})
@@ -146,8 +136,6 @@ defmodule Rfchat.Chat.Threads do
   # Everything but the name comes from the starter message and its channel, so a client cannot
   # choose a thread's kind, parent, starter message or creator.
   defp new_thread(starter_message, parent_channel, creator_id) do
-    parent_channel = parent_channel || starter_message.channel
-
     %Channel{
       kind: :thread_public,
       name: thread_name_from_message(starter_message),
@@ -168,7 +156,7 @@ defmodule Rfchat.Chat.Threads do
 
   defp thread_name_attrs(_attrs), do: %{}
 
-  def thread_name_from_message(%Message{body: body}) do
+  defp thread_name_from_message(%Message{body: body}) do
     body
     |> String.trim()
     |> case do
@@ -177,7 +165,49 @@ defmodule Rfchat.Chat.Threads do
     end
   end
 
-  def next_thread_position(parent_channel_id) do
+  defp insert_thread(scope, parent, starter, attrs) do
+    with {:ok, thread} <-
+           starter
+           |> new_thread(parent, scope.user_id)
+           |> Channel.thread_changeset(thread_name_attrs(attrs))
+           |> Repo.insert(),
+         :ok <- Channels.ensure_channel_memberships(scope, [thread]) do
+      {:ok, Repo.preload(thread, [:parent_channel, starter_message: :author])}
+    end
+  end
+
+  # A starter that already has a thread answers with that thread, when the scope can view it.
+  defp existing_thread(scope, thread_id) do
+    case get_thread(scope, thread_id) do
+      %Channel{} = thread -> {:ok, thread}
+      nil -> {:error, :not_found}
+    end
+  end
+
+  # authorize_write already refused a deleted starter, so only the parent's kind is left to check.
+  defp validate_thread_host(parent, starter) do
+    if Channel.thread_host?(parent),
+      do: :ok,
+      else:
+        {:error,
+         invalid_thread_changeset(
+           parent,
+           starter,
+           "threads can only start from text-like channels"
+         )}
+  end
+
+  defp thread_for_starter(starter_id) do
+    Repo.one(
+      from(channel in Channel,
+        where:
+          channel.starter_message_id == ^starter_id and channel.kind == :thread_public and
+            is_nil(channel.archived_at)
+      )
+    )
+  end
+
+  defp next_thread_position(parent_channel_id) do
     from(channel in Channel,
       where: channel.parent_channel_id == ^parent_channel_id and channel.kind == :thread_public,
       select: max(channel.position)
@@ -188,44 +218,4 @@ defmodule Rfchat.Chat.Threads do
       position -> position + 1
     end
   end
-
-  def authorize_public_thread_create(
-        %Channel{} = parent_channel,
-        %Message{} = starter_message,
-        %User{} = author
-      ) do
-    cond do
-      starter_message.channel_id != parent_channel.id ->
-        {:error,
-         invalid_thread_changeset(
-           parent_channel,
-           starter_message,
-           "starter message must belong to that channel"
-         )}
-
-      not Channel.thread_host?(parent_channel) ->
-        {:error,
-         invalid_thread_changeset(
-           parent_channel,
-           starter_message,
-           "threads can only start from text-like channels"
-         )}
-
-      not Visibility.can?(%Scope{user_id: author.id}, :create_public_threads, parent_channel) ->
-        {:error, :forbidden}
-
-      deleted_message?(starter_message) ->
-        {:error,
-         invalid_thread_changeset(
-           parent_channel,
-           starter_message,
-           "cannot start a thread from a deleted message"
-         )}
-
-      true ->
-        :ok
-    end
-  end
-
-  defdelegate deleted_message?(message), to: Rfchat.Chat.Message, as: :deleted?
 end

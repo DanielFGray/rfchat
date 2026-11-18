@@ -14,7 +14,7 @@ defmodule RfchatWeb.GuildLiveReactionsTest do
     conn = log_in_member_user(conn)
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
-    message = messages_in(Chat.get_channel_by_slug!("general").id) |> List.first()
+    message = messages_in(channel_by_slug!("general").id) |> List.first()
     reaction_id = Base.url_encode64("👍", padding: false)
 
     view |> element("#open-reaction-picker-#{message.id}") |> render_click()
@@ -29,7 +29,7 @@ defmodule RfchatWeb.GuildLiveReactionsTest do
 
   test "shows reaction disabled state when add reactions is denied", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
-    channel = Chat.get_channel_by_slug!("general")
+    channel = channel_by_slug!("general")
 
     channel_permission_overwrite_fixture(channel, %{
       role_id: Chat.default_role().id,
@@ -57,7 +57,7 @@ defmodule RfchatWeb.GuildLiveReactionsTest do
     server_settings_fixture(%{name: "Picker Layout"})
 
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
-    message = messages_in(Chat.get_channel_by_slug!("general").id) |> List.first()
+    message = messages_in(channel_by_slug!("general").id) |> List.first()
     quick_reaction_id = Base.url_encode64("👍", padding: false)
 
     refute has_element?(view, "#reaction-#{message.id}-#{quick_reaction_id}")
@@ -79,7 +79,7 @@ defmodule RfchatWeb.GuildLiveReactionsTest do
 
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
-    message = messages_in(Chat.get_channel_by_slug!("general").id) |> List.first()
+    message = messages_in(channel_by_slug!("general").id) |> List.first()
 
     refute has_element?(view, "#reaction-picker-#{message.id}")
 

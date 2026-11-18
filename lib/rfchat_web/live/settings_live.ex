@@ -156,7 +156,7 @@ defmodule RfchatWeb.SettingsLive do
            membership_attrs
          ) do
       {:ok, _membership} ->
-        channels = Chat.list_channels_for_user(socket.assigns.current_user)
+        channels = Chat.list_channels(socket.assigns.current_scope)
 
         {:noreply,
          socket
@@ -356,14 +356,18 @@ defmodule RfchatWeb.SettingsLive do
   @impl true
   def handle_event("edit_channel", %{"id" => channel_id}, socket) do
     if socket.assigns.can_manage_channels? do
-      channel = Chat.get_channel!(channel_id)
+      case Chat.get_channel(socket.assigns.current_scope, channel_id) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "That channel does not exist.")}
 
-      {:noreply,
-       socket
-       |> assign(:manage_channels_open?, true)
-       |> assign(:editing_channel_id, channel.id)
-       |> SharedHelpers.assign_channel_form_mode(SharedHelpers.edit_mode_for(channel))
-       |> SharedHelpers.assign_channel_form(channel)}
+        channel ->
+          {:noreply,
+           socket
+           |> assign(:manage_channels_open?, true)
+           |> assign(:editing_channel_id, channel.id)
+           |> SharedHelpers.assign_channel_form_mode(SharedHelpers.edit_mode_for(channel))
+           |> SharedHelpers.assign_channel_form(channel)}
+      end
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to manage channels.")}
     end
@@ -390,9 +394,7 @@ defmodule RfchatWeb.SettingsLive do
   @impl true
   def handle_event("delete_channel", %{"id" => channel_id}, socket) do
     if socket.assigns.can_manage_channels? do
-      channel = Chat.get_channel!(channel_id)
-
-      case Chat.delete_channel(channel) do
+      case Chat.delete_channel(socket.assigns.current_scope, channel_id) do
         {:ok, _channel} ->
           {:noreply,
            socket
@@ -413,9 +415,9 @@ defmodule RfchatWeb.SettingsLive do
   @impl true
   def handle_event("move_channel", %{"id" => channel_id, "direction" => direction}, socket) do
     if socket.assigns.can_manage_channels? do
-      case State.move_channel(channel_id, direction) do
-        :ok -> {:noreply, State.refresh_channels(socket)}
-        :error -> {:noreply, put_flash(socket, :error, "Could not reorder that channel.")}
+      case Chat.move_channel(socket.assigns.current_scope, channel_id, direction) do
+        {:ok, _} -> {:noreply, State.refresh_channels(socket)}
+        _ -> {:noreply, put_flash(socket, :error, "Could not reorder that channel.")}
       end
     else
       {:noreply, put_flash(socket, :error, "You do not have permission to manage channels.")}

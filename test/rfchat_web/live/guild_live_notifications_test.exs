@@ -22,7 +22,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
         display_name: "Mention Notify Sender"
       })
 
-    engineering = Chat.get_channel_by_slug!("engineering")
+    engineering = channel_by_slug!("engineering")
     channel_id = engineering.id
 
     {:ok, _message} =
@@ -83,7 +83,7 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
         display_name: "Mention Disabled Sender"
       })
 
-    engineering = Chat.get_channel_by_slug!("engineering")
+    engineering = channel_by_slug!("engineering")
 
     {:ok, _message} =
       Chat.create_message(scope_for(sender), engineering.id, %{
@@ -120,8 +120,8 @@ defmodule RfchatWeb.GuildLiveNotificationsTest do
 
     typer = current_user_from_conn(typing_conn)
 
-    general = Chat.get_channel_by_slug!("general")
-    engineering = Chat.get_channel_by_slug!("engineering")
+    general = channel_by_slug!("general")
+    engineering = channel_by_slug!("engineering")
 
     :ok = Chat.announce_typing(scope_for(typer), general.id)
     _ = :sys.get_state(view.pid)

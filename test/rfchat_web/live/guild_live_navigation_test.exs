@@ -65,6 +65,24 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     refute has_element?(view, "#channel-link-#{hidden_channel.slug}")
   end
 
+  test "shows one sidebar empty state when the member cannot view any channel", %{conn: conn} do
+    %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+    channels = Chat.list_channels(scope_for(owner_fixture()))
+
+    Enum.each(channels, fn channel ->
+      channel_permission_overwrite_fixture(channel, %{
+        role_id: default_role.id,
+        deny_permissions: PermissionBits.combine([:view_channel])
+      })
+    end)
+
+    conn = log_in_member_user(conn)
+    {:ok, view, _html} = live_hydrated(conn, ~p"/")
+    assert has_element?(view, "#no-visible-channels")
+    document = LazyHTML.from_fragment(render(view))
+    assert LazyHTML.query(document, "#no-visible-channels") |> Enum.count() == 1
+  end
+
   test "redirects away from forbidden channel slugs", %{conn: conn} do
     Bootstrap.ensure_seed_data!()
     hidden_channel = channel_fixture(%{name: "Ops", slug: unique_slug(), position: 20})
@@ -89,7 +107,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
 
     sender = user_fixture(%{email: "badge-sender@example.com", username: "badge_sender"})
 
-    engineering = Chat.get_channel_by_slug!("engineering")
+    engineering = channel_by_slug!("engineering")
 
     {:ok, _message} =
       Chat.create_message(scope_for(sender), engineering.id, %{body: "new engineering update"})
@@ -118,7 +136,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
         username: "mention_badge_sender"
       })
 
-    engineering = Chat.get_channel_by_slug!("engineering")
+    engineering = channel_by_slug!("engineering")
 
     {:ok, message} =
       Chat.create_message(scope_for(sender), engineering.id, %{
@@ -150,7 +168,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     receiver_conn = log_in_member_user(conn, "mention_receiver")
     {:ok, receiver_view, _html} = live_hydrated(receiver_conn, ~p"/")
 
-    engineering = Chat.get_channel_by_slug!("engineering")
+    engineering = channel_by_slug!("engineering")
     denied_sender = user_fixture(%{username: "mention_denied_sender"})
 
     assert {:error, changeset} =
@@ -189,7 +207,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
   } do
     Bootstrap.ensure_seed_data!()
     conn = log_in_member_user(conn)
-    general = Chat.get_channel_by_slug!("general")
+    general = channel_by_slug!("general")
     author = current_user_from_conn(conn)
     starter = message_fixture(general, author, %{body: "navigation thread starter"})
     _thread = thread_fixture(general, starter, author)
@@ -205,7 +223,7 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     refute has_element?(view, "#thread-panel-#{starter.id}")
 
     sender = user_fixture(%{email: "nav-once-sender@example.com", username: "nav_once_sender"})
-    engineering = Chat.get_channel_by_slug!("engineering")
+    engineering = channel_by_slug!("engineering")
 
     {:ok, _message} =
       Chat.create_message(scope_for(sender), engineering.id, %{body: "counted once"})
@@ -230,7 +248,10 @@ defmodule RfchatWeb.GuildLiveNavigationTest do
     refute has_element?(view, "#channel-link-#{channel.slug}")
 
     Repo.delete!(overwrite)
-    {:ok, channel} = Chat.update_channel(channel, %{topic: "now visible"})
+
+    {:ok, channel} =
+      Chat.update_channel(scope_for(owner_fixture()), channel.id, %{topic: "now visible"})
+
     _ = :sys.get_state(view.pid)
     assert has_element?(view, "#channel-link-#{channel.slug}")
 

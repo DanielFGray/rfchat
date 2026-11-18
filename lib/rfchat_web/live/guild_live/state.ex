@@ -36,10 +36,9 @@ defmodule RfchatWeb.GuildLive.State do
   end
 
   def hydrate_navigation(socket) do
-    current_user = socket.assigns.current_user
-    visible_channels = Chat.list_visible_channels_for_user(current_user)
+    visible_channels = Chat.list_channels(socket.assigns.current_scope)
     channels = Enum.filter(visible_channels, &visible_text_channel?/1)
-    :ok = Chat.ensure_channel_memberships_for_user(current_user, channels)
+    :ok = Chat.ensure_channel_memberships(socket.assigns.current_scope, channels)
 
     socket
     |> assign(:channels, channels)
@@ -115,13 +114,13 @@ defmodule RfchatWeb.GuildLive.State do
 
     last_message = List.last(messages)
     Chat.mark_channel_read(socket.assigns.current_user, channel, last_message)
-    thread_summaries = Chat.thread_summaries_for_channel(channel.id)
+    thread_summaries = Chat.thread_summaries_for_channel(socket.assigns.current_scope, channel.id)
 
     visible_channels = Keyword.get(opts, :visible_channels)
     refreshed_channels = Keyword.get(opts, :channels)
 
     visible_channels =
-      visible_channels || Chat.list_visible_channels_for_user(socket.assigns.current_user)
+      visible_channels || Chat.list_channels(socket.assigns.current_scope)
 
     refreshed_channels =
       refreshed_channels || Enum.filter(visible_channels, &visible_text_channel?/1)
@@ -201,7 +200,7 @@ defmodule RfchatWeb.GuildLive.State do
 
   def refresh_channels(socket) do
     current_user = socket.assigns.current_user
-    visible_channels = Chat.list_visible_channels_for_user(current_user)
+    visible_channels = Chat.list_channels(socket.assigns.current_scope)
     channels = Enum.filter(visible_channels, &visible_text_channel?/1)
 
     active_channel =
@@ -430,7 +429,11 @@ defmodule RfchatWeb.GuildLive.State do
   def refresh_thread_summaries_for_active_channel(socket) do
     case socket.assigns.active_channel do
       %{} = channel ->
-        assign(socket, :thread_summaries, Chat.thread_summaries_for_channel(channel.id))
+        assign(
+          socket,
+          :thread_summaries,
+          Chat.thread_summaries_for_channel(socket.assigns.current_scope, channel.id)
+        )
 
       nil ->
         assign(socket, :thread_summaries, %{})
@@ -452,9 +455,14 @@ defmodule RfchatWeb.GuildLive.State do
       |> assign(:active_thread, thread)
       |> sync_channel_subscriptions()
 
-    thread_messages = Chat.list_thread_messages(thread.id)
+    thread_messages =
+      case Chat.list_messages(socket.assigns.current_scope, thread.id) do
+        {:ok, messages} -> messages
+        _ -> []
+      end
+
     last_message = List.last(thread_messages)
-    Chat.ensure_channel_memberships_for_user(socket.assigns.current_user, [thread])
+    Chat.ensure_channel_memberships(socket.assigns.current_scope, [thread])
     Chat.mark_channel_read(socket.assigns.current_user, thread, last_message)
 
     focus? = Keyword.get(opts, :focus?, false)

@@ -28,7 +28,7 @@ defmodule Rfchat.Bots.SerializerTest do
     starter = message_fixture(channel, owner, %{body: "start a thread"})
     _thread = thread_fixture(channel, starter, owner)
 
-    thread = Chat.get_thread_for_starter_message(starter.id)
+    thread = Chat.get_thread_for_starter_message(%Scope{user_id: owner.id}, starter.id)
 
     {serialized, queries} = count_queries(fn -> Serializer.serialize_thread(thread) end)
 

@@ -81,13 +81,19 @@ defmodule RfchatWeb.GuildComponents.Shell do
         </div>
 
         <%= if @guild.navigation_ready? do %>
-          <nav class="space-y-3" aria-label="Guild channels">
-            <RfchatWeb.GuildComponents.Navigation.channel_nav_section
-              :for={section <- @guild.channel_sections}
-              section={section}
-              guild={@guild}
-            />
-          </nav>
+          <%= if @guild.channel_sections == [] do %>
+            <p id="no-visible-channels" class="px-2 py-3 text-xs text-base-content/55">
+              No channels you can view yet.
+            </p>
+          <% else %>
+            <nav class="space-y-3" aria-label="Guild channels">
+              <RfchatWeb.GuildComponents.Navigation.channel_nav_section
+                :for={section <- @guild.channel_sections}
+                section={section}
+                guild={@guild}
+              />
+            </nav>
+          <% end %>
         <% else %>
           <div class="space-y-2 px-2 py-1 text-xs text-base-content/55">
             <p class="font-semibold uppercase tracking-[0.16em]">Loading channels...</p>

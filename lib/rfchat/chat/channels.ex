@@ -8,58 +8,16 @@ defmodule Rfchat.Chat.Channels do
   alias Rfchat.Chat.ChannelMembership
   alias Rfchat.Chat.Message
   alias Rfchat.Chat.Topics
-  alias Rfchat.Chat.User
   alias Rfchat.Chat.Visibility
   alias Rfchat.Repo
 
-  def list_channels do
-    Channel
-    |> order_by([channel], asc: channel.position, asc: channel.inserted_at)
-    |> Repo.all()
+  def list_channels(%Scope{} = scope) do
+    Visibility.visible_channels(scope)
   end
 
-  def list_channel_tree do
-    channels = list_channels()
-    categories = Enum.filter(channels, &(&1.kind == :category))
-    category_ids = MapSet.new(Enum.map(categories, & &1.id))
-
-    uncategorized =
-      Enum.filter(
-        channels,
-        &(visible_text_channel?(&1) and root_level_channel?(&1, category_ids))
-      )
-
-    categorized_sections =
-      Enum.map(categories, fn category ->
-        %{
-          category: category,
-          channels:
-            channels
-            |> Enum.filter(&(&1.parent_channel_id == category.id and visible_text_channel?(&1)))
-            |> sort_channels()
-        }
-      end)
-
-    categorized_sections ++
-      if uncategorized == [] do
-        []
-      else
-        [%{category: nil, channels: sort_channels(uncategorized)}]
-      end
-  end
-
-  def list_channels_for_user(%User{} = user) do
-    list_visible_channels_for_user(user)
-    |> Enum.filter(&visible_text_channel?/1)
-  end
-
-  def list_visible_channels_for_user(%User{} = user) do
-    Visibility.visible_channels(%Scope{user_id: user.id})
-  end
-
-  def list_channel_tree_for_user(%User{} = user) do
-    user
-    |> list_visible_channels_for_user()
+  def list_channel_tree(%Scope{} = scope) do
+    scope
+    |> Visibility.visible_channels()
     |> build_channel_tree()
   end
 
@@ -83,7 +41,6 @@ defmodule Rfchat.Chat.Channels do
             |> sort_channels()
         }
       end)
-      |> Enum.reject(&(&1.channels == []))
 
     categorized_sections ++
       if uncategorized == [] do
@@ -93,14 +50,17 @@ defmodule Rfchat.Chat.Channels do
       end
   end
 
-  def ensure_channel_memberships_for_user(%User{} = user, channels) when is_list(channels) do
+  def ensure_channel_memberships(%Scope{} = scope, channels) when is_list(channels) do
+    # These rows store read state only; they do not grant channel access.
+    user_id = scope.user_id
+    channels = Enum.reject(channels, &(&1.kind == :category))
     channel_ids = Enum.map(channels, & &1.id)
 
     existing_channel_ids =
       ChannelMembership
       |> where(
         [membership],
-        membership.user_id == ^user.id and membership.channel_id in ^channel_ids
+        membership.user_id == ^user_id and membership.channel_id in ^channel_ids
       )
       |> select([membership], membership.channel_id)
       |> Repo.all()
@@ -119,11 +79,11 @@ defmodule Rfchat.Chat.Channels do
     |> Enum.each(fn channel ->
       latest_message =
         case Map.get(latest_messages, channel.id) do
-          %Message{author_id: author_id} = message when author_id == user.id -> message
+          %Message{author_id: author_id} = message when author_id == user_id -> message
           _ -> nil
         end
 
-      %ChannelMembership{channel_id: channel.id, user_id: user.id}
+      %ChannelMembership{channel_id: channel.id, user_id: user_id}
       |> ChannelMembership.changeset(%{
         joined_at: now,
         last_read_message_id: latest_message && latest_message.id,
@@ -135,124 +95,184 @@ defmodule Rfchat.Chat.Channels do
     :ok
   end
 
-  def get_channel!(id), do: Repo.get!(Channel, id)
-
-  def get_channel(id), do: Repo.get(Channel, id)
-
-  def get_channel_by_slug!(slug) do
-    Repo.get_by!(Channel, slug: slug)
+  def get_channel(%Scope{} = scope, id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, channel_id} -> Visibility.visible_channel(scope, channel_id)
+      :error -> nil
+    end
   end
 
-  def get_channel_by_slug_for_user(slug, %User{} = user) do
+  def get_channel_by_slug(%Scope{} = scope, slug) do
     channel = Repo.get_by(Channel, slug: slug)
-
-    cond do
-      is_nil(channel) ->
-        {:error, :not_found}
-
-      not visible_text_channel?(channel) ->
-        {:error, :not_found}
-
-      Visibility.can?(%Scope{user_id: user.id}, :view_channel, channel) ->
-        {:ok, channel}
-
-      true ->
-        {:error, :forbidden}
-    end
+    if channel, do: get_channel(scope, channel.id), else: nil
   end
 
-  def create_channel(attrs) do
-    %Channel{}
-    |> managed_channel_changeset(attrs)
-    |> Repo.insert()
-    |> case do
-      {:ok, channel} ->
-        Topics.broadcast_guild({:channel_created, channel})
-        {:ok, channel}
+  def create_channel(%Scope{} = scope, attrs) do
+    write_channel(scope, :server, :channel_created, fn _ ->
+      attrs = put_position_if_missing(attrs)
 
-      error ->
-        error
-    end
+      with :ok <- authorize_parent(scope, attrs),
+           {:ok, channel} <- %Channel{} |> managed_channel_changeset(attrs) |> Repo.insert() do
+        {:ok, channel}
+      end
+    end)
   end
 
   def change_channel(%Channel{} = channel, attrs \\ %{}) do
     Channel.changeset(channel, attrs)
   end
 
-  def update_channel(%Channel{} = channel, attrs) do
-    channel
-    |> managed_channel_changeset(attrs)
-    |> Repo.update()
+  def update_channel(%Scope{} = scope, channel_id, attrs) do
+    with {:ok, channel_id} <- Ecto.UUID.cast(channel_id) do
+      write_channel(
+        scope,
+        channel_id,
+        :channel_updated,
+        fn channel ->
+          with {:ok, updated} <- channel |> managed_channel_changeset(attrs) |> Repo.update() do
+            {:ok, updated}
+          end
+        end,
+        fn ->
+          current = Repo.get(Channel, channel_id)
+          authorize_parent(scope, attrs, current && current.parent_channel_id)
+        end
+      )
+    else
+      :error -> {:error, :not_found}
+    end
+  end
+
+  @doc "Deletes a channel or category. A thread is refused: it goes with its starter message."
+  def delete_channel(%Scope{} = scope, channel_id) do
+    with {:ok, channel_id} <- Ecto.UUID.cast(channel_id) do
+      write_channel(scope, channel_id, :channel_deleted, fn channel ->
+        cond do
+          Channel.thread?(channel) ->
+            {:error, :thread}
+
+          channel.kind == :category ->
+            from(child in Channel, where: child.parent_channel_id == ^channel.id)
+            |> Repo.update_all(set: [parent_channel_id: nil])
+
+            Repo.delete(channel)
+
+          true ->
+            Repo.delete(channel)
+        end
+      end)
+    else
+      :error -> {:error, :not_found}
+    end
+  end
+
+  def move_channel(%Scope{} = scope, channel_id, direction) do
+    with {:ok, channel_id} <- Ecto.UUID.cast(channel_id) do
+      Repo.transact(fn ->
+        with :ok <- Visibility.authorize_write(scope, :manage_channels, %Channel{id: channel_id}),
+             %Channel{} = channel <- Visibility.visible_channel(scope, channel_id),
+             {:ok, sibling} <- adjacent_visible_sibling(scope, channel, direction) do
+          [first, second] = [channel.id, sibling.id] |> Enum.sort() |> Enum.map(&lock_channel/1)
+
+          with {:ok, moved_first} <-
+                 Repo.update(Channel.changeset(first, %{position: second.position})),
+               {:ok, moved_second} <-
+                 Repo.update(Channel.changeset(second, %{position: first.position})) do
+            {:ok, Enum.find([moved_first, moved_second], &(&1.id == channel_id))}
+          end
+        else
+          {:error, :forbidden} = error -> error
+          {:error, :edge} -> {:ok, Visibility.visible_channel(scope, channel_id)}
+          _ -> {:error, :not_found}
+        end
+      end)
+      |> tap(&broadcast_reorder/1)
+    else
+      :error -> {:error, :not_found}
+    end
+  end
+
+  # Open GuildLive sidebars reload their channel order after the move commits.
+  defp broadcast_reorder({:ok, _channel}), do: Topics.broadcast_guild(:channels_reordered)
+  defp broadcast_reorder(_error), do: :ok
+
+  defp write_channel(scope, target, event, change, before_lock \\ fn -> :ok end) do
+    Repo.transact(fn ->
+      authorization_target = if target == :server, do: :server, else: %Channel{id: target}
+
+      with :ok <- Visibility.authorize_write(scope, :manage_channels, authorization_target),
+           :ok <- before_lock.(),
+           channel <- if(is_binary(target), do: lock_channel(target), else: nil),
+           true <- target == :server or not is_nil(channel),
+           {:ok, result} <- change.(channel) do
+        {:ok, result}
+      else
+        false -> {:error, :not_found}
+        error -> error
+      end
+    end)
     |> case do
-      {:ok, updated_channel} ->
-        Topics.broadcast_guild({:channel_updated, updated_channel})
-        {:ok, updated_channel}
+      {:ok, channel} = result ->
+        Topics.broadcast_guild({event, channel})
+        result
 
       error ->
         error
     end
   end
 
-  @doc "Deletes a channel or category. A thread is refused: it goes with its starter message."
-  def delete_channel(%Channel{} = channel) do
-    with false <- Channel.thread?(channel),
-         {:ok, deleted_channel} <- Repo.delete(channel) do
-      Topics.broadcast_guild({:channel_deleted, deleted_channel})
-      {:ok, deleted_channel}
+  def lock_channel(id) do
+    Repo.one(from(channel in Channel, where: channel.id == ^id, lock: "FOR UPDATE"))
+  end
+
+  defp authorize_parent(scope, attrs, fallback \\ nil) do
+    parent_id = Map.get(attrs, :parent_channel_id, Map.get(attrs, "parent_channel_id", fallback))
+
+    if is_nil(parent_id) do
+      :ok
     else
-      true -> {:error, :thread}
-      error -> error
+      with {:ok, parent_id} <- Ecto.UUID.cast(parent_id),
+           :ok <- Visibility.authorize_write(scope, :manage_channels, %Channel{id: parent_id}),
+           %Channel{kind: :category} <- lock_channel(parent_id) do
+        :ok
+      else
+        _ ->
+          {:error,
+           managed_channel_changeset(%Channel{}, %{parent_channel_id: parent_id})
+           |> Ecto.Changeset.add_error(:parent_channel_id, "must be a category")}
+      end
     end
   end
 
-  def reorder_channels(section_attrs) when is_list(section_attrs) do
-    Repo.transaction(fn ->
-      Enum.with_index(section_attrs)
-      |> Enum.each(fn {section, section_index} ->
-        category = Map.get(section, :category) || Map.get(section, "category")
-        channels = Map.get(section, :channels) || Map.get(section, "channels") || []
-
-        category_id = normalize_optional_binary_id(category)
-
-        if category_id do
-          category = Repo.get!(Channel, category_id)
-
-          category
-          |> Channel.changeset(%{
-            position: section_index * 1_000,
-            parent_channel_id: nil,
-            kind: :category
-          })
-          |> Repo.update!()
-        end
-
-        Enum.with_index(channels)
-        |> Enum.each(fn {channel_id, channel_index} ->
-          channel = Repo.get!(Channel, channel_id)
-
-          channel
-          |> Channel.changeset(%{
-            position: section_index * 1_000 + channel_index + 1,
-            parent_channel_id: category_id
-          })
-          |> Repo.update!()
-        end)
-      end)
-    end)
-    |> case do
-      {:ok, _result} ->
-        Topics.broadcast_guild(:channels_reordered)
-        {:ok, list_channels()}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+  defp next_channel_position do
+    (Repo.one(from(channel in Channel, select: max(channel.position))) || 0) + 1
   end
 
-  def default_channel_for_user(%User{} = user) do
-    user
-    |> list_channels_for_user()
-    |> List.first()
+  defp put_position_if_missing(attrs) do
+    key = if Enum.any?(Map.keys(attrs), &is_atom/1), do: :position, else: "position"
+    Map.put_new(attrs, key, next_channel_position())
+  end
+
+  defp adjacent_visible_sibling(scope, channel, direction) do
+    siblings =
+      Visibility.visible_channels(scope)
+      |> Enum.filter(&(&1.parent_channel_id == channel.parent_channel_id))
+      |> sort_channels()
+
+    index = Enum.find_index(siblings, &(&1.id == channel.id))
+
+    delta =
+      case direction do
+        d when d in [:up, "up"] -> -1
+        d when d in [:down, "down"] -> 1
+        _ -> nil
+      end
+
+    cond do
+      is_nil(index) or is_nil(delta) -> {:error, :not_found}
+      index + delta < 0 or index + delta >= length(siblings) -> {:error, :edge}
+      true -> {:ok, Enum.at(siblings, index + delta)}
+    end
   end
 
   defp latest_messages_by_channel([]), do: %{}
@@ -292,8 +312,4 @@ defmodule Rfchat.Chat.Channels do
       end
     end)
   end
-
-  defp normalize_optional_binary_id(nil), do: nil
-  defp normalize_optional_binary_id(""), do: nil
-  defp normalize_optional_binary_id(value), do: value
 end

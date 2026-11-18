@@ -33,7 +33,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     end
 
     refute render(view) =~ "secret ops plan"
-    refute Chat.get_thread_for_starter_message(secret.id)
+    refute Chat.get_thread_for_starter_message(scope_for(author), secret.id)
   end
 
   test "posts a message into the active channel", %{conn: conn} do
@@ -72,7 +72,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     |> render_submit()
 
     message =
-      Chat.get_channel_by_slug!("general").id
+      channel_by_slug!("general").id
       |> messages_in()
       |> Enum.find(&(&1.body == "hey @member_default /shrug"))
 
@@ -105,7 +105,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     |> render_submit()
 
     message =
-      Chat.get_channel_by_slug!("general").id
+      channel_by_slug!("general").id
       |> messages_in()
       |> Enum.find(&(&1.body == "hey @lv_mentioned and @design"))
 
@@ -143,7 +143,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     conn = log_in_member_user(conn)
     {:ok, view, _html} = live_hydrated(conn, ~p"/")
 
-    original = messages_in(Chat.get_channel_by_slug!("general").id) |> List.first()
+    original = messages_in(channel_by_slug!("general").id) |> List.first()
 
     view |> element("#quick-reply-message-#{original.id}") |> render_click()
 
@@ -165,7 +165,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     view |> form("#message-form", %{message: %{body: "editable body"}}) |> render_submit()
 
     message =
-      Chat.get_channel_by_slug!("general").id
+      channel_by_slug!("general").id
       |> messages_in()
       |> Enum.find(&(&1.body == "editable body"))
 
@@ -189,7 +189,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
     view |> form("#message-form", %{message: %{body: "delete me"}}) |> render_submit()
 
     message =
-      Chat.get_channel_by_slug!("general").id
+      channel_by_slug!("general").id
       |> messages_in()
       |> Enum.find(&(&1.body == "delete me"))
 
@@ -223,7 +223,7 @@ defmodule RfchatWeb.GuildLiveMessagesTest do
         display_name: "Guildlive Author"
       })
 
-    general = Chat.get_channel_by_slug!("general")
+    general = channel_by_slug!("general")
     message = message_fixture(general, author, %{body: "moderate me"})
 
     token = Rfchat.Accounts.generate_user_session_token(moderator)

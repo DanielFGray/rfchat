@@ -12,11 +12,7 @@
     <RfchatWeb.GuildComponents.mobile_channel_drawer guild={assigns} />
 
     <section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-base-200 transition-colors duration-200">
-      <%= if @active_channel do %>
-        <RfchatWeb.GuildComponents.active_channel_view guild={assigns} />
-      <% else %>
-        <RfchatWeb.GuildComponents.empty_channel_view />
-      <% end %>
+      <RfchatWeb.GuildComponents.active_channel_view :if={@active_channel} guild={assigns} />
     </section>
 
     <RfchatWeb.GuildComponents.members_drawer guild={assigns} />

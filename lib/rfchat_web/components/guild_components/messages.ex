@@ -22,24 +22,6 @@ defmodule RfchatWeb.GuildComponents.Messages do
     """
   end
 
-  def empty_channel_view(assigns) do
-    ~H"""
-    <div class="flex min-h-0 flex-1 items-center justify-center px-5 py-10">
-      <div class="max-w-lg rounded-lg border border-dashed border-base-300 bg-base-100 p-8 text-center">
-        <p class="text-xs font-semibold uppercase tracking-[0.28em] text-base-content/50">
-          No accessible channels
-        </p>
-        <h2 class="mt-3 text-2xl font-semibold text-base-content">
-          This account has nowhere to land yet.
-        </h2>
-        <p class="mt-3 text-sm leading-7 text-base-content/70">
-          Ask a server owner to grant channel access or seed a default role with view permissions.
-        </p>
-      </div>
-    </div>
-    """
-  end
-
   attr :guild, :map, required: true
 
   def channel_header(assigns) do

@@ -73,8 +73,8 @@ defmodule RfchatWeb.GuildLiveSettingsTest do
 
     view |> element("#move-channel-down-general") |> render_click()
 
-    general = Chat.get_channel_by_slug!("general")
-    platform = Chat.get_channel_by_slug!("platform")
+    general = channel_by_slug!("general")
+    platform = channel_by_slug!("platform")
 
     assert general.position > platform.position
   end
@@ -86,6 +86,70 @@ defmodule RfchatWeb.GuildLiveSettingsTest do
 
     refute has_element?(view, "#open-channel-manager")
     refute has_element?(view, "#channel-manager-panel")
+  end
+
+  test "a manager's channel panel omits channels they cannot view", %{conn: conn} do
+    %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+    hidden = channel_fixture(%{name: "Private", slug: unique_slug()})
+
+    channel_permission_overwrite_fixture(hidden, %{
+      role_id: default_role.id,
+      deny_permissions: PermissionBits.combine([:view_channel])
+    })
+
+    manager =
+      channel_manager_fixture(%{
+        email: "settings-channel-manager@example.com",
+        username: "settings_channel_manager"
+      })
+
+    token = Rfchat.Accounts.generate_user_session_token(manager)
+
+    conn =
+      conn
+      |> Phoenix.ConnTest.init_test_session(%{})
+      |> Plug.Conn.put_session(:user_token, token)
+      |> Plug.Conn.put_session(:live_socket_id, "users_sessions:settings-channel-manager")
+
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
+    view |> element("#open-channel-manager") |> render_click()
+
+    refute has_element?(view, "#manage-channel-#{hidden.slug}")
+  end
+
+  test "saving a channel that became hidden while its form was open is refused", %{conn: conn} do
+    %{default_role: default_role} = Bootstrap.ensure_seed_data!()
+    channel = channel_fixture(%{name: "Soon Hidden", slug: unique_slug()})
+
+    manager =
+      channel_manager_fixture(%{
+        email: "settings-hidden-edit@example.com",
+        username: "settings_hidden_edit"
+      })
+
+    token = Rfchat.Accounts.generate_user_session_token(manager)
+
+    conn =
+      conn
+      |> Phoenix.ConnTest.init_test_session(%{})
+      |> Plug.Conn.put_session(:user_token, token)
+      |> Plug.Conn.put_session(:live_socket_id, "users_sessions:settings-hidden-edit")
+
+    {:ok, view, _html} = live(conn, ~p"/settings?tab=server")
+    view |> element("#open-channel-manager") |> render_click()
+    view |> element("#edit-channel-#{channel.slug}") |> render_click()
+
+    channel_permission_overwrite_fixture(channel, %{
+      role_id: default_role.id,
+      deny_permissions: PermissionBits.combine([:view_channel])
+    })
+
+    view
+    |> form("#channel-form", %{channel: %{name: "Renamed", slug: channel.slug}})
+    |> render_submit()
+
+    assert has_element?(view, "#channel-form")
+    assert channel_by_slug!(channel.slug).name == "Soon Hidden"
   end
 
   test "administrator role surfaces server management controls", %{conn: conn} do

@@ -77,7 +77,7 @@ defmodule RfchatWeb.SettingsComponents.Managers do
 
           <div class="mt-4 space-y-3">
             <div
-              :for={section <- @all_channel_sections}
+              :for={section <- @channel_sections}
               id={"manager-#{section_dom_id(section.category)}"}
               class="rounded-xl border border-base-300 bg-base-200 p-3"
             >
@@ -206,7 +206,7 @@ defmodule RfchatWeb.SettingsComponents.Managers do
                 type="select"
                 label="Category"
                 prompt="No category"
-                options={Enum.map(manageable_categories(@all_channel_sections), &{&1.name, &1.id})}
+                options={Enum.map(manageable_categories(@channel_sections), &{&1.name, &1.id})}
               />
 
               <.input

@@ -73,9 +73,6 @@ defmodule RfchatWeb.API.MessageController do
       {:ok, %{thread: thread}} ->
         json(conn, %{data: thread})
 
-      {:error, :forbidden} ->
-        ErrorHelpers.render_error(conn, :forbidden, "forbidden", "Bot cannot read that thread.")
-
       {:error, :not_found} ->
         ErrorHelpers.render_error(conn, :not_found, "not_found", "Thread not found.")
 

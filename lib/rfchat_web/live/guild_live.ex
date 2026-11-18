@@ -1,7 +1,7 @@
 defmodule RfchatWeb.GuildLive do
   use RfchatWeb, :live_view
 
-  import Phoenix.LiveView, only: [connected?: 1, put_flash: 3, stream: 4]
+  import Phoenix.LiveView, only: [connected?: 1, stream: 4]
 
   alias Rfchat.Chat
   alias Rfchat.Chat.Topics
@@ -73,18 +73,7 @@ defmodule RfchatWeb.GuildLive do
       |> stream(:messages, [], reset: true)
       |> stream(:thread_messages, [], reset: true)
 
-    case Chat.list_channels() do
-      [] ->
-        {:ok,
-         put_flash(
-           socket,
-           :error,
-           "This guild has not been bootstrapped yet. Run `mix run priv/repo/seeds.exs`."
-         )}
-
-      _channels ->
-        {:ok, State.queue_initial_hydration(socket)}
-    end
+    {:ok, State.queue_initial_hydration(socket)}
   end
 
   @impl true
