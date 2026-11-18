@@ -55,6 +55,8 @@ defmodule RfchatWeb.GuildLive do
       |> assign(:can_mention_everyone?, false)
       |> assign(:can_create_public_threads?, false)
       |> assign(:can_send_thread_messages?, false)
+      |> assign(:can_archive_thread?, false)
+      |> assign(:can_lock_thread?, false)
       |> assign(:reply_to_message, nil)
       |> assign(:thread_reply_to_message, nil)
       |> assign(:editing_message_id, nil)

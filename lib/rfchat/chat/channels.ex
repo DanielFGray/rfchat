@@ -228,8 +228,14 @@ defmodule Rfchat.Chat.Channels do
     end
   end
 
-  defp lock_channel_tree! do
+  @doc """
+  Takes the channel-tree lock exclusively. Every channel management write takes it first, and an
+  overwrite write (`Rfchat.Chat.ChannelOverwrites`) takes it after the role-list lock. Must run
+  inside the write transaction.
+  """
+  def lock_channel_tree! do
     Repo.query!("SELECT pg_advisory_xact_lock($1)", [@channel_tree_lock_key])
+    :ok
   end
 
   def lock_channel(id) do

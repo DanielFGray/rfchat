@@ -23,7 +23,7 @@ defmodule RfchatWeb.SettingsComponents.Managers do
       id="channel-manager-panel"
       aria-hidden={if(@manage_channels_open?, do: "false", else: "true")}
       class={[
-        "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-base-300 bg-base-100 transition-transform duration-200 ease-out",
+        "fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col border-l border-base-300 bg-base-100 transition-transform duration-200 ease-out lg:max-w-3xl",
         if(@manage_channels_open?,
           do: "shadow-2xl lg:shadow-[-16px_0_48px_rgba(0,0,0,0.45)]",
           else: "shadow-none"
@@ -52,7 +52,7 @@ defmodule RfchatWeb.SettingsComponents.Managers do
         </button>
       </div>
 
-      <div class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[1.15fr_0.95fr]">
+      <div class="grid min-h-0 flex-1 gap-0 lg:grid-cols-[0.85fr_1.15fr]">
         <div class={[
           "min-h-0 overflow-y-auto border-b border-base-300 px-4 py-4 lg:border-b-0 lg:border-r",
           scrollbar_classes()
@@ -246,6 +246,16 @@ defmodule RfchatWeb.SettingsComponents.Managers do
               </div>
             </.form>
           </div>
+
+          <RfchatWeb.SettingsComponents.ChannelPermissions.section
+            :if={@editing_channel_id && @channel_permissions}
+            permissions={@channel_permissions}
+            open_key={@open_overwrite_key}
+            roles={@roles}
+            members={@member_presence}
+            role_form={@overwrite_role_form}
+            member_form={@overwrite_member_form}
+          />
         </div>
       </div>
     </aside>

@@ -3,6 +3,9 @@ defmodule RfchatWeb.GuildLive.Events.Helpers do
 
   def normalize_message_id(message_id), do: message_id
 
+  def slowmode_message(seconds_left),
+    do: "Slowmode is on. You can send again in #{seconds_left}s."
+
   def own_message?(message, current_user), do: message.author_id == current_user.id
 
   defdelegate deleted_message?(message), to: Rfchat.Chat.Message, as: :deleted?

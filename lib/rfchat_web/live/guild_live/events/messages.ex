@@ -184,6 +184,9 @@ defmodule RfchatWeb.GuildLive.Events.Messages do
              |> State.refresh_typing_users()
              |> State.maybe_insert_message(message)}
 
+          {:error, {:slowmode, seconds_left}} ->
+            {:noreply, put_flash(socket, :error, Helpers.slowmode_message(seconds_left))}
+
           {:error, reason} when reason in [:forbidden, :not_found] ->
             {:noreply,
              socket

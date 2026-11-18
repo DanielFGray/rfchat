@@ -60,6 +60,9 @@ defmodule Rfchat.Chat.Visibility do
   first. `:edit_message`, `:delete_message` and `:add_reactions` take a `%Message{}` and read
   only its id: the message and its channel load in the decision's own statement. `{:moderate,
   bit}` takes the subject's user id. So does `:assign_roles` (giving or taking a member role).
+  `:manage_permissions` (reading a channel's overwrites) takes a `%Channel{}`; so does
+  `{:manage_permissions, target}`, which decides a write of the overwrite for `target`
+  (`{:role, role_id}` or `{:user, user_id}`) on that channel.
   """
   def can?(%Scope{} = scope, action, target) do
     ctx = load_for(scope, action, target)
@@ -79,8 +82,10 @@ defmodule Rfchat.Chat.Visibility do
   end
 
   @doc """
-  Takes the role-list lock exclusively. Every role write (`Rfchat.Chat.Roles`) takes it first, so
-  role writes never interleave. Must run inside the write transaction.
+  Takes the role-list lock exclusively. Every role write (`Rfchat.Chat.Roles`) and every overwrite
+  write (`Rfchat.Chat.ChannelOverwrites`) takes it first, so those writes never interleave. A
+  write that also takes the channel-tree lock takes this one before it. Must run inside the write
+  transaction.
   """
   def lock_role_list! do
     Repo.query!("SELECT pg_advisory_xact_lock($1)", [@role_list_lock_key])
@@ -103,6 +108,15 @@ defmodule Rfchat.Chat.Visibility do
 
   defp lock_membership_rows(%Scope{user_id: actor_id}, :manage_ownership, subject_id),
     do: lock_rows_for_update([actor_id, subject_id])
+
+  # A user overwrite write reads the subject's rank, so it holds the subject's row as moderation
+  # does. It runs under the role-list lock (exclusive), which keeps every rank still.
+  defp lock_membership_rows(
+         %Scope{user_id: actor_id},
+         {:manage_permissions, {:user, subject_id}},
+         %Channel{}
+       ),
+       do: lock_rows_for_update([actor_id, subject_id])
 
   defp lock_membership_rows(%Scope{user_id: actor_id}, _action, _target),
     do: lock_membership(actor_id)
@@ -418,32 +432,18 @@ defmodule Rfchat.Chat.Visibility do
   defp decide(:manage_ownership, ctx, subject_id) when is_binary(subject_id),
     do: owner?(ctx.member)
 
-  # Giving or taking a role. The actor holds `manage_roles` and acts on themselves or on a member
-  # whose top role is below theirs; the owner acts on anyone. Which roles may be given is decided
-  # by `Rfchat.Chat.RoleAuthority` after this.
+  # Giving or taking a role. The actor holds `manage_roles` and ranks over the subject. Which roles
+  # may be given is decided by `Rfchat.Chat.RoleAuthority` after this.
   defp decide(:assign_roles, ctx, subject_id) when is_binary(subject_id) do
-    subject = load(%Scope{user_id: subject_id}, [])
+    Authorization.has_permission?(server_bits(ctx), :manage_roles) and
+      ranks_over?(ctx, subject_id)
+  end
 
-    cond do
-      is_nil(subject.account) ->
-        false
-
-      not Authorization.has_permission?(server_bits(ctx), :manage_roles) ->
-        false
-
-      owner?(ctx.member) ->
-        true
-
-      ctx.member.id == subject_id ->
-        true
-
-      owner?(subject.account) ->
-        false
-
-      true ->
-        top_position(ctx.member, ctx.default_role) >
-          top_position(subject.account, subject.default_role)
-    end
+  # Writing a channel overwrite. The actor may manage the channel's permissions and ranks over the
+  # target. Which bits the write may change is decided by `Rfchat.Chat.ChannelOverwrites` after
+  # this, from the stored overwrite.
+  defp decide({:manage_permissions, target}, ctx, %Channel{} = channel) do
+    decide(:manage_permissions, ctx, channel) and overwrite_target?(ctx, target)
   end
 
   defp decide({:moderate, bit}, ctx, subject_id) when is_binary(subject_id) do
@@ -471,16 +471,20 @@ defmodule Rfchat.Chat.Visibility do
     end
   end
 
+  # A locked or archived thread takes no edit, delete or reaction from anyone without
+  # `manage_messages` in its parent channel (`thread_closed?/2`).
   defp message_decision(:edit_message, ctx, author_id, channel),
-    do: ctx.member.id == author_id and not acting_timed_out?(ctx) and view?(ctx, channel)
+    do:
+      ctx.member.id == author_id and not acting_timed_out?(ctx) and view?(ctx, channel) and
+        not thread_closed?(ctx, channel)
 
   defp message_decision(:delete_message, ctx, author_id, channel),
     do:
-      view?(ctx, channel) and
+      view?(ctx, channel) and not thread_closed?(ctx, channel) and
         (ctx.member.id == author_id or bit?(ctx, channel, :manage_messages))
 
   defp message_decision(:add_reactions, ctx, _author_id, channel),
-    do: channel_decision(:add_reactions, ctx, channel)
+    do: channel_decision(:add_reactions, ctx, channel) and not thread_closed?(ctx, channel)
 
   defp message_decision(:create_public_threads, ctx, _author_id, channel),
     do: channel_decision(:create_public_threads, ctx, channel)
@@ -502,8 +506,72 @@ defmodule Rfchat.Chat.Visibility do
   defp channel_decision(:manage_messages, ctx, channel),
     do: view?(ctx, channel) and bit?(ctx, channel, :manage_messages)
 
+  # Archiving and unarchiving: the thread's creator or a manager. A locked thread takes them from a
+  # manager only. Locking and unlocking are the manager's alone.
+  defp channel_decision(action, ctx, channel) when action in [:archive_thread, :unarchive_thread],
+    do:
+      Channel.thread?(channel) and view?(ctx, channel) and
+        (thread_manager?(ctx, channel) or
+           (is_nil(channel.locked_at) and not acting_timed_out?(ctx) and
+              channel.created_by_id == ctx.member.id))
+
+  defp channel_decision(action, ctx, channel) when action in [:lock_thread, :unlock_thread],
+    do: Channel.thread?(channel) and view?(ctx, channel) and thread_manager?(ctx, channel)
+
+  # Whether the member may send in this channel or thread without waiting out its slowmode.
+  defp channel_decision(:bypass_slowmode, ctx, channel),
+    do:
+      view?(ctx, channel) and
+        (channel_manager?(ctx, channel) or
+           Authorization.has_permission?(server_bits(ctx), :manage_channels))
+
   defp channel_decision(:mention_everyone, ctx, channel),
     do: view?(ctx, channel) and bit?(ctx, channel, :mention_everyone)
+
+  defp channel_decision(:manage_permissions, ctx, channel),
+    do: view?(ctx, channel) and bit?(ctx, channel, :manage_roles)
+
+  # An overwrite target is a role below the actor's top role (the default role always), or a
+  # subject the actor ranks over.
+  defp overwrite_target?(ctx, {:role, role_id}) do
+    case Repo.get(Role, role_id) do
+      %Role{is_default: true} ->
+        true
+
+      %Role{} = role ->
+        owner?(ctx.member) or role.position < top_position(ctx.member, ctx.default_role)
+
+      nil ->
+        false
+    end
+  end
+
+  defp overwrite_target?(ctx, {:user, subject_id}), do: ranks_over?(ctx, subject_id)
+
+  # The owner ranks over every account; anyone else ranks over themselves and over a non-owner whose
+  # top role is below their own. The subject's rank is read from its account, whatever the state
+  # of its membership.
+  defp ranks_over?(ctx, subject_id) do
+    subject = load(%Scope{user_id: subject_id}, [])
+
+    cond do
+      is_nil(subject.account) ->
+        false
+
+      owner?(ctx.member) ->
+        true
+
+      ctx.member.id == subject_id ->
+        true
+
+      owner?(subject.account) ->
+        false
+
+      true ->
+        top_position(ctx.member, ctx.default_role) >
+          top_position(subject.account, subject.default_role)
+    end
+  end
 
   # A channel is visible when it grants view and its parent is visible: a thread needs its
   # channel, and a channel needs its category. A thread always has a parent.
@@ -531,6 +599,7 @@ defmodule Rfchat.Chat.Visibility do
   defp send_in_thread?(ctx, %Channel{} = thread) do
     Channel.thread?(thread) and not acting_timed_out?(ctx) and view?(ctx, thread) and
       bit?(ctx, thread, :send_messages_in_threads) and
+      (is_nil(thread.locked_at) or thread_manager?(ctx, thread)) and
       case parent(ctx, thread) do
         nil -> false
         parent -> send?(ctx, parent)
@@ -540,6 +609,29 @@ defmodule Rfchat.Chat.Visibility do
   defp create_threads?(ctx, %Channel{} = channel) do
     Channel.thread_host?(channel) and not acting_timed_out?(ctx) and send?(ctx, channel) and
       bit?(ctx, channel, :create_public_threads)
+  end
+
+  # A thread is closed to ordinary members once it is locked or archived. A send into an archived
+  # thread is not refused here: it reopens the thread. Only a locked thread refuses it
+  # (`send_in_thread?/2`).
+  defp thread_closed?(ctx, %Channel{} = channel),
+    do:
+      Channel.thread?(channel) and
+        (not is_nil(channel.locked_at) or not is_nil(channel.archived_at)) and
+        not thread_manager?(ctx, channel)
+
+  # `manage_messages` in the thread's parent channel stands in for Discord's Manage Threads.
+  defp thread_manager?(ctx, %Channel{} = thread) do
+    case parent(ctx, thread) do
+      nil -> false
+      parent -> bit?(ctx, parent, :manage_messages)
+    end
+  end
+
+  defp channel_manager?(ctx, %Channel{} = channel) do
+    if Channel.thread?(channel),
+      do: thread_manager?(ctx, channel),
+      else: bit?(ctx, channel, :manage_messages)
   end
 
   defp parent(_ctx, %Channel{parent_channel_id: nil}), do: nil

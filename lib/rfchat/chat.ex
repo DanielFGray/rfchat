@@ -8,6 +8,7 @@ defmodule Rfchat.Chat do
   alias Rfchat.Accounts
   alias Rfchat.Accounts.Scope
   alias Rfchat.Chat.Channel
+  alias Rfchat.Chat.ChannelOverwrites
   alias Rfchat.Chat.Channels
   alias Rfchat.Chat.Emojis
   alias Rfchat.Chat.MediaAssets
@@ -68,6 +69,10 @@ defmodule Rfchat.Chat do
   defdelegate move_role(scope, role_id, direction), to: Roles
   defdelegate add_member_role(scope, user_id, role_id), to: Roles
   defdelegate remove_member_role(scope, user_id, role_id), to: Roles
+  defdelegate list_overwrites(scope, channel_id), to: ChannelOverwrites
+  defdelegate overwrite_controls(scope, channel_id), to: ChannelOverwrites
+  defdelegate put_overwrite(scope, channel_id, target, allow, deny), to: ChannelOverwrites
+  defdelegate delete_overwrite(scope, channel_id, target), to: ChannelOverwrites
 
   defdelegate list_channel_tree(scope), to: Channels
 
@@ -231,6 +236,10 @@ defmodule Rfchat.Chat do
   defdelegate get_thread(scope, thread_id), to: Threads
 
   defdelegate create_public_thread(scope, starter_message_id, attrs \\ %{}), to: Threads
+  defdelegate archive_thread(scope, thread_id), to: Threads
+  defdelegate unarchive_thread(scope, thread_id), to: Threads
+  defdelegate lock_thread(scope, thread_id), to: Threads
+  defdelegate unlock_thread(scope, thread_id), to: Threads
 
   def create_user(attrs) do
     %User{}
@@ -258,6 +267,7 @@ defmodule Rfchat.Chat do
          {:ok, attrs} <- normalize_message_attrs(attrs) do
       Repo.transact(fn ->
         with :ok <- Visibility.authorize_write(scope, :send_messages, %Channel{id: channel_id}),
+             {:ok, reopened} <- enforce_channel_state(scope, channel_id),
              :ok <- validate_reply_target(channel_id, attrs),
              :ok <- authorize_message_mentions(scope, channel_id, attrs),
              {:ok, message} <-
@@ -265,12 +275,70 @@ defmodule Rfchat.Chat do
                |> Message.create_changeset(attrs)
                |> Repo.insert(),
              :ok <- sync_message_mentions(message) do
-          {:ok, reload_message(message.id)}
+          {:ok, {reload_message(message.id), reopened}}
         end
       end)
+      |> case do
+        {:ok, {message, reopened}} ->
+          if reopened, do: Topics.broadcast_guild({:channel_updated, reopened})
+          {:ok, message}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
       |> broadcast_written(:message_created)
     end
   end
+
+  # Applies the two send rules that depend on the channel row: slowmode, and reopening an archived
+  # thread. The row is read first without a lock, so a channel with neither costs no lock. A
+  # channel with slowmode or an archived thread is locked `FOR UPDATE`, after the membership lock,
+  # so two sends by one author queue behind each other and the second sees the first's message.
+  # Returns `{:ok, reopened_thread_or_nil}`.
+  defp enforce_channel_state(scope, channel_id) do
+    case Repo.get(Channel, channel_id) do
+      %Channel{slowmode_seconds: seconds, archived_at: archived_at}
+      when seconds > 0 or not is_nil(archived_at) ->
+        with %Channel{} = channel <- Channels.lock_channel(channel_id),
+             :ok <- enforce_slowmode(scope, channel) do
+          reopen_archived(channel)
+        else
+          nil -> {:error, :not_found}
+          error -> error
+        end
+
+      _ ->
+        {:ok, nil}
+    end
+  end
+
+  defp enforce_slowmode(_scope, %Channel{slowmode_seconds: 0}), do: :ok
+
+  defp enforce_slowmode(scope, %Channel{slowmode_seconds: seconds} = channel) do
+    last_sent_at =
+      Repo.one(
+        from(message in Message,
+          where: message.channel_id == ^channel.id and message.author_id == ^scope.user_id,
+          select: max(message.inserted_at)
+        )
+      )
+
+    left =
+      if last_sent_at,
+        do: seconds - DateTime.diff(DateTime.utc_now(), last_sent_at, :millisecond) / 1000,
+        else: 0
+
+    cond do
+      left <= 0 -> :ok
+      Visibility.can?(scope, :bypass_slowmode, channel) -> :ok
+      true -> {:error, {:slowmode, ceil(left)}}
+    end
+  end
+
+  defp reopen_archived(%Channel{archived_at: nil}), do: {:ok, nil}
+
+  defp reopen_archived(%Channel{} = channel),
+    do: channel |> Ecto.Changeset.change(archived_at: nil) |> Repo.update()
 
   @doc """
   The moderation cases against `subject_user_id`, newest first. A scope without `view_audit_log`
@@ -506,6 +574,17 @@ defmodule Rfchat.Chat do
 
   def can_send_messages_in_threads?(channel, user),
     do: Visibility.can?(user_scope(user), :send_messages_in_threads, channel)
+
+  # The thread control the viewer would use now: archive when open, unarchive when archived.
+  def can_archive_thread?(thread, user) do
+    action = if thread.archived_at, do: :unarchive_thread, else: :archive_thread
+    Visibility.can?(user_scope(user), action, thread)
+  end
+
+  def can_lock_thread?(thread, user) do
+    action = if thread.locked_at, do: :unlock_thread, else: :lock_thread
+    Visibility.can?(user_scope(user), action, thread)
+  end
 
   def can_add_reactions?(channel, user),
     do: Visibility.can?(user_scope(user), :add_reactions, channel)

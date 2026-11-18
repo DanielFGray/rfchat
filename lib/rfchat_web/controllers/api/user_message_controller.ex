@@ -37,6 +37,9 @@ defmodule RfchatWeb.API.UserMessageController do
           changeset
         )
 
+      {:error, {:slowmode, seconds_left}} ->
+        ErrorHelpers.render_slowmode(conn, seconds_left)
+
       {:error, reason} ->
         ErrorHelpers.render_error(
           conn,

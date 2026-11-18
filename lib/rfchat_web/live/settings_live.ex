@@ -11,11 +11,13 @@ defmodule RfchatWeb.SettingsLive do
   alias RfchatWeb.Live.SharedHelpers
   alias RfchatWeb.Plugs.ClientIp
   alias Rfchat.Chat.Topics
+  alias RfchatWeb.SettingsLive.ChannelPermissions
   alias RfchatWeb.SettingsLive.Roles
   alias RfchatWeb.SettingsLive.State
 
   @tabs ["profile", "notifications", "channel_notifications", "theme", "server", "roles"]
   @role_events Roles.events()
+  @channel_permission_events ChannelPermissions.events()
 
   @impl true
   def mount(_params, _session, socket) do
@@ -34,6 +36,7 @@ defmodule RfchatWeb.SettingsLive do
       )
       |> State.init()
       |> Roles.init()
+      |> ChannelPermissions.init()
 
     if connected?(socket), do: Topics.subscribe_guild()
 
@@ -60,6 +63,10 @@ defmodule RfchatWeb.SettingsLive do
 
   def handle_event(event, params, socket) when event in @role_events do
     Roles.handle_event(event, params, socket)
+  end
+
+  def handle_event(event, params, socket) when event in @channel_permission_events do
+    ChannelPermissions.handle_event(event, params, socket)
   end
 
   @impl true
@@ -379,6 +386,8 @@ defmodule RfchatWeb.SettingsLive do
            socket
            |> assign(:manage_channels_open?, true)
            |> assign(:editing_channel_id, channel.id)
+           |> assign(:open_overwrite_key, nil)
+           |> ChannelPermissions.refresh()
            |> SharedHelpers.assign_channel_form_mode(SharedHelpers.edit_mode_for(channel))
            |> SharedHelpers.assign_channel_form(channel)}
       end
@@ -392,6 +401,7 @@ defmodule RfchatWeb.SettingsLive do
     {:noreply,
      socket
      |> assign(:editing_channel_id, nil)
+     |> ChannelPermissions.refresh()
      |> SharedHelpers.assign_channel_form_mode(:create_text)
      |> SharedHelpers.assign_channel_form()}
   end
@@ -414,6 +424,7 @@ defmodule RfchatWeb.SettingsLive do
            socket
            |> State.refresh_channels()
            |> assign(:editing_channel_id, nil)
+           |> ChannelPermissions.refresh()
            |> SharedHelpers.assign_channel_form_mode(:create_text)
            |> SharedHelpers.assign_channel_form()
            |> put_flash(:info, "Channel deleted.")}
@@ -606,12 +617,16 @@ defmodule RfchatWeb.SettingsLive do
         do: socket,
         else: push_patch(socket, to: ~p"/settings?tab=profile")
 
-    {:noreply, socket |> State.refresh_channels() |> State.refresh_member_presence()}
+    {:noreply,
+     socket
+     |> State.refresh_channels()
+     |> State.refresh_member_presence()
+     |> ChannelPermissions.refresh()}
   end
 
   def handle_info({event, _channel}, socket)
       when event in [:channel_created, :channel_updated, :channel_deleted],
-      do: {:noreply, State.refresh_channels(socket)}
+      do: {:noreply, socket |> State.refresh_channels() |> ChannelPermissions.refresh()}
 
   def handle_info(:channels_reordered, socket), do: {:noreply, State.refresh_channels(socket)}
 

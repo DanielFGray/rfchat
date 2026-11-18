@@ -474,15 +474,39 @@ defmodule RfchatWeb.GuildLive.State do
       Chat.list_typing_users(socket.assigns.current_scope, thread.id)
     )
     |> assign(:thread_reply_to_message, nil)
-    |> assign(
-      :can_send_thread_messages?,
-      Chat.can_send_messages_in_threads?(thread, socket.assigns.current_user)
-    )
+    |> assign_thread_controls(thread)
     |> assign(:thread_message_count, Chat.message_count(socket.assigns.current_scope, thread.id))
     |> assign(:thread_messages_empty?, thread_messages == [])
     |> assign_thread_message_form()
     |> stream(:thread_messages, thread_messages, reset: true)
     |> rerender_messages([previous_starter_message_id, thread.starter_message_id])
+  end
+
+  @doc """
+  Sets the open thread to `thread` and decides again what the viewer may do in it: reply, archive
+  or unarchive, lock or unlock. A lock or archive by anyone changes all three.
+  """
+  def assign_thread_controls(socket, thread) do
+    user = socket.assigns.current_user
+
+    socket
+    |> assign(:active_thread, thread)
+    |> assign(:can_send_thread_messages?, Chat.can_send_messages_in_threads?(thread, user))
+    |> assign(:can_archive_thread?, Chat.can_archive_thread?(thread, user))
+    |> assign(:can_lock_thread?, Chat.can_lock_thread?(thread, user))
+  end
+
+  @doc "Reloads the open thread when `channel_id` is it, so its header and controls follow."
+  def refresh_active_thread(socket, channel_id) do
+    with %{id: ^channel_id} <- socket.assigns.active_thread,
+         %{} = thread <- Chat.get_thread(socket.assigns.current_scope, channel_id) do
+      socket
+      |> assign_thread_controls(thread)
+      |> refresh_thread_summaries_for_active_channel()
+      |> rerender_active_thread_panel()
+    else
+      _ -> socket
+    end
   end
 
   def close_thread(socket) do
@@ -502,6 +526,8 @@ defmodule RfchatWeb.GuildLive.State do
     |> assign(:thread_typing_users, [])
     |> assign(:thread_reply_to_message, nil)
     |> assign(:can_send_thread_messages?, false)
+    |> assign(:can_archive_thread?, false)
+    |> assign(:can_lock_thread?, false)
     |> assign(:thread_message_count, 0)
     |> assign(:thread_messages_empty?, true)
     |> assign_thread_message_form()

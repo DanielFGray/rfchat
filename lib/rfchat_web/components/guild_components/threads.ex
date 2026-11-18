@@ -37,6 +37,38 @@ defmodule RfchatWeb.GuildComponents.Threads do
         </div>
 
         <div class="flex items-center gap-2">
+          <span
+            :if={@thread.locked_at}
+            id={"thread-locked-badge-#{@message.id}"}
+            class="rounded-full bg-warning/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-warning-content"
+          >
+            Locked
+          </span>
+          <span
+            :if={@thread.archived_at}
+            id={"thread-archived-badge-#{@message.id}"}
+            class="rounded-full bg-base-300 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.14em] text-base-content/60"
+          >
+            Archived
+          </span>
+          <button
+            :if={@guild.can_archive_thread?}
+            type="button"
+            phx-click={if @thread.archived_at, do: "unarchive_thread", else: "archive_thread"}
+            id={"toggle-archive-thread-#{@message.id}"}
+            class="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-base-content/75 transition hover:bg-base-100 hover:text-base-content"
+          >
+            {if @thread.archived_at, do: "Unarchive", else: "Archive"}
+          </button>
+          <button
+            :if={@guild.can_lock_thread?}
+            type="button"
+            phx-click={if @thread.locked_at, do: "unlock_thread", else: "lock_thread"}
+            id={"toggle-lock-thread-#{@message.id}"}
+            class="rounded-md px-2.5 py-1.5 text-[11px] font-semibold text-base-content/75 transition hover:bg-base-100 hover:text-base-content"
+          >
+            {if @thread.locked_at, do: "Unlock", else: "Lock"}
+          </button>
           <.link
             patch={thread_path(@guild.active_channel, @thread)}
             id={"thread-view-focus-#{@message.id}"}
@@ -95,7 +127,9 @@ defmodule RfchatWeb.GuildComponents.Threads do
           <RfchatWeb.GuildComponents.Composer.thread_composer guild={@guild} />
         <% else %>
           <div class="rounded-xl border border-warning/30 bg-warning/15 px-4 py-3 text-sm text-warning-content">
-            You can view this thread, but you do not have permission to reply in it.
+            {if @thread.locked_at,
+              do: "This thread is locked.",
+              else: "You can view this thread, but you do not have permission to reply in it."}
           </div>
         <% end %>
       </div>

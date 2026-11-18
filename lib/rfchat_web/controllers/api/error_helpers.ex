@@ -21,6 +21,20 @@ defmodule RfchatWeb.API.ErrorHelpers do
     )
   end
 
+  @doc "429 for a send refused by slowmode, with the wait in `retry_after` seconds."
+  def render_slowmode(conn, seconds_left) do
+    conn
+    |> put_resp_header("retry-after", Integer.to_string(seconds_left))
+    |> put_status(:too_many_requests)
+    |> json(%{
+      error: %{
+        code: "slowmode",
+        message: "Slowmode is on. Wait #{seconds_left}s before sending again.",
+        retry_after: seconds_left
+      }
+    })
+  end
+
   def render_changeset_error(conn, status, code, changeset, message \\ "Validation failed.") do
     conn
     |> put_status(status)

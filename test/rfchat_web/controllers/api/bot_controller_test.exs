@@ -76,6 +76,47 @@ defmodule RfchatWeb.API.BotControllerTest do
     assert %{"data" => [%{"body" => "hello from api bot"} | _]} = json_response(list_conn, 200)
   end
 
+  test "bot API refuses a send into a locked thread and one inside slowmode", _context do
+    actor = owner_fixture(%{email: "bot-state-actor@example.com", username: "bot_state_actor"})
+
+    role =
+      role_fixture(%{
+        permissions:
+          PermissionBits.combine([
+            :view_channel,
+            :send_messages,
+            :send_messages_in_threads,
+            :create_public_threads
+          ])
+      })
+
+    channel = channel_fixture(%{name: "Bot State Channel", slug: unique_slug()})
+    starter = message_fixture(channel, actor, %{body: "bot state starter"})
+    thread = thread_fixture(channel, starter, actor)
+    bot_user = bot_fixture(actor, %{"role_ids" => [role.id]})
+    {:ok, %{token: bot_token}} = Bots.create_bot_token(bot_user, %{"label" => "api"}, actor)
+
+    post = fn id, body ->
+      Phoenix.ConnTest.build_conn()
+      |> put_req_header("authorization", "Bearer #{bot_token}")
+      |> post(~p"/api/v1/channels/#{id}/messages", %{message: %{body: body}})
+    end
+
+    {:ok, _} = Chat.lock_thread(scope_for(actor), thread.id)
+    assert %{"error" => %{"code" => "forbidden"}} = json_response(post.(thread.id, "hi"), 403)
+
+    channel |> Ecto.Changeset.change(slowmode_seconds: 60) |> Repo.update!()
+    assert %{"data" => _} = json_response(post.(channel.id, "one"), 201)
+
+    conn = post.(channel.id, "two")
+
+    assert %{"error" => %{"code" => "slowmode", "retry_after" => seconds}} =
+             json_response(conn, 429)
+
+    assert seconds in 1..60
+    assert get_resp_header(conn, "retry-after") == [Integer.to_string(seconds)]
+  end
+
   test "bot API returns validation errors for invalid metadata", _context do
     actor =
       owner_fixture(%{

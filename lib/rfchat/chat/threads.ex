@@ -16,8 +16,7 @@ defmodule Rfchat.Chat.Threads do
     Channel
     |> where(
       [channel],
-      channel.parent_channel_id in ^channel_ids and channel.kind == :thread_public and
-        is_nil(channel.archived_at)
+      channel.parent_channel_id in ^channel_ids and channel.kind == :thread_public
     )
     |> order_by([channel], asc: channel.inserted_at, asc: channel.id)
     |> preload([:parent_channel, starter_message: :author])
@@ -128,6 +127,49 @@ defmodule Rfchat.Chat.Threads do
     end
   end
 
+  @doc """
+  Archives a thread. Its creator or a member with `manage_messages` in its parent channel may; a
+  locked thread takes it from the latter only. Refusals: `{:error, :not_found}` for a thread the
+  scope cannot view, `{:error, :forbidden}` otherwise.
+  """
+  def archive_thread(%Scope{} = scope, thread_id),
+    do: set_thread_state(scope, thread_id, :archive_thread, archived_at: DateTime.utc_now())
+
+  @doc "Unarchives a thread, by the same rule as `archive_thread/2`."
+  def unarchive_thread(%Scope{} = scope, thread_id),
+    do: set_thread_state(scope, thread_id, :unarchive_thread, archived_at: nil)
+
+  @doc "Locks a thread. Only a member with `manage_messages` in its parent channel may."
+  def lock_thread(%Scope{} = scope, thread_id),
+    do: set_thread_state(scope, thread_id, :lock_thread, locked_at: DateTime.utc_now())
+
+  @doc "Unlocks a thread, by the same rule as `lock_thread/2`."
+  def unlock_thread(%Scope{} = scope, thread_id),
+    do: set_thread_state(scope, thread_id, :unlock_thread, locked_at: nil)
+
+  defp set_thread_state(scope, thread_id, action, changes) do
+    with {:ok, thread_id} <- Ecto.UUID.cast(thread_id) do
+      result =
+        Repo.transact(fn ->
+          with :ok <- Visibility.authorize_write(scope, action, %Channel{id: thread_id}),
+               %Channel{} = thread <- Channels.lock_channel(thread_id),
+               {:ok, thread} <- thread |> Ecto.Changeset.change(changes) |> Repo.update() do
+            {:ok, Repo.preload(thread, [:parent_channel, starter_message: :author])}
+          else
+            nil -> {:error, :not_found}
+            error -> error
+          end
+        end)
+
+      with {:ok, thread} <- result do
+        Topics.broadcast_guild({:channel_updated, thread})
+        {:ok, thread}
+      end
+    else
+      :error -> {:error, :not_found}
+    end
+  end
+
   defp invalid_thread_changeset(parent_channel, starter_message, message) do
     starter_message
     |> new_thread(parent_channel, starter_message.author_id)
@@ -209,9 +251,7 @@ defmodule Rfchat.Chat.Threads do
   defp thread_for_starter(starter_id) do
     Repo.one(
       from(channel in Channel,
-        where:
-          channel.starter_message_id == ^starter_id and channel.kind == :thread_public and
-            is_nil(channel.archived_at)
+        where: channel.starter_message_id == ^starter_id and channel.kind == :thread_public
       )
     )
   end

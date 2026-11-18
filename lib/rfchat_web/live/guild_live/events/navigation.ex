@@ -87,8 +87,8 @@ defmodule RfchatWeb.GuildLive.Events.Navigation do
     end
   end
 
-  def handle_info({:channel_updated, _channel}, socket) do
-    {:noreply, State.refresh_channels(socket)}
+  def handle_info({:channel_updated, channel}, socket) do
+    {:noreply, socket |> State.refresh_channels() |> State.refresh_active_thread(channel.id)}
   end
 
   def handle_info({:channel_deleted, channel}, socket) do

@@ -7,6 +7,7 @@ defmodule Rfchat.Chat.RoleLockTest do
 
   import Rfchat.ChatFixtures,
     only: [
+      channel_fixture: 0,
       member_role_fixture: 2,
       owner_fixture: 0,
       role_fixture: 1,
@@ -52,6 +53,39 @@ defmodule Rfchat.Chat.RoleLockTest do
     commit(holder)
 
     assert {:error, :forbidden} = Task.await(timeout, 10_000)
+  end
+
+  test "an overwrite write waits for a role move and decides from the order it left" do
+    Bootstrap.ensure_seed_data!()
+    owner = owner_fixture()
+    channel = channel_fixture()
+
+    manager_role =
+      role_fixture(%{position: 20, permissions: PermissionBits.combine([:manage_roles])})
+
+    target_role = role_fixture(%{position: 10})
+    manager = user_fixture()
+    member_role_fixture(manager, manager_role)
+
+    holder = hold_open(fn -> Chat.move_role(scope_for(owner), target_role.id, :up) end)
+
+    write =
+      Task.async(fn ->
+        on_own_connection(fn ->
+          Chat.put_overwrite(
+            scope_for(manager),
+            channel.id,
+            {:role, target_role.id},
+            PermissionBits.combine([:send_messages]),
+            0
+          )
+        end)
+      end)
+
+    await_waiters(1)
+    commit(holder)
+
+    assert {:error, :forbidden} = Task.await(write, 10_000)
   end
 
   test "a bot grant waits for a role move and decides from the order it left" do
